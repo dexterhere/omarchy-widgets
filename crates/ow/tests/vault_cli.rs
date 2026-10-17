@@ -16,7 +16,8 @@ fn ow(dir: &std::path::Path, args: &[&str], stdin: &str) -> Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    c.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    // The process may exit before reading (expected failures): a broken pipe is fine.
+    let _ = c.stdin.take().unwrap().write_all(stdin.as_bytes());
     c.wait_with_output().unwrap()
 }
 
@@ -149,4 +150,152 @@ fn vault_file_and_dir_are_private() {
             & 0o777,
         0o700
     );
+}
+
+#[test]
+fn truncated_empty_and_crlf_input() {
+    let d = tempfile::tempdir().unwrap();
+    // CRLF line endings are accepted (one trailing CR stripped).
+    assert!(
+        ow(d.path(), &["vault", "init"], &format!("{PASS}\r\n"))
+            .status
+            .success()
+    );
+    // EOF mid-line: no trailing newline must not become a secret.
+    let o = ow(
+        d.path(),
+        &["vault", "set", "a"],
+        &format!("{PASS}\nhalf-written"),
+    );
+    assert!(
+        !o.status.success() && text(&o).contains("unexpected end of input"),
+        "{}",
+        text(&o)
+    );
+    // Passphrase line only, value missing.
+    assert!(
+        !ow(d.path(), &["vault", "set", "a"], &format!("{PASS}\n"))
+            .status
+            .success()
+    );
+    // Empty value.
+    let o = ow(d.path(), &["vault", "set", "a"], &format!("{PASS}\n\n"));
+    assert!(
+        !o.status.success() && text(&o).contains("empty"),
+        "{}",
+        text(&o)
+    );
+    assert!(!text(&ow(d.path(), &["vault", "list"], &format!("{PASS}\n"))).contains('a'));
+}
+
+#[test]
+fn status_does_not_hide_permission_errors() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = tempfile::tempdir().unwrap();
+    assert!(
+        ow(d.path(), &["vault", "init"], &format!("{PASS}\n"))
+            .status
+            .success()
+    );
+    let dir = d.path().join("data/owd");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let o = ow(d.path(), &["vault", "status"], "");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(!text(&o).contains("not initialised"), "{}", text(&o));
+    assert!(!o.status.success());
+}
+
+#[test]
+fn wipe_absent_vault_and_stray_temp_files() {
+    let d = tempfile::tempdir().unwrap();
+    let w = ow(d.path(), &["vault", "wipe", "--yes"], "");
+    assert!(!w.status.success());
+    assert!(
+        !d.path().join("data/owd/vault.owv.lock").exists(),
+        "wipe must not create a lock"
+    );
+    assert!(
+        ow(d.path(), &["vault", "init"], &format!("{PASS}\n"))
+            .status
+            .success()
+    );
+    let dir = d.path().join("data/owd");
+    std::fs::write(dir.join("vault.owv.0123456789abcdef.tmp"), b"stray").unwrap();
+    std::fs::write(dir.join("vault.owv.notmine.tmp"), b"keep").unwrap();
+    assert!(
+        ow(d.path(), &["vault", "wipe", "--yes"], "")
+            .status
+            .success()
+    );
+    assert!(!dir.join("vault.owv").exists());
+    assert!(!dir.join("vault.owv.0123456789abcdef.tmp").exists());
+    assert!(
+        dir.join("vault.owv.notmine.tmp").exists(),
+        "must not delete unrelated files"
+    );
+}
+
+#[test]
+fn relative_config_dir_and_loose_data_dir_are_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let o = Command::new(env!("CARGO_BIN_EXE_ow"))
+        .args(["--config-dir", "relative/dir", "vault", "status"])
+        .output()
+        .unwrap();
+    assert!(
+        !o.status.success() && text(&o).contains("absolute"),
+        "{}",
+        text(&o)
+    );
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("data/owd");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let o = ow(d.path(), &["vault", "init"], &format!("{PASS}\n"));
+    assert!(
+        !o.status.success() && text(&o).contains("0700"),
+        "{}",
+        text(&o)
+    );
+    assert!(!dir.join("vault.owv").exists());
+}
+
+#[test]
+fn cli_process_is_hardened_while_holding_secrets() {
+    use std::os::unix::fs::MetadataExt;
+    let d = tempfile::tempdir().unwrap();
+    assert!(
+        ow(d.path(), &["vault", "init"], &format!("{PASS}\n"))
+            .status
+            .success()
+    );
+    // `list` blocks reading the passphrase from the open stdin pipe.
+    let mut c = Command::new(env!("CARGO_BIN_EXE_ow"))
+        .arg("--config-dir")
+        .arg(d.path())
+        .args(["vault", "list"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = c.id();
+    let mut ok = false;
+    for _ in 0..200 {
+        // Root-owned environ means PR_SET_DUMPABLE is 0 (hardening has run).
+        if std::fs::metadata(format!("/proc/{pid}/environ")).is_ok_and(|m| m.uid() == 0) {
+            ok = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    let limits = std::fs::read_to_string(format!("/proc/{pid}/limits")).unwrap_or_default();
+    c.kill().unwrap();
+    c.wait().unwrap();
+    assert!(ok, "ow stayed dumpable");
+    let core = limits
+        .lines()
+        .find(|l| l.starts_with("Max core file size"))
+        .unwrap();
+    assert_eq!(core.split_whitespace().rev().nth(1), Some("0"), "{core}");
 }

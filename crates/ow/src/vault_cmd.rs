@@ -10,15 +10,10 @@ fn err(e: VaultError) -> String {
 }
 
 fn ensure_dir(p: &Path) -> Result<(), String> {
-    use std::os::unix::fs::DirBuilderExt;
-    if let Some(dir) = p.parent() {
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)
-            .map_err(|e| e.to_string())?;
+    match p.parent() {
+        Some(dir) => ow_core::private_dir(dir).map_err(|e| e.to_string()),
+        None => Ok(()),
     }
-    Ok(())
 }
 
 fn utf8(b: &[u8]) -> Result<&str, String> {
@@ -26,8 +21,6 @@ fn utf8(b: &[u8]) -> Result<&str, String> {
 }
 
 pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Result<(), String> {
-    // Everything we create is private, regardless of the caller's umask.
-    rustix::process::umask(rustix::fs::Mode::from_raw_mode(0o077));
     let path = paths.vault();
     let w = |e: std::io::Error| e.to_string();
     match args
@@ -53,7 +46,7 @@ pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Resu
                 i.mode, i.profile
             )
             .map_err(w),
-            Err(VaultError::Io) => writeln!(out, "vault: not initialised").map_err(w),
+            Err(VaultError::NotFound) => writeln!(out, "vault: not initialised").map_err(w),
             Err(e) => Err(err(e)),
         },
         ["list"] => {
@@ -87,7 +80,7 @@ pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Resu
         }
         ["wipe", "--yes"] => {
             ow_vault::wipe(&path).map_err(err)?;
-            writeln!(out, "vault file removed. Backups and snapshots are NOT erased and stay decryptable with the passphrase.")
+            writeln!(out, "vault file removed. Copies you made elsewhere (backups, snapshots, dotfile repos) are NOT erased and stay decryptable with the passphrase.")
                 .map_err(w)
         }
         _ => Err(

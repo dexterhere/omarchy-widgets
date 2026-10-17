@@ -71,7 +71,13 @@ fn lock(path: &Path) -> Result<File, VaultError> {
 
 /// Read with O_NOFOLLOW, check the open descriptor (regular, ours, no group/other access).
 fn read_private(path: &Path) -> Result<Vec<u8>, VaultError> {
-    let f = open_nofollow(path, OpenOptions::new().read(true)).map_err(io)?;
+    let f = open_nofollow(path, OpenOptions::new().read(true)).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            VaultError::NotFound
+        } else {
+            VaultError::Io
+        }
+    })?;
     if !is_private_regular(&f.metadata().map_err(io)?) {
         return Err(VaultError::Insecure);
     }
@@ -214,6 +220,9 @@ impl Vault {
         if !valid_name(name) {
             return Err(VaultError::InvalidName);
         }
+        if value.is_empty() {
+            return Err(VaultError::EmptyValue);
+        }
         if value.len() > MAX_VALUE {
             return Err(VaultError::TooLarge);
         }
@@ -325,12 +334,36 @@ pub fn inspect(path: &Path) -> Result<Info, VaultError> {
     }
 }
 
-/// Remove the vault file and its lock file. Backups and snapshots are NOT touched and stay
-/// decryptable with the passphrase.
+/// Remove the vault file and any leftover temp copies of it (`<name>.<16 hex>.tmp`, left by
+/// a crash mid-write). The lock file is kept: unlinking a lock someone may be waiting on
+/// would let two writers hold different inodes. Copies made elsewhere (backups, snapshots,
+/// dotfile repos) are not touched and stay decryptable with the passphrase.
 pub fn wipe(path: &Path) -> Result<(), VaultError> {
+    if std::fs::symlink_metadata(path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
+        return Err(VaultError::NotFound);
+    }
     let _lock = lock(path)?;
     std::fs::remove_file(path).map_err(io)?;
-    let _ = std::fs::remove_file(sidecar(path, ".lock"));
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name().and_then(|n| n.to_str())) else {
+        return Ok(());
+    };
+    let dir = if dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        dir
+    };
+    for e in std::fs::read_dir(dir).map_err(io)?.flatten() {
+        let f = e.file_name();
+        let f = f.to_string_lossy();
+        let is_tmp = f
+            .strip_prefix(name)
+            .and_then(|r| r.strip_prefix('.'))
+            .and_then(|r| r.strip_suffix(".tmp"))
+            .is_some_and(|h| h.len() == 16 && h.bytes().all(|b| b.is_ascii_hexdigit()));
+        if is_tmp {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
     Ok(())
 }
 

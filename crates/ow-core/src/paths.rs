@@ -21,6 +21,16 @@ impl Paths {
         }
     }
 
+    /// `--config-dir` value: must be absolute so the secret location never depends on the cwd.
+    pub fn from_config_dir(dir: &str) -> Result<Self, String> {
+        let p = Path::new(dir);
+        if p.is_absolute() {
+            Ok(Self::under(p))
+        } else {
+            Err("--config-dir must be an absolute path".into())
+        }
+    }
+
     /// From the environment. Relative values are ignored per the XDG spec.
     /// `XDG_RUNTIME_DIR` is required: there is no insecure fallback such as /tmp.
     pub fn from_env() -> Result<Self, String> {

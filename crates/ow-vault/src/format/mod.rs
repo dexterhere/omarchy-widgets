@@ -45,6 +45,10 @@ pub enum VaultError {
     Insecure,
     #[error("vault io error")]
     Io,
+    #[error("no vault at that path")]
+    NotFound,
+    #[error("secret value must not be empty")]
+    EmptyValue,
     #[error("entropy source failed")]
     Entropy,
 }

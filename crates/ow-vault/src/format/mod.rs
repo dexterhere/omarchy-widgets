@@ -293,5 +293,13 @@ pub(crate) fn decode(
     Ok((header, data_key, records))
 }
 
+pub(crate) fn fuzz_records(bytes: &[u8]) -> bool {
+    decode_records(bytes).is_ok()
+}
+
+pub(crate) fn fuzz_decode(bytes: &[u8]) -> bool {
+    decode(bytes, |_| Ok(Zeroizing::new([0u8; 32]))).is_ok()
+}
+
 #[cfg(test)]
 mod tests;

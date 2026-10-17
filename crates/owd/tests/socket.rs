@@ -619,3 +619,156 @@ fn undeclared_params_are_rejected_and_cannot_mint_cache_keys() {
         "rejected params must not reach the provider"
     );
 }
+
+// ---- review round: slow providers, ordering, revocation during fetch ----
+
+struct Slow(Duration);
+
+static SLOW_TOPICS: [TopicSpec; 1] = [TopicSpec::new(
+    "slow.t",
+    Sensitivity::Low,
+    Duration::from_millis(50),
+    &["v"],
+)];
+
+impl Provider for Slow {
+    fn id(&self) -> &'static str {
+        "slow"
+    }
+
+    fn topics(&self) -> &'static [TopicSpec] {
+        &SLOW_TOPICS
+    }
+
+    fn fetch(
+        &self,
+        _t: &str,
+        _p: &Map<String, Value>,
+    ) -> Result<Map<String, Value>, ProviderError> {
+        std::thread::sleep(self.0);
+        Ok(json!({"v": 1}).as_object().cloned().unwrap())
+    }
+}
+
+const BOTH: &str = "[[grant]]\nwidget=\"w1\"\ntopics=[\"github.prs\",\"slow.t\"]\nfields=[\"open\",\"seq\",\"v\"]\n";
+
+#[test]
+fn a_blocked_provider_does_not_starve_other_topics() {
+    let fake = Arc::new(Fake::default());
+    let h = Harness::start_with(
+        Some(BOTH),
+        vec![
+            Arc::new(Slow(Duration::from_secs(3))),
+            Arc::clone(&fake) as Arc<dyn Provider>,
+        ],
+    );
+    let mut s = h.connect();
+    let slow = "{\"v\":0,\"id\":1,\"op\":\"subscribe\",\"widget\":\"w1\",\"topic\":\"slow.t\"}\n";
+    s.write_all(slow.as_bytes()).unwrap();
+    s.write_all(sub_line(2, "w1").as_bytes()).unwrap();
+    let mut r = BufReader::new(s);
+    let start = std::time::Instant::now();
+    let mut github_pushes = 0;
+    while github_pushes < 3 {
+        let m = read_json(&mut r);
+        if m["topic"] == "github.prs" {
+            github_pushes += 1;
+        }
+    }
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "github.prs waited on the slow provider"
+    );
+}
+
+#[test]
+fn shutdown_is_not_blocked_by_a_stuck_provider() {
+    let fake = Arc::new(Fake::default());
+    let h = Harness::start_with(
+        Some(BOTH),
+        vec![Arc::new(Slow(Duration::from_secs(30))), fake],
+    );
+    let mut s = h.connect();
+    let slow = "{\"v\":0,\"id\":1,\"op\":\"subscribe\",\"widget\":\"w1\",\"topic\":\"slow.t\"}\n";
+    s.write_all(slow.as_bytes()).unwrap();
+    let mut r = BufReader::new(s);
+    read_json(&mut r);
+    std::thread::sleep(Duration::from_millis(200)); // fetch is now stuck
+    let t = std::time::Instant::now();
+    drop(h); // sets stop and joins the server thread
+    assert!(
+        t.elapsed() < Duration::from_secs(3),
+        "shutdown waited on the provider"
+    );
+}
+
+#[test]
+fn subscribe_reply_always_precedes_pushes() {
+    let fake = Arc::new(Fake::default());
+    let h = harness_with(&fake, SUB_GRANTS);
+    for i in 0..8 {
+        // stays within the rate-limit burst of 10
+        let mut s = h.connect();
+        s.write_all(sub_line(i + 1, "w1").as_bytes()).unwrap();
+        let mut r = BufReader::new(s);
+        let first = read_json(&mut r);
+        assert!(
+            first.get("id").is_some() && first.get("sub").is_some() && first.get("topic").is_none(),
+            "push before ack: {first}"
+        );
+    }
+}
+
+#[test]
+fn revocation_during_a_slow_snapshot_is_honoured() {
+    let h = Harness::start_with(Some(BOTH), vec![Arc::new(Slow(Duration::from_millis(600)))]);
+    let mut s = h.connect();
+    let snap = "{\"v\":0,\"id\":1,\"op\":\"snapshot\",\"widget\":\"w1\",\"topic\":\"slow.t\"}\n";
+    s.write_all(snap.as_bytes()).unwrap();
+    std::thread::sleep(Duration::from_millis(150)); // request is inside the provider now
+    std::fs::write(h.paths.grants(), "").unwrap();
+    h.reload.store(true, Ordering::Relaxed);
+    let mut r = BufReader::new(s);
+    let m = read_json(&mut r);
+    assert_eq!(
+        m["error"]["code"], "denied",
+        "data released after revocation: {m}"
+    );
+}
+
+#[test]
+fn oversized_provider_output_is_rejected() {
+    struct Big;
+    static BIG: [TopicSpec; 1] = [TopicSpec::new(
+        "big.t",
+        Sensitivity::Low,
+        Duration::from_millis(50),
+        &["blob"],
+    )];
+    impl Provider for Big {
+        fn id(&self) -> &'static str {
+            "big"
+        }
+        fn topics(&self) -> &'static [TopicSpec] {
+            &BIG
+        }
+        fn fetch(
+            &self,
+            _t: &str,
+            _p: &Map<String, Value>,
+        ) -> Result<Map<String, Value>, ProviderError> {
+            Ok(json!({"blob": "x".repeat(200_000)})
+                .as_object()
+                .cloned()
+                .unwrap())
+        }
+    }
+    let g = "[[grant]]\nwidget=\"w1\"\ntopics=[\"big.t\"]\n";
+    let h = Harness::start_with(Some(g), vec![Arc::new(Big)]);
+    let r = h.ask("{\"v\":0,\"id\":1,\"op\":\"snapshot\",\"widget\":\"w1\",\"topic\":\"big.t\"}\n");
+    assert!(
+        r.contains("provider_error") && r.len() < 500,
+        "{}",
+        &r[..r.len().min(200)]
+    );
+}

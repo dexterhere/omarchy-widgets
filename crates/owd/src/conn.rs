@@ -1,6 +1,6 @@
 use crate::hub::{self, Hub};
 use ow_core::ProviderError;
-use ow_core::{AuditLog, Grants, RateLimiter};
+use ow_core::{AuditLog, Grant, Grants, RateLimiter};
 use ow_proto::{ErrorCode, FrameError, LineDecoder, MAX_LINE, Op, Reply, Request};
 use serde_json::{Map, Value, json};
 use std::io::{Read, Write};
@@ -72,6 +72,16 @@ fn code_for(e: ProviderError) -> ErrorCode {
 /// Grant check, rate limit, audit. Order matters: only granted pairs reach the limiter,
 /// so its memory is bounded by the grants file, not by what clients invent.
 /// Returns the reply to send, plus the new subscription id when one was created.
+/// The grant covering this widget and topic right now (reloads take effect immediately).
+fn grant_for(shared: &Shared, widget: &str, topic: &str) -> Option<Grant> {
+    shared
+        .grants
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .find(widget, topic)
+        .cloned()
+}
+
 fn data_op(
     shared: &Shared,
     ctx: &Ctx,
@@ -86,40 +96,33 @@ fn data_op(
         lock(&shared.audit).record(widget, &topic, op, false, 0);
         (Reply::err(id, code, Some(topic.clone())), None)
     };
-    let grant = shared
-        .grants
-        .read()
-        .unwrap_or_else(PoisonError::into_inner)
-        .find(widget, &topic)
-        .cloned();
-    let Some(grant) = grant else {
+    if grant_for(shared, widget, &topic).is_none() {
         return deny(ErrorCode::Denied);
-    };
+    }
     if !lock(&shared.limiter).allow(widget, &topic, Instant::now()) {
         return deny(ErrorCode::RateLimited);
     }
-    // Fail closed: nothing is released (or subscribed) unless its audit line was written.
     let fail = |code| (Reply::err(id, code, Some(topic.clone())), None);
     if op == "subscribe" {
-        if !lock(&shared.audit).record(widget, &topic, op, true, 0) {
-            return fail(ErrorCode::Internal);
-        }
-        return match shared
+        // Validate and register first, so the audit line only says "allow" for what happened.
+        // The subscription stays inactive until its reply is queued.
+        let sub = match shared
             .hub
             .subscribe(ctx.id, widget, &topic, params, ctx.tx.clone())
         {
-            Ok(sub) => (
-                Reply::ok(
-                    id,
-                    json!({ "sub": sub })
-                        .as_object()
-                        .cloned()
-                        .unwrap_or_default(),
-                ),
-                Some(sub),
-            ),
-            Err(code) => fail(code),
+            Ok(sub) => sub,
+            Err(code) => return fail(code),
         };
+        // Fail closed: no audit line, no subscription.
+        if !lock(&shared.audit).record(widget, &topic, op, true, 0) {
+            shared.hub.unsubscribe(ctx.id, sub);
+            return fail(ErrorCode::Internal);
+        }
+        let body = json!({ "sub": sub })
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        return (Reply::ok(id, body), Some(sub));
     }
     match shared.hub.snapshot(&topic, &params) {
         Err(e) => {
@@ -131,6 +134,11 @@ fn data_op(
             fail(code)
         }
         Ok(snap) => {
+            // Re-resolve the grant AFTER the (possibly slow) fetch: a revocation that landed
+            // meanwhile must not be answered with the old, wider grant.
+            let Some(grant) = grant_for(shared, widget, &topic) else {
+                return deny(ErrorCode::Denied);
+            };
             let data = grant.filter(snap.data);
             let bytes = serde_json::to_string(&data).map_or(0, |s| s.len());
             if !lock(&shared.audit).record(widget, &topic, op, true, bytes) {
@@ -180,35 +188,34 @@ fn handle(line: &str, shared: &Shared, ctx: &Ctx) -> (bool, bool) {
     };
     let mut alive = ctx.send(reply.to_line());
     if let Some(sub) = new_sub {
-        // First value immediately, after the reply, so clients do not wait a full interval.
+        // Pushes start only now that the reply is queued ahead of them.
+        shared.hub.activate(sub);
+        // First value immediately, so clients do not wait a full interval.
         alive &= initial_push(shared, ctx, sub);
     }
     (false, alive)
 }
 
+/// First value for a new subscription, if one is already cached (otherwise the scheduler
+/// fetches it on its next tick, about 50 ms, without blocking this connection). Same rules as
+/// a live push: grant resolved just before sending, audited (fail closed) with its size.
 fn initial_push(shared: &Shared, ctx: &Ctx, sub: u64) -> bool {
-    let Some((topic, params)) = shared.hub.sub_target(sub) else {
+    let Some((topic, params, widget)) = shared.hub.sub_target(sub) else {
         return true;
     };
-    let Ok(snap) = shared.hub.snapshot(&topic, &params) else {
+    let Some(snap) = shared.hub.cached(&topic, &params) else {
         return true;
     };
-    let widget_grant = {
-        // The subscription's widget is re-resolved through the same grant check as live pushes.
-        let st = shared.hub.widget_of(sub);
-        st.and_then(|w| {
-            shared
-                .grants
-                .read()
-                .unwrap_or_else(PoisonError::into_inner)
-                .find(&w, &topic)
-                .cloned()
-        })
-    };
-    let Some(grant) = widget_grant else {
+    let Some(grant) = grant_for(shared, &widget, &topic) else {
+        lock(&shared.audit).record(&widget, &topic, "push", false, 0);
+        shared.hub.unsubscribe(ctx.id, sub);
         return true;
     };
     let data = grant.filter(snap.data.clone());
+    let bytes = serde_json::to_string(&data).map_or(0, |s| s.len());
+    if !lock(&shared.audit).record(&widget, &topic, "push", true, bytes) {
+        return true;
+    }
     ctx.send(hub::push_line(sub, &topic, &snap, &data))
 }
 
@@ -222,7 +229,7 @@ const WRITE: Duration = Duration::from_secs(5);
 const MAX_BAD_FRAMES: u32 = 8;
 
 /// Messages queued per connection before a slow reader is dropped.
-const QUEUE: usize = 64;
+const QUEUE: usize = 16;
 
 pub(crate) fn serve(stream: UnixStream, shared: &Shared, conn_id: u64) {
     if !peer_is_self(&stream)

@@ -2,24 +2,30 @@
 //!
 //! Sensitive data lives only in this process's memory. Subscriptions exist only while a
 //! client holds them (the bridge unsubscribes hidden widgets), so providers are polled only
-//! while someone is looking. Grants are re-checked on every push.
+//! while someone is looking. Grants are re-checked on every push and after every fetch.
+//!
+//! Fetches run on short-lived worker threads (at most `MAX_IN_FLIGHT`), at most one per key,
+//! so a slow provider delays only its own topic and never the scheduler or shutdown.
 use crate::conn::{Shared, lock};
 use ow_core::{Provider, ProviderError, TopicSpec};
 use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::panic::AssertUnwindSafe;
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::mpsc::{SyncSender, TrySendError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub(crate) const MAX_SUBS_PER_CONN: usize = 32;
 const MAX_SUBS: usize = 256;
 const MAX_SUBS_PER_WIDGET: usize = 16;
 const MAX_CACHE_KEYS: usize = 256;
+const MAX_IN_FLIGHT: usize = 16;
+/// Largest provider output we keep or send (serialized). Keeps one push under the 64 KiB
+/// line limit clients are held to and bounds queued memory per connection.
+const MAX_OUTPUT_BYTES: usize = 48 * 1024;
 /// Backoff multiplier cap: interval * 2^4 after repeated failures.
 const MAX_BACKOFF_SHIFT: u32 = 4;
-/// Unsubscribed cache entries older than this are dropped.
+/// Unsubscribed cache entries idle longer than this are dropped.
 const CACHE_IDLE: Duration = Duration::from_secs(60);
 
 type Params = Map<String, Value>;
@@ -44,6 +50,18 @@ struct Entry {
     fails: u32,
     next_due: Instant,
     last_touch: Instant,
+    /// A worker is fetching this key right now (request coalescing).
+    fetching: bool,
+}
+
+impl Entry {
+    fn snap(&self) -> Option<Snap> {
+        self.data.clone().map(|(data, ts)| Snap {
+            data,
+            ts,
+            stale: self.fails > 0,
+        })
+    }
 }
 
 struct Sub {
@@ -52,6 +70,8 @@ struct Sub {
     key: Key,
     params: Params,
     tx: SyncSender<String>,
+    /// Pushes start only after the subscribe reply is queued.
+    active: bool,
 }
 
 #[derive(Default)]
@@ -100,35 +120,78 @@ impl Hub {
             .find_map(|p| p.topics().iter().find(|t| t.name == topic).map(|t| (p, t)))
     }
 
-    /// Fetch from the provider (no lock held), update the cache, return the best data we have.
-    /// A panicking provider counts as unavailable instead of killing the scheduler.
-    fn refresh(&self, key: &Key, params: &Params) -> Option<Snap> {
-        let (provider, spec) = self.find(&key.topic)?;
-        let res = std::panic::catch_unwind(AssertUnwindSafe(|| provider.fetch(&key.topic, params)))
-            .unwrap_or(Err(ProviderError::Unavailable))
-            .map(|d| spec.sanitize(d));
+    /// Claim the right to fetch `key` (creating its entry, evicting an idle one if full).
+    /// False when a fetch is already running, the worker cap is reached, or the cache is
+    /// full of subscribed entries.
+    fn begin(&self, key: &Key) -> bool {
         let now = Instant::now();
         let mut st = lock(&self.state);
+        if st.cache.values().filter(|e| e.fetching).count() >= MAX_IN_FLIGHT {
+            return false;
+        }
         if !st.cache.contains_key(key) && st.cache.len() >= MAX_CACHE_KEYS {
-            // Evict the least recently used entry nobody is subscribed to, so a flood of
-            // distinct keys cannot lock other widgets out of the cache.
+            // Evict the least recently used entry nobody is subscribed to and nobody is
+            // fetching, so a flood of distinct keys cannot lock other widgets out.
             let subscribed: HashSet<&Key> = st.subs.values().map(|s| &s.key).collect();
             let victim = st
                 .cache
                 .iter()
-                .filter(|(k, _)| !subscribed.contains(k))
+                .filter(|(k, e)| !e.fetching && !subscribed.contains(k))
                 .min_by_key(|(_, e)| e.last_touch)
                 .map(|(k, _)| k.clone());
-            st.cache.remove(&victim?);
+            let Some(victim) = victim else { return false };
+            st.cache.remove(&victim);
         }
         let e = st.cache.entry(key.clone()).or_insert(Entry {
             data: None,
             fails: 0,
             next_due: now,
             last_touch: now,
+            fetching: false,
         });
         e.last_touch = now;
-        let stale = res.is_err();
+        if e.fetching {
+            return false;
+        }
+        e.fetching = true;
+        true
+    }
+
+    /// Release a claim without fetching (worker thread could not be started).
+    fn abort(&self, key: &Key) {
+        if let Some(e) = lock(&self.state).cache.get_mut(key) {
+            e.fetching = false;
+        }
+    }
+
+    /// Run the fetch for a claimed key (no lock held while the provider runs), store the
+    /// result and return the best data we have. A panicking provider counts as unavailable;
+    /// oversized output counts as a bad format.
+    fn complete(&self, key: &Key, params: &Params) -> Option<Snap> {
+        let (provider, spec) = self.find(&key.topic)?;
+        let res = std::panic::catch_unwind(AssertUnwindSafe(|| provider.fetch(&key.topic, params)))
+            .unwrap_or(Err(ProviderError::Unavailable))
+            .map(|d| spec.sanitize(d))
+            .and_then(|d| {
+                let size = serde_json::to_string(&d).map_or(usize::MAX, |s| s.len());
+                if size > MAX_OUTPUT_BYTES {
+                    Err(ProviderError::Format)
+                } else {
+                    Ok(d)
+                }
+            });
+        let now = Instant::now();
+        let mut st = lock(&self.state);
+        let Some(e) = st.cache.get_mut(key) else {
+            // Evicted while fetching (cannot happen for claimed keys; defensive).
+            return res.ok().map(|data| Snap {
+                data,
+                ts: now_unix(),
+                stale: false,
+            });
+        };
+        e.fetching = false;
+        e.last_touch = now;
         match res {
             Ok(d) => {
                 e.data = Some((d, now_unix()));
@@ -140,10 +203,11 @@ impl Hub {
                 e.next_due = now + spec.interval * (1 << e.fails);
             }
         }
-        e.data.clone().map(|(data, ts)| Snap { data, ts, stale })
+        e.snap()
     }
 
-    /// Cached while fresh, otherwise fetched now.
+    /// Cached value while the entry is not due (marked stale during failure backoff, and no
+    /// fetch is attempted); otherwise one coalesced fetch.
     pub(crate) fn snapshot(&self, topic: &str, params: &Params) -> Result<Snap, ProviderError> {
         let (_, spec) = self.find(topic).ok_or(ProviderError::UnknownTopic)?;
         spec.check_params(params)?;
@@ -152,18 +216,30 @@ impl Hub {
             let mut st = lock(&self.state);
             if let Some(e) = st.cache.get_mut(&key) {
                 e.last_touch = Instant::now();
-                if e.next_due > e.last_touch {
-                    if let Some((data, ts)) = e.data.clone() {
-                        return Ok(Snap {
-                            data,
-                            ts,
-                            stale: false,
-                        });
-                    }
+                if e.next_due > e.last_touch || e.fetching {
+                    return e.snap().ok_or(ProviderError::Unavailable);
                 }
             }
         }
-        self.refresh(&key, params).ok_or(ProviderError::Unavailable)
+        if self.begin(&key) {
+            self.complete(&key, params)
+                .ok_or(ProviderError::Unavailable)
+        } else {
+            lock(&self.state)
+                .cache
+                .get(&key)
+                .and_then(Entry::snap)
+                .ok_or(ProviderError::Unavailable)
+        }
+    }
+
+    /// Whatever is cached right now for an existing subscription; never fetches, so the
+    /// connection thread never waits on a provider here.
+    pub(crate) fn cached(&self, topic: &str, params: &Params) -> Option<Snap> {
+        lock(&self.state)
+            .cache
+            .get(&Key::new(topic, params))
+            .and_then(Entry::snap)
     }
 
     pub(crate) fn subscribe(
@@ -200,9 +276,17 @@ impl Hub {
                 key,
                 params,
                 tx,
+                active: false,
             },
         );
         Ok(id)
+    }
+
+    /// Start pushes for a subscription; called after its reply is queued.
+    pub(crate) fn activate(&self, sub: u64) {
+        if let Some(s) = lock(&self.state).subs.get_mut(&sub) {
+            s.active = true;
+        }
     }
 
     pub(crate) fn unsubscribe(&self, conn: u64, sub: u64) -> bool {
@@ -218,16 +302,12 @@ impl Hub {
         lock(&self.state).subs.retain(|_, s| s.conn != conn);
     }
 
-    /// Current subscription as (topic, params), for the initial push.
-    pub(crate) fn sub_target(&self, sub: u64) -> Option<(String, Params)> {
+    /// Topic, params and widget of a subscription, for the initial push.
+    pub(crate) fn sub_target(&self, sub: u64) -> Option<(String, Params, String)> {
         lock(&self.state)
             .subs
             .get(&sub)
-            .map(|s| (s.key.topic.clone(), s.params.clone()))
-    }
-
-    pub(crate) fn widget_of(&self, sub: u64) -> Option<String> {
-        lock(&self.state).subs.get(&sub).map(|s| s.widget.clone())
+            .map(|s| (s.key.topic.clone(), s.params.clone(), s.widget.clone()))
     }
 
     fn drop_subs(&self, ids: &[u64]) {
@@ -238,42 +318,55 @@ impl Hub {
     }
 }
 
-/// One scheduler pass: refresh every subscribed key that is due and push to its subscribers.
-pub(crate) fn poll_once(shared: &Shared) {
+/// One scheduler pass: for every subscribed key that is due, claim it and fetch on a worker
+/// thread, then push to its subscribers. Never blocks on a provider.
+pub(crate) fn poll_once(shared: &Arc<Shared>) {
     let hub = &shared.hub;
     let now = Instant::now();
     let due: Vec<(Key, Params)> = {
         let mut st = lock(&hub.state);
-        st.cache.retain(|_, e| e.last_touch + CACHE_IDLE > now);
+        let subscribed: HashSet<Key> = st.subs.values().map(|s| s.key.clone()).collect();
+        // Idle entries go; subscribed or in-flight ones keep their backoff state.
+        st.cache
+            .retain(|k, e| e.fetching || subscribed.contains(k) || e.last_touch + CACHE_IDLE > now);
         let mut seen = HashSet::new();
         st.subs
             .values()
-            .filter(|s| seen.insert(s.key.clone()))
-            .filter(|s| st_due(&st.cache, &s.key, now))
+            .filter(|s| s.active && seen.insert(s.key.clone()))
+            .filter(|s| {
+                st.cache
+                    .get(&s.key)
+                    .is_none_or(|e| !e.fetching && e.next_due <= now)
+            })
             .map(|s| (s.key.clone(), s.params.clone()))
             .collect()
     };
     for (key, params) in due {
-        let Some(snap) = hub.refresh(&key, &params) else {
-            continue;
-        };
-        push_to_subscribers(shared, &key, &snap);
+        if !hub.begin(&key) {
+            continue; // already running, worker cap reached, or cache full: try next tick
+        }
+        let sh = Arc::clone(shared);
+        let k2 = key.clone();
+        let spawned = std::thread::Builder::new().spawn(move || {
+            if let Some(snap) = sh.hub.complete(&k2, &params) {
+                push_to_subscribers(&sh, &k2, &snap);
+            }
+        });
+        if spawned.is_err() {
+            hub.abort(&key);
+        }
     }
 }
 
-fn st_due(cache: &HashMap<Key, Entry>, key: &Key, now: Instant) -> bool {
-    cache.get(key).is_none_or(|e| e.next_due <= now)
-}
-
 fn push_to_subscribers(shared: &Shared, key: &Key, snap: &Snap) {
-    let targets: Vec<(u64, String, SyncSender<String>)> = lock(&shared.hub.state)
+    let targets: Vec<(u64, String)> = lock(&shared.hub.state)
         .subs
         .iter()
-        .filter(|(_, s)| &s.key == key)
-        .map(|(id, s)| (*id, s.widget.clone(), s.tx.clone()))
+        .filter(|(_, s)| s.active && &s.key == key)
+        .map(|(id, s)| (*id, s.widget.clone()))
         .collect();
     let mut dead = Vec::new();
-    for (id, widget, tx) in targets {
+    for (id, widget) in targets {
         // Re-check on every push: a revoked grant stops data immediately.
         let grant = shared
             .grants
@@ -286,11 +379,20 @@ fn push_to_subscribers(shared: &Shared, key: &Key, snap: &Snap) {
             dead.push(id);
             continue;
         };
-        let data = grant.filter(snap.data.clone());
-        match tx.try_send(push_line(id, &key.topic, snap, &data)) {
-            Ok(()) => {}
+        let line = push_line(id, &key.topic, snap, &grant.filter(snap.data.clone()));
+        // Send while holding the state lock and re-checking membership: an unsubscribe that
+        // already queued its reply cannot be followed by a push, because removal needs the
+        // same lock. try_send never blocks.
+        let st = lock(&shared.hub.state);
+        let Some(sub) = st.subs.get(&id) else {
+            continue;
+        };
+        if matches!(
+            sub.tx.try_send(line),
+            Err(TrySendError::Full(_) | TrySendError::Disconnected(_))
+        ) {
             // Slow or gone consumer: drop the subscription rather than buffer without bound.
-            Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => dead.push(id),
+            dead.push(id);
         }
     }
     shared.hub.drop_subs(&dead);
@@ -324,6 +426,16 @@ mod tests {
                 .as_object()
                 .cloned()
                 .unwrap())
+        }
+    }
+
+    impl Hub {
+        fn fetch_now(&self, key: &Key, params: &Params) -> Option<Snap> {
+            if self.begin(key) {
+                self.complete(key, params)
+            } else {
+                None
+            }
         }
     }
 
@@ -361,11 +473,11 @@ mod tests {
         let (tx, _rx) = sync_channel(1);
         h.subscribe(1, "w", "t.one", params(0), tx).unwrap();
         let keep = Key::new("t.one", &params(0));
-        h.refresh(&keep, &params(0)).unwrap();
+        h.fetch_now(&keep, &params(0)).unwrap();
         for i in 1..(MAX_CACHE_KEYS * 2) {
             // each distinct key is accepted by evicting an idle one
             assert!(
-                h.refresh(&Key::new("t.one", &params(i)), &params(i))
+                h.fetch_now(&Key::new("t.one", &params(i)), &params(i))
                     .is_some(),
                 "key {i}"
             );
@@ -373,6 +485,87 @@ mod tests {
         let st = lock(&h.state);
         assert!(st.cache.len() <= MAX_CACHE_KEYS);
         assert!(st.cache.contains_key(&keep), "subscribed entry was evicted");
+    }
+
+    struct Counting {
+        fetches: std::sync::atomic::AtomicUsize,
+        delay: Duration,
+        fail: std::sync::atomic::AtomicBool,
+    }
+
+    impl Provider for Counting {
+        fn id(&self) -> &'static str {
+            "c"
+        }
+        fn topics(&self) -> &'static [TopicSpec] {
+            &TOPICS
+        }
+        fn fetch(&self, _t: &str, _p: &Params) -> Result<Params, ProviderError> {
+            self.fetches
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            std::thread::sleep(self.delay);
+            if self.fail.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(ProviderError::Unavailable);
+            }
+            Ok(serde_json::json!({ "v": 1 }).as_object().cloned().unwrap())
+        }
+    }
+
+    fn counting(delay: Duration) -> (Arc<Counting>, Hub) {
+        let c = Arc::new(Counting {
+            fetches: 0.into(),
+            delay,
+            fail: false.into(),
+        });
+        (Arc::clone(&c), Hub::new(vec![c]))
+    }
+
+    #[test]
+    fn concurrent_misses_are_coalesced_into_one_fetch() {
+        let (c, h) = counting(Duration::from_millis(200));
+        let h = Arc::new(h);
+        let ths: Vec<_> = (0..8)
+            .map(|_| {
+                let h = Arc::clone(&h);
+                std::thread::spawn(move || h.snapshot("t.one", &Params::new()))
+            })
+            .collect();
+        let ok = ths
+            .into_iter()
+            .filter_map(|t| t.join().unwrap().ok())
+            .count();
+        assert!(ok >= 1);
+        assert_eq!(c.fetches.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn failure_backoff_is_honoured_and_stale_is_reported() {
+        let (c, h) = counting(Duration::ZERO);
+        assert!(!h.snapshot("t.one", &Params::new()).unwrap().stale);
+        // expire the entry, then fail once
+        lock(&h.state)
+            .cache
+            .values_mut()
+            .for_each(|e| e.next_due = Instant::now());
+        c.fail.store(true, std::sync::atomic::Ordering::SeqCst);
+        let k = Key::new("t.one", &Params::new());
+        let snap = h.fetch_now(&k, &Params::new()).unwrap();
+        assert!(snap.stale, "failed refresh with older data must be stale");
+        let n = c.fetches.load(std::sync::atomic::Ordering::SeqCst);
+        // inside the backoff window further snapshots must not fetch, and stay stale
+        let again = h.snapshot("t.one", &Params::new()).unwrap();
+        assert!(again.stale);
+        assert_eq!(c.fetches.load(std::sync::atomic::Ordering::SeqCst), n);
+    }
+
+    #[test]
+    fn failure_with_no_data_is_an_error_not_a_refetch_storm() {
+        let (c, h) = counting(Duration::ZERO);
+        c.fail.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(h.snapshot("t.one", &Params::new()).is_err());
+        assert!(h.snapshot("t.one", &Params::new()).is_err());
+        assert!(h.snapshot("t.one", &Params::new()).is_err());
+        assert_eq!(c.fetches.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]

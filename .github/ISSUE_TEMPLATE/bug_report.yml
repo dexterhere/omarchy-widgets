@@ -1,0 +1,20 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Do **not** report security vulnerabilities here. Use the private link in SECURITY.md. Remove secrets from any logs you paste."
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: "What did you do, what did you expect, what happened?" }
+    validations: { required: true }
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: "Omarchy, Quickshell, Hyprland and this project (commit or version)"
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes: { label: Logs (secrets removed), description: "journalctl --user -u owd, test output" }

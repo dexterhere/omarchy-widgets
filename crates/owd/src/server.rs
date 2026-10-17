@@ -1,16 +1,19 @@
-use crate::conn;
-use ow_core::Paths;
+use crate::conn::{self, Shared, TopicSource};
+use ow_core::{AuditLog, Grants, Paths, RateLimiter};
 use rustix::fs::FileType;
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::{self, ErrorKind};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 const MAX_CONNECTIONS: usize = 32;
+/// Per (widget, topic): burst of 10, 2 requests/second sustained.
+const RATE_BURST: u32 = 10;
+const RATE_PER_SEC: f64 = 2.0;
 
 /// Frees a connection slot on drop, including when a handler thread panics.
 struct Slot(Arc<AtomicUsize>);
@@ -27,6 +30,7 @@ pub struct Server {
     listener: UnixListener,
     path: PathBuf,
     active: Arc<AtomicUsize>,
+    shared: Arc<Shared>,
 }
 
 /// Disable core dumps and ptrace/proc-mem access to this process.
@@ -65,11 +69,26 @@ fn check_dir(dir: &std::path::Path) -> io::Result<()> {
 impl Server {
     /// Create the socket directory (0700), refuse unsafe ones, replace a stale socket,
     /// refuse to start if another daemon is alive, bind, and chmod the socket 0600.
-    pub fn bind(paths: &Paths) -> io::Result<Server> {
+    pub fn bind(paths: &Paths, source: Box<dyn TopicSource>) -> io::Result<Server> {
         let mut b = DirBuilder::new();
         b.recursive(true).mode(0o700);
         b.create(&paths.runtime)?;
         check_dir(&paths.runtime)?;
+        // Fail closed: a bad grants file stops startup rather than allowing everything.
+        let grants =
+            Grants::load(&paths.grants()).map_err(|e| io::Error::other(format!("grants: {e}")))?;
+        let mut sb = DirBuilder::new();
+        sb.recursive(true).mode(0o700);
+        sb.create(&paths.state)?;
+        check_dir(&paths.state)?;
+        let audit = AuditLog::open(&paths.audit())?;
+        let shared = Arc::new(Shared {
+            grants: RwLock::new(grants),
+            grants_path: paths.grants(),
+            audit: Mutex::new(audit),
+            limiter: Mutex::new(RateLimiter::new(RATE_BURST, RATE_PER_SEC)),
+            source,
+        });
         // Exclusive lock first, so two concurrent starts cannot both pass the stale check.
         let lock = OpenOptions::new()
             .create(true)
@@ -105,6 +124,7 @@ impl Server {
             listener,
             path,
             active: Arc::new(AtomicUsize::new(0)),
+            shared,
         })
     }
 
@@ -112,10 +132,17 @@ impl Server {
         &self.path
     }
 
-    /// Accept loop until `stop` is set. Thread per connection, capped.
+    /// Accept loop until `stop` is set; `reload` (SIGHUP) re-reads the grants file.
+    /// Thread per connection, capped.
     // ponytail: polling accept + threads; move to tokio when providers need async.
-    pub fn run(&self, stop: &AtomicBool) {
+    pub fn run(&self, stop: &AtomicBool, reload: &AtomicBool) {
         while !stop.load(Ordering::Relaxed) {
+            if reload.swap(false, Ordering::Relaxed) {
+                match self.shared.reload_grants() {
+                    Ok(()) => eprintln!("owd: grants reloaded"),
+                    Err(e) => eprintln!("owd: grants reload failed ({e}); all access denied"),
+                }
+            }
             match self.listener.accept() {
                 Ok((stream, _)) => self.spawn(stream),
                 Err(e) if e.kind() == ErrorKind::WouldBlock => {
@@ -132,12 +159,13 @@ impl Server {
             return; // drop: over the connection cap
         }
         let slot = Slot(Arc::clone(&self.active));
+        let shared = Arc::clone(&self.shared);
         // Builder::spawn returns Err instead of panicking when the OS refuses a thread;
         // the closure (and its Slot) is dropped, which frees the slot.
         let _ = std::thread::Builder::new().spawn(move || {
             let _slot = slot;
             let _ = stream.set_nonblocking(false);
-            conn::serve(stream);
+            conn::serve(stream, &shared);
         });
     }
 }

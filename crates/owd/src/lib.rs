@@ -8,4 +8,5 @@
 mod conn;
 mod server;
 
+pub use conn::{NoTopics, TopicSource};
 pub use server::{Server, harden_process};

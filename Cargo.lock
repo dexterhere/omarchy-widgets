@@ -354,6 +354,7 @@ version = "0.0.0"
 dependencies = [
  "ow-core",
  "ow-proto",
+ "ow-providers",
  "rustix",
  "sd-notify",
  "serde_json",

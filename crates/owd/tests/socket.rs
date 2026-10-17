@@ -1,15 +1,18 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)] // test code
 use ow_core::Paths;
-use owd::{NoTopics, Server, TopicSource};
+use ow_core::{Provider, ProviderError, Sensitivity, TopicSpec};
+use owd::Server;
 use serde_json::{Map, Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 struct Harness {
+    reload: Arc<AtomicBool>,
     paths: Paths,
     stop: Arc<AtomicBool>,
     th: Option<JoinHandle<()>>,
@@ -18,10 +21,10 @@ struct Harness {
 
 impl Harness {
     fn start() -> Harness {
-        Self::start_with(None, Box::new(NoTopics))
+        Self::start_with(None, Vec::new())
     }
 
-    fn start_with(grants: Option<&str>, source: Box<dyn TopicSource>) -> Harness {
+    fn start_with(grants: Option<&str>, providers: Vec<Arc<dyn Provider>>) -> Harness {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::under(dir.path());
         if let Some(g) = grants {
@@ -30,11 +33,14 @@ impl Harness {
             std::fs::write(&p, g).unwrap();
             std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
         }
-        let server = Server::bind(&paths, source).unwrap();
+        let server = Server::bind(&paths, providers).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let s2 = Arc::clone(&stop);
-        let th = std::thread::spawn(move || server.run(&s2, &AtomicBool::new(false)));
+        let reload = Arc::new(AtomicBool::new(false));
+        let r2 = Arc::clone(&reload);
+        let th = std::thread::spawn(move || server.run(&s2, &r2));
         Harness {
+            reload,
             paths,
             stop,
             th: Some(th),
@@ -134,7 +140,7 @@ fn oversize_line_closes_connection() {
 #[test]
 fn second_instance_refused_and_stale_socket_replaced() {
     let h = Harness::start();
-    let e = Server::bind(&h.paths, Box::new(NoTopics))
+    let e = Server::bind(&h.paths, Vec::new())
         .err()
         .expect("must refuse");
     assert_eq!(e.kind(), std::io::ErrorKind::AddrInUse);
@@ -142,11 +148,11 @@ fn second_instance_refused_and_stale_socket_replaced() {
     // A stale socket file (nobody listening) is replaced.
     let dir = tempfile::tempdir().unwrap();
     let p = Paths::under(dir.path());
-    drop(Server::bind(&p, Box::new(NoTopics)).unwrap()); // Drop removes the socket...
+    drop(Server::bind(&p, Vec::new()).unwrap()); // Drop removes the socket...
     std::os::unix::net::UnixListener::bind(p.socket())
         .map(drop)
         .unwrap(); // ...recreate a dead one
-    assert!(Server::bind(&p, Box::new(NoTopics)).is_ok());
+    assert!(Server::bind(&p, Vec::new()).is_ok());
 }
 
 #[test]
@@ -155,7 +161,7 @@ fn unsafe_socket_dir_is_refused() {
     let p = Paths::under(dir.path());
     std::fs::create_dir_all(&p.runtime).unwrap();
     std::fs::set_permissions(&p.runtime, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert!(Server::bind(&p, Box::new(NoTopics)).is_err());
+    assert!(Server::bind(&p, Vec::new()).is_err());
 }
 
 #[test]
@@ -165,7 +171,7 @@ fn non_socket_at_socket_path_is_refused() {
     std::fs::create_dir_all(&p.runtime).unwrap();
     std::fs::set_permissions(&p.runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
     std::fs::write(p.socket(), b"x").unwrap();
-    assert!(Server::bind(&p, Box::new(NoTopics)).is_err());
+    assert!(Server::bind(&p, Vec::new()).is_err());
     assert!(p.socket().exists(), "must not delete a foreign file");
 }
 
@@ -184,7 +190,7 @@ fn concurrent_start_is_refused_by_lock() {
     let h = Harness::start();
     // Even with the socket file removed, the held lock blocks a second daemon.
     std::fs::remove_file(h.paths.socket()).unwrap();
-    let e = Server::bind(&h.paths, Box::new(NoTopics))
+    let e = Server::bind(&h.paths, Vec::new())
         .err()
         .expect("must refuse");
     assert_eq!(e.kind(), std::io::ErrorKind::AddrInUse);
@@ -204,16 +210,43 @@ fn full_session_leaves_only_expected_files() {
 
 const SECRET: &str = "FAKE-SECRET-VALUE-9f3a";
 
-struct Fake;
+#[derive(Default)]
+struct Fake {
+    fetches: AtomicU64,
+    fail: AtomicBool,
+    panic: AtomicBool,
+}
 
-impl TopicSource for Fake {
-    fn snapshot(&self, topic: &str) -> Option<Map<String, Value>> {
-        (topic == "github.prs").then(|| {
-            json!({"open": 3, "review": 1, "token": SECRET})
-                .as_object()
-                .cloned()
-                .unwrap()
-        })
+static FAKE_TOPICS: [TopicSpec; 1] = [TopicSpec::new(
+    "github.prs",
+    Sensitivity::High,
+    Duration::from_millis(50),
+    &["open", "review", "token", "seq"],
+)];
+
+impl Provider for Fake {
+    fn id(&self) -> &'static str {
+        "fake"
+    }
+
+    fn topics(&self) -> &'static [TopicSpec] {
+        &FAKE_TOPICS
+    }
+
+    fn fetch(
+        &self,
+        _topic: &str,
+        _p: &Map<String, Value>,
+    ) -> Result<Map<String, Value>, ProviderError> {
+        let n = self.fetches.fetch_add(1, Ordering::Relaxed);
+        assert!(!self.panic.load(Ordering::Relaxed), "provider bug");
+        if self.fail.load(Ordering::Relaxed) {
+            return Err(ProviderError::Unavailable);
+        }
+        Ok(json!({"open": 3, "review": 1, "token": SECRET, "seq": n})
+            .as_object()
+            .cloned()
+            .unwrap())
     }
 }
 
@@ -230,7 +263,7 @@ fn audit(h: &Harness) -> String {
 
 #[test]
 fn granted_snapshot_is_field_filtered() {
-    let h = Harness::start_with(Some(GRANTS), Box::new(Fake));
+    let h = Harness::start_with(Some(GRANTS), vec![Arc::new(Fake::default())]);
     let r = snap(&h, 1, "w1", "github.prs");
     assert!(
         r.contains("\"open\":3") && r.contains("\"review\":1"),
@@ -244,7 +277,7 @@ fn granted_snapshot_is_field_filtered() {
 
 #[test]
 fn ungranted_widget_or_topic_is_denied_and_audited() {
-    let h = Harness::start_with(Some(GRANTS), Box::new(Fake));
+    let h = Harness::start_with(Some(GRANTS), vec![Arc::new(Fake::default())]);
     assert!(snap(&h, 1, "w2", "github.prs").contains("denied"));
     assert!(snap(&h, 2, "w1", "other.topic").contains("denied"));
     let a = audit(&h);
@@ -254,14 +287,14 @@ fn ungranted_widget_or_topic_is_denied_and_audited() {
 #[test]
 fn granted_but_unknown_topic_reports_unknown_topic() {
     let g = "[[grant]]\nwidget=\"w1\"\ntopics=[\"nope\"]\n";
-    let h = Harness::start_with(Some(g), Box::new(Fake));
+    let h = Harness::start_with(Some(g), vec![Arc::new(Fake::default())]);
     assert!(snap(&h, 1, "w1", "nope").contains("unknown_topic"));
 }
 
 #[test]
 fn unknown_topic_replies_do_not_count_as_bad_frames() {
     let g = "[[grant]]\nwidget=\"w1\"\ntopics=[\"nope\"]\n";
-    let h = Harness::start_with(Some(g), Box::new(Fake));
+    let h = Harness::start_with(Some(g), vec![Arc::new(Fake::default())]);
     let mut s = h.connect();
     let line = "{\"v\":0,\"id\":1,\"op\":\"snapshot\",\"widget\":\"w1\",\"topic\":\"nope\"}\n";
     s.write_all(line.repeat(9).as_bytes()).unwrap();
@@ -278,7 +311,7 @@ fn unknown_topic_replies_do_not_count_as_bad_frames() {
 
 #[test]
 fn rate_limit_kicks_in() {
-    let h = Harness::start_with(Some(GRANTS), Box::new(Fake));
+    let h = Harness::start_with(Some(GRANTS), vec![Arc::new(Fake::default())]);
     let mut limited = 0;
     for i in 0..30 {
         if snap(&h, i, "w1", "github.prs").contains("rate_limited") {
@@ -290,7 +323,7 @@ fn rate_limit_kicks_in() {
 
 #[test]
 fn audit_log_never_contains_payload_values() {
-    let h = Harness::start_with(Some(GRANTS), Box::new(Fake));
+    let h = Harness::start_with(Some(GRANTS), vec![Arc::new(Fake::default())]);
     let _ = snap(&h, 1, "w1", "github.prs");
     let _ = snap(&h, 2, "w2", "github.prs");
     let a = audit(&h);
@@ -318,6 +351,245 @@ fn insecure_or_broken_grants_file_stops_startup() {
         std::fs::create_dir_all(&paths.config).unwrap();
         std::fs::write(paths.grants(), body).unwrap();
         std::fs::set_permissions(paths.grants(), std::fs::Permissions::from_mode(mode)).unwrap();
-        assert!(Server::bind(&paths, Box::new(NoTopics)).is_err());
+        assert!(Server::bind(&paths, Vec::new()).is_err());
     }
+}
+
+// ---- subscriptions and the scheduler ----
+
+const SUB_GRANTS: &str =
+    "[[grant]]\nwidget=\"w1\"\ntopics=[\"github.prs\"]\nfields=[\"open\",\"seq\"]\n";
+
+fn sub_line(id: u32, widget: &str) -> String {
+    format!(
+        "{{\"v\":0,\"id\":{id},\"op\":\"subscribe\",\"widget\":\"{widget}\",\"topic\":\"github.prs\"}}\n"
+    )
+}
+
+fn read_json(r: &mut BufReader<UnixStream>) -> Value {
+    let mut l = String::new();
+    assert!(r.read_line(&mut l).unwrap() > 0, "connection closed");
+    serde_json::from_str(&l).unwrap()
+}
+
+/// Reader that gives up quickly, for asserting that nothing more arrives.
+fn quiet(r: &mut BufReader<UnixStream>) -> bool {
+    r.get_ref()
+        .set_read_timeout(Some(Duration::from_millis(400)))
+        .unwrap();
+    let mut l = String::new();
+    let got = r.read_line(&mut l);
+    r.get_ref()
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    got.is_err()
+}
+
+fn harness_with(fake: &Arc<Fake>, grants: &str) -> Harness {
+    Harness::start_with(Some(grants), vec![Arc::clone(fake) as Arc<dyn Provider>])
+}
+
+#[test]
+fn subscribe_pushes_initial_value_then_updates_filtered() {
+    let fake = Arc::new(Fake::default());
+    let h = harness_with(&fake, SUB_GRANTS);
+    let mut s = h.connect();
+    s.write_all(sub_line(1, "w1").as_bytes()).unwrap();
+    let mut r = BufReader::new(s);
+    let ack = read_json(&mut r);
+    assert_eq!(ack["ok"], true);
+    let sub = ack["sub"].as_u64().unwrap();
+    let first = read_json(&mut r);
+    assert_eq!(first["sub"], sub);
+    assert_eq!(first["stale"], false);
+    assert!(
+        first["data"].get("token").is_none(),
+        "ungranted field pushed: {first}"
+    );
+    assert_eq!(first["data"]["open"], 3);
+    let second = read_json(&mut r);
+    assert!(
+        second["data"]["seq"].as_u64() > first["data"]["seq"].as_u64(),
+        "no update arrived"
+    );
+}
+
+#[test]
+fn no_polling_without_subscribers_and_after_disconnect() {
+    let fake = Arc::new(Fake::default());
+    let h = harness_with(&fake, SUB_GRANTS);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        fake.fetches.load(Ordering::Relaxed),
+        0,
+        "polled with nobody subscribed"
+    );
+    let mut s = h.connect();
+    s.write_all(sub_line(1, "w1").as_bytes()).unwrap();
+    let mut r = BufReader::new(s);
+    read_json(&mut r);
+    read_json(&mut r);
+    drop(r); // disconnect
+    std::thread::sleep(Duration::from_millis(400));
+    let after = fake.fetches.load(Ordering::Relaxed);
+    std::thread::sleep(Duration::from_millis(400));
+    assert_eq!(
+        fake.fetches.load(Ordering::Relaxed),
+        after,
+        "still polling after disconnect"
+    );
+}
+
+#[test]
+fn unsubscribe_stops_pushes_and_cannot_touch_others_subs() {
+    let fake = Arc::new(Fake::default());
+    let h = harness_with(&fake, SUB_GRANTS);
+    let mut a = h.connect();
+    a.write_all(sub_line(1, "w1").as_bytes()).unwrap();
+    let mut ra = BufReader::new(a.try_clone().unwrap());
+    let sub = read_json(&mut ra)["sub"].as_u64().unwrap();
+    read_json(&mut ra);
+    // Another connection cannot unsubscribe it.
+    let r = h.ask(&format!(
+        "{{\"v\":0,\"id\":9,\"op\":\"unsubscribe\",\"sub\":{sub}}}\n"
+    ));
+    assert!(r.contains("bad_request"), "{r}");
+    a.write_all(format!("{{\"v\":0,\"id\":2,\"op\":\"unsubscribe\",\"sub\":{sub}}}\n").as_bytes())
+        .unwrap();
+    // Drain whatever was in flight, then require silence.
+    loop {
+        let m = read_json(&mut ra);
+        if m["id"] == 2 {
+            assert_eq!(m["ok"], true);
+            break;
+        }
+    }
+    assert!(quiet(&mut ra), "push after unsubscribe");
+}
+
+#[test]
+fn revoked_grant_stops_pushes_and_is_audited() {
+    let fake = Arc::new(Fake::default());
+    let h = harness_with(&fake, SUB_GRANTS);
+    let mut s = h.connect();
+    s.write_all(sub_line(1, "w1").as_bytes()).unwrap();
+    let mut r = BufReader::new(s);
+    read_json(&mut r);
+    read_json(&mut r);
+    std::fs::write(h.paths.grants(), "").unwrap();
+    h.reload.store(true, Ordering::Relaxed);
+    std::thread::sleep(Duration::from_millis(300));
+    // Drain pushes already queued before the reload, then require silence.
+    r.get_ref()
+        .set_read_timeout(Some(Duration::from_millis(400)))
+        .unwrap();
+    let mut l = String::new();
+    while r.read_line(&mut l).is_ok_and(|n| n > 0) {
+        l.clear();
+    }
+    assert!(quiet(&mut r), "data still flowing after revocation");
+    assert!(
+        audit(&h).contains("\"op\":\"push\",\"decision\":\"deny\""),
+        "{}",
+        audit(&h)
+    );
+}
+
+#[test]
+fn provider_failure_yields_stale_push_with_last_good_data_and_recovers() {
+    let fake = Arc::new(Fake::default());
+    let h = harness_with(&fake, SUB_GRANTS);
+    let mut s = h.connect();
+    s.write_all(sub_line(1, "w1").as_bytes()).unwrap();
+    let mut r = BufReader::new(s);
+    read_json(&mut r);
+    let good = read_json(&mut r);
+    fake.fail.store(true, Ordering::Relaxed);
+    let stale = loop {
+        let m = read_json(&mut r);
+        if m["stale"] == true {
+            break m;
+        }
+    };
+    assert_eq!(
+        stale["data"]["open"], 3,
+        "stale push must carry the last good data"
+    );
+    assert!(stale["ts"].as_u64() >= good["ts"].as_u64());
+    fake.fail.store(false, Ordering::Relaxed);
+    loop {
+        if read_json(&mut r)["stale"] == false {
+            break;
+        }
+    }
+}
+
+#[test]
+fn panicking_provider_does_not_kill_the_scheduler() {
+    let fake = Arc::new(Fake::default());
+    let h = harness_with(&fake, SUB_GRANTS);
+    let mut s = h.connect();
+    s.write_all(sub_line(1, "w1").as_bytes()).unwrap();
+    let mut r = BufReader::new(s);
+    read_json(&mut r);
+    read_json(&mut r);
+    fake.panic.store(true, Ordering::Relaxed);
+    loop {
+        if read_json(&mut r)["stale"] == true {
+            break;
+        }
+    }
+    fake.panic.store(false, Ordering::Relaxed);
+    loop {
+        if read_json(&mut r)["stale"] == false {
+            break;
+        }
+    }
+}
+
+#[test]
+fn subscribe_requires_a_grant_and_audits_allow() {
+    let fake = Arc::new(Fake::default());
+    let h = harness_with(&fake, SUB_GRANTS);
+    assert!(h.ask(&sub_line(1, "stranger")).contains("denied"));
+    assert_eq!(
+        fake.fetches.load(Ordering::Relaxed),
+        0,
+        "ungranted subscribe must not trigger a fetch"
+    );
+    let mut s = h.connect();
+    s.write_all(sub_line(2, "w1").as_bytes()).unwrap();
+    let mut r = BufReader::new(s);
+    read_json(&mut r);
+    let a = audit(&h);
+    assert!(
+        a.contains("\"op\":\"subscribe\",\"decision\":\"allow\"") && a.contains("deny"),
+        "{a}"
+    );
+    assert!(!a.contains(SECRET));
+}
+
+#[test]
+fn subscriptions_per_connection_are_capped() {
+    let fake = Arc::new(Fake::default());
+    let mut g = String::new();
+    for i in 0..40 {
+        g += &format!("[[grant]]\nwidget=\"w{i}\"\ntopics=[\"github.prs\"]\n");
+    }
+    let h = harness_with(&fake, &g);
+    let mut s = h.connect();
+    for i in 0..40 {
+        s.write_all(sub_line(i + 1, &format!("w{i}")).as_bytes())
+            .unwrap();
+    }
+    let mut r = BufReader::new(s);
+    let mut capped = false;
+    for _ in 0..200 {
+        let m = read_json(&mut r);
+        if m["error"]["code"] == "rate_limited" {
+            capped = true;
+            break;
+        }
+    }
+    assert!(capped, "no cap on subscriptions per connection");
 }

@@ -326,6 +326,11 @@ dependencies = [
 [[package]]
 name = "ow-providers"
 version = "0.0.0"
+dependencies = [
+ "ow-core",
+ "serde_json",
+ "tempfile",
+]
 
 [[package]]
 name = "ow-vault"

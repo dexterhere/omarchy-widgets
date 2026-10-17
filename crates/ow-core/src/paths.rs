@@ -44,6 +44,14 @@ impl Paths {
         })
     }
 
+    pub fn grants(&self) -> PathBuf {
+        self.config.join("grants.toml")
+    }
+
+    pub fn audit(&self) -> PathBuf {
+        self.state.join("audit.jsonl")
+    }
+
     pub fn socket(&self) -> PathBuf {
         self.runtime.join("owd.sock")
     }

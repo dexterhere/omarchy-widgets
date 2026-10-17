@@ -9,6 +9,12 @@ license = "MIT"
 rust-version = "1.85"
 publish = false
 
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.chacha20]
+opt-level = 3
+
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
 unwrap_used = "deny"

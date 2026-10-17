@@ -7,7 +7,7 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsE
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 const MAX_CONNECTIONS: usize = 32;
@@ -80,9 +80,11 @@ impl Server {
         let mut sb = DirBuilder::new();
         sb.recursive(true).mode(0o700);
         sb.create(&paths.state)?;
+        check_dir(&paths.state)?;
         let audit = AuditLog::open(&paths.audit())?;
         let shared = Arc::new(Shared {
-            grants,
+            grants: RwLock::new(grants),
+            grants_path: paths.grants(),
             audit: Mutex::new(audit),
             limiter: Mutex::new(RateLimiter::new(RATE_BURST, RATE_PER_SEC)),
             source,
@@ -130,10 +132,17 @@ impl Server {
         &self.path
     }
 
-    /// Accept loop until `stop` is set. Thread per connection, capped.
+    /// Accept loop until `stop` is set; `reload` (SIGHUP) re-reads the grants file.
+    /// Thread per connection, capped.
     // ponytail: polling accept + threads; move to tokio when providers need async.
-    pub fn run(&self, stop: &AtomicBool) {
+    pub fn run(&self, stop: &AtomicBool, reload: &AtomicBool) {
         while !stop.load(Ordering::Relaxed) {
+            if reload.swap(false, Ordering::Relaxed) {
+                match self.shared.reload_grants() {
+                    Ok(()) => eprintln!("owd: grants reloaded"),
+                    Err(e) => eprintln!("owd: grants reload failed ({e}); all access denied"),
+                }
+            }
             match self.listener.accept() {
                 Ok((stream, _)) => self.spawn(stream),
                 Err(e) if e.kind() == ErrorKind::WouldBlock => {

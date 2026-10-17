@@ -3,7 +3,8 @@ use ow_proto::{ErrorCode, FrameError, LineDecoder, MAX_LINE, Op, Reply, Request}
 use serde_json::{Map, Value, json};
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, PoisonError, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// True only for the daemon's own uid.
@@ -33,7 +34,8 @@ impl TopicSource for NoTopics {
 }
 
 pub(crate) struct Shared {
-    pub grants: Grants,
+    pub grants: RwLock<Grants>,
+    pub grants_path: PathBuf,
     pub audit: Mutex<AuditLog>,
     pub limiter: Mutex<RateLimiter>,
     pub source: Box<dyn TopicSource>,
@@ -42,6 +44,19 @@ pub(crate) struct Shared {
 /// Lock, recovering from poison: a panicked handler must not disable auditing.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl Shared {
+    /// Re-read grants.toml. On any error, drop to "no grants" (deny everything) and
+    /// report it: a half-edited or insecure file must never keep old access alive.
+    pub(crate) fn reload_grants(&self) -> Result<(), ow_core::GrantsError> {
+        let result = Grants::load(&self.grants_path);
+        let new = result
+            .as_ref()
+            .map_or_else(|_| Grants::default(), Clone::clone);
+        *self.grants.write().unwrap_or_else(PoisonError::into_inner) = new;
+        result.map(drop)
+    }
 }
 
 /// Grant check, rate limit, audit. Order matters: only granted pairs reach the limiter,
@@ -55,10 +70,17 @@ fn data_op(
     snapshot: bool,
 ) -> Reply {
     let deny = |code| {
+        // Best effort: a denied request releases nothing, so a failed audit write is harmless.
         lock(&shared.audit).record(widget, &topic, op, false, 0);
         Reply::err(id, code, Some(topic.clone()))
     };
-    let Some(grant) = shared.grants.find(widget, &topic) else {
+    let grant = shared
+        .grants
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .find(widget, &topic)
+        .cloned();
+    let Some(grant) = grant else {
         return deny(ErrorCode::Denied);
     };
     if !lock(&shared.limiter).allow(widget, &topic, Instant::now()) {
@@ -71,12 +93,20 @@ fn data_op(
         None
     };
     let Some(data) = data else {
-        lock(&shared.audit).record(widget, &topic, op, true, 0);
-        return Reply::err(id, ErrorCode::UnknownTopic, Some(topic));
+        let logged = lock(&shared.audit).record(widget, &topic, op, true, 0);
+        let code = if logged {
+            ErrorCode::UnknownTopic
+        } else {
+            ErrorCode::Internal
+        };
+        return Reply::err(id, code, Some(topic));
     };
     let data = grant.filter(data);
     let bytes = serde_json::to_string(&data).map_or(0, |s| s.len());
-    lock(&shared.audit).record(widget, &topic, op, true, bytes);
+    // Fail closed: data is released only after its audit line is written.
+    if !lock(&shared.audit).record(widget, &topic, op, true, bytes) {
+        return Reply::err(id, ErrorCode::Internal, Some(topic));
+    }
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
@@ -84,19 +114,26 @@ fn data_op(
     Reply::ok(id, body.as_object().cloned().unwrap_or_default())
 }
 
-fn handle(line: &str, shared: &Shared) -> Reply {
+/// Returns the reply and whether the frame was unparsable (counts toward the bad-frame cap;
+/// denied/rate-limited/unknown-topic replies to well-formed requests do not).
+fn handle(line: &str, shared: &Shared) -> (Reply, bool) {
     match Request::parse(line) {
-        Err(e) => Reply::err(e.id.unwrap_or(0), e.code, None),
-        Ok(req) => match req.op {
-            Op::Hello { .. } | Op::Status => Reply::ok(req.id, info()),
-            Op::Snapshot { widget, topic } => {
-                data_op(shared, req.id, "snapshot", &widget, topic, true)
-            }
-            Op::Subscribe { widget, topic, .. } => {
-                data_op(shared, req.id, "subscribe", &widget, topic, false)
-            }
-            Op::Unsubscribe { .. } | Op::Unknown => Reply::err(req.id, ErrorCode::BadRequest, None),
-        },
+        Err(e) => (Reply::err(e.id.unwrap_or(0), e.code, None), true),
+        Ok(req) => {
+            let reply = match req.op {
+                Op::Hello { .. } | Op::Status => Reply::ok(req.id, info()),
+                Op::Snapshot { widget, topic } => {
+                    data_op(shared, req.id, "snapshot", &widget, topic, true)
+                }
+                Op::Subscribe { widget, topic, .. } => {
+                    data_op(shared, req.id, "subscribe", &widget, topic, false)
+                }
+                Op::Unsubscribe { .. } | Op::Unknown => {
+                    Reply::err(req.id, ErrorCode::BadRequest, None)
+                }
+            };
+            (reply, false)
+        }
     }
 }
 
@@ -135,12 +172,12 @@ pub(crate) fn serve(mut stream: UnixStream, shared: &Shared) {
         loop {
             let reply = match dec.next_frame() {
                 Ok(Some(line)) => {
-                    let r = handle(&line, shared);
-                    if matches!(r, Reply::Err { .. }) {
+                    let (r, unparsable) = handle(&line, shared);
+                    if unparsable {
                         bad += 1;
                     } else {
                         bad = 0;
-                        // A real request was served: switch from the strict to the idle timeout.
+                        // A well-formed request: switch from the strict to the idle timeout.
                         if stream.set_read_timeout(Some(IDLE)).is_err() {
                             return;
                         }

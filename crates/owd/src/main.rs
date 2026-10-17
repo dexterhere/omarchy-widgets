@@ -25,9 +25,12 @@ fn run() -> Result<(), String> {
     for sig in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         signal_hook::flag::register(sig, Arc::clone(&stop)).map_err(|e| e.to_string())?;
     }
+    let reload = Arc::new(AtomicBool::new(false));
+    signal_hook::flag::register(signal_hook::consts::SIGHUP, Arc::clone(&reload))
+        .map_err(|e| e.to_string())?;
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
     eprintln!("owd {} listening", env!("CARGO_PKG_VERSION"));
-    server.run(&stop);
+    server.run(&stop, &reload);
     Ok(())
 }
 

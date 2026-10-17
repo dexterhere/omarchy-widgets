@@ -33,7 +33,7 @@ impl Harness {
         let server = Server::bind(&paths, source).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let s2 = Arc::clone(&stop);
-        let th = std::thread::spawn(move || server.run(&s2));
+        let th = std::thread::spawn(move || server.run(&s2, &AtomicBool::new(false)));
         Harness {
             paths,
             stop,
@@ -256,6 +256,24 @@ fn granted_but_unknown_topic_reports_unknown_topic() {
     let g = "[[grant]]\nwidget=\"w1\"\ntopics=[\"nope\"]\n";
     let h = Harness::start_with(Some(g), Box::new(Fake));
     assert!(snap(&h, 1, "w1", "nope").contains("unknown_topic"));
+}
+
+#[test]
+fn unknown_topic_replies_do_not_count_as_bad_frames() {
+    let g = "[[grant]]\nwidget=\"w1\"\ntopics=[\"nope\"]\n";
+    let h = Harness::start_with(Some(g), Box::new(Fake));
+    let mut s = h.connect();
+    let line = "{\"v\":0,\"id\":1,\"op\":\"snapshot\",\"widget\":\"w1\",\"topic\":\"nope\"}\n";
+    s.write_all(line.repeat(9).as_bytes()).unwrap();
+    let mut r = BufReader::new(s);
+    for _ in 0..9 {
+        let mut l = String::new();
+        assert!(r.read_line(&mut l).unwrap() > 0, "connection closed early");
+        assert!(
+            l.contains("unknown_topic") || l.contains("rate_limited"),
+            "{l}"
+        );
+    }
 }
 
 #[test]

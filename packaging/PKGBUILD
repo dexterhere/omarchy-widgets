@@ -8,16 +8,19 @@ url='https://github.com/dexterhere/omarchy-widgets'
 license=(MIT)
 depends=(gcc-libs)
 makedepends=(cargo git)
-# Release builds verify the maintainer's signature on the tag (`?signed`). validpgpkeys is empty
-# on purpose until the maintainer publishes a signing key: makepkg then fails closed instead of
-# building unverified source. [Maintainer task] add the full 40-hex key fingerprint below, and
-# sign release tags with `git tag -s`.
-# Local testing only: source=("omarchy-widgets::git+file://$PWD#branch=develop") and drop ?signed.
+# Release builds verify the maintainer's signature on the tag (`?signed`). NOTE: with an empty
+# validpgpkeys, makepkg accepts a valid signature from ANY key in the builder's keyring, so
+# prepare() refuses to build until a key is pinned. [Maintainer task] put the full 40-hex key
+# fingerprint below and sign release tags with `git tag -s`.
+# Local testing only: source=("omarchy-widgets::git+file://$PWD#branch=develop") and drop ?signed;
+# also skip the guard below by pinning any placeholder fingerprint in your private copy.
+source=("omarchy-widgets::git+file://$PWD#branch=develop") and drop ?signed.
 source=("omarchy-widgets::git+$url.git?signed#tag=v$pkgver")
 validpgpkeys=()
 sha256sums=(SKIP) # git sources are verified by the signed tag, not a hash
 
 prepare() {
+  (( ${#validpgpkeys[@]} )) || { error 'no validpgpkeys pinned: refusing to build unverified source'; return 1; }
   cd omarchy-widgets
   export RUSTUP_TOOLCHAIN=stable
   cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"

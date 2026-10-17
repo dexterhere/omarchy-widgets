@@ -1,0 +1,46 @@
+# Maintainer: the Omarchy widget layer contributors
+pkgname=omarchy-widgets
+pkgver=0.0.0
+pkgrel=1
+pkgdesc='Provider daemon (owd) and CLI (ow) for Omarchy desktop widgets: encrypted vault, grants, audit'
+arch=(x86_64)
+url='https://github.com/dexterhere/omarchy-widgets'
+license=(MIT)
+depends=(gcc-libs)
+makedepends=(cargo git)
+# Release builds verify the maintainer's signature on the tag (`?signed`). validpgpkeys is empty
+# on purpose until the maintainer publishes a signing key: makepkg then fails closed instead of
+# building unverified source. [Maintainer task] add the full 40-hex key fingerprint below, and
+# sign release tags with `git tag -s`.
+# Local testing only: source=("omarchy-widgets::git+file://$PWD#branch=develop") and drop ?signed.
+source=("omarchy-widgets::git+$url.git?signed#tag=v$pkgver")
+validpgpkeys=()
+sha256sums=(SKIP) # git sources are verified by the signed tag, not a hash
+
+prepare() {
+  cd omarchy-widgets
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd omarchy-widgets
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p owd -p ow
+}
+
+check() {
+  cd omarchy-widgets
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo test --frozen --workspace
+}
+
+package() {
+  cd omarchy-widgets
+  install -Dm755 target/release/owd "$pkgdir/usr/bin/owd"
+  install -Dm755 target/release/ow "$pkgdir/usr/bin/ow"
+  install -Dm644 packaging/owd.service "$pkgdir/usr/lib/systemd/user/owd.service"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 SECURITY.md "$pkgdir/usr/share/doc/$pkgname/SECURITY.md"
+  install -Dm644 docs/threat-model.md "$pkgdir/usr/share/doc/$pkgname/threat-model.md"
+}

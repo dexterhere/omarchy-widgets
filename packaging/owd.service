@@ -1,0 +1,22 @@
+# Starting point from docs/DAEMON_SPEC.md section 10.
+# Not yet verified with `systemd-analyze --user security owd`; keep the strongest set that works.
+[Unit]
+Description=Widget provider daemon
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/owd
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/owd %h/.local/state/owd %h/.config/owd
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallFilter=@system-service
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+LockPersonality=yes
+
+[Install]
+WantedBy=default.target

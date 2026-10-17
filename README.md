@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo-light.svg" alt="Omarchy Widgets" width="520">
+  </picture>
+</p>
+
 # Omarchy Widgets
 
 **Desktop widgets for [Omarchy](https://omarchy.org) that handle your data safely.**

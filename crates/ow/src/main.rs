@@ -1,10 +1,12 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::print_stdout)] // CLI output is its job
 
+mod input;
+mod vault_cmd;
+
 use ow_core::Paths;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 fn status(paths: &Paths) -> Result<String, String> {
@@ -20,11 +22,12 @@ fn status(paths: &Paths) -> Result<String, String> {
 }
 
 fn run() -> Result<(), String> {
+    ow_core::harden_process().map_err(|e| format!("hardening failed: {e}"))?;
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let paths = if args.first().map(String::as_str) == Some("--config-dir") && args.len() >= 2 {
-        let dir = PathBuf::from(args.remove(1));
+        let dir = args.remove(1);
         args.remove(0);
-        Paths::under(&dir)
+        Paths::from_config_dir(&dir)?
     } else {
         Paths::from_env()?
     };
@@ -33,7 +36,8 @@ fn run() -> Result<(), String> {
             println!("{}", status(&paths)?);
             Ok(())
         }
-        _ => Err("usage: ow [--config-dir DIR] status".into()),
+        Some("vault") => vault_cmd::run(&paths, &args[1..], &mut std::io::stdout()),
+        _ => Err("usage: ow [--config-dir DIR] status | vault ...".into()),
     }
 }
 

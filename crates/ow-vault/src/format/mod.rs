@@ -45,6 +45,10 @@ pub enum VaultError {
     Insecure,
     #[error("vault io error")]
     Io,
+    #[error("no vault at that path")]
+    NotFound,
+    #[error("secret value must not be empty")]
+    EmptyValue,
     #[error("entropy source failed")]
     Entropy,
 }
@@ -287,6 +291,14 @@ pub(crate) fn decode(
     let plain = open(&data_key, &pn, &bytes[..wrapped_end], pct)?;
     let records = decode_records(&plain)?;
     Ok((header, data_key, records))
+}
+
+pub(crate) fn fuzz_records(bytes: &[u8]) -> bool {
+    decode_records(bytes).is_ok()
+}
+
+pub(crate) fn fuzz_decode(bytes: &[u8]) -> bool {
+    decode(bytes, |_| Ok(Zeroizing::new([0u8; 32]))).is_ok()
 }
 
 #[cfg(test)]

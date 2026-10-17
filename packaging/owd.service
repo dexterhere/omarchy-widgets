@@ -1,5 +1,11 @@
-# Starting point from docs/DAEMON_SPEC.md section 10, amended after review.
-# NOT yet verified with `systemctl --user start owd` / `systemd-analyze --user security owd`.
+# Sandboxed user service for owd (docs/DAEMON_SPEC.md section 10).
+# Verified 2026-10-17: `systemd-analyze --user security --offline` exposure 2.5 OK, and the same
+# directives (as a transient unit, throwaway dirs) start with Type=notify, answer `ow status`,
+# log to the journal and remove the socket on stop. Not yet run as an installed unit against the
+# real home directories.
+# Deliberately NOT set: ProcSubset=pid (the system provider reads /proc/stat, /proc/meminfo,
+# /proc/loadavg), IPAddressDeny (network providers need egress; use per-provider allow-lists),
+# PrivateUsers.
 # Open: there is no DataDirectory= directive, so ~/.local/share/owd must exist before start
 # (the "-" prefix tolerates absence, but then the vault dir is read-only). The package
 # post-install step or `ow` must create it.
@@ -34,6 +40,7 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 KeyringMode=private
+ProtectProc=invisible
 
 [Install]
 WantedBy=default.target

@@ -1,5 +1,8 @@
-# Starting point from docs/DAEMON_SPEC.md section 10.
-# Not yet verified with `systemd-analyze --user security owd`; keep the strongest set that works.
+# Starting point from docs/DAEMON_SPEC.md section 10, amended after review.
+# NOT yet verified with `systemctl --user start owd` / `systemd-analyze --user security owd`.
+# Open: there is no DataDirectory= directive, so ~/.local/share/owd must exist before start
+# (the "-" prefix tolerates absence, but then the vault dir is read-only). The package
+# post-install step or `ow` must create it.
 [Unit]
 Description=Widget provider daemon
 
@@ -7,16 +10,28 @@ Description=Widget provider daemon
 Type=notify
 ExecStart=/usr/bin/owd
 Restart=on-failure
+UMask=0077
+RuntimeDirectory=owd
+RuntimeDirectoryMode=0700
+StateDirectory=owd
+ConfigurationDirectory=owd
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%h/.local/share/owd %h/.local/state/owd %h/.config/owd
+ReadWritePaths=-%h/.local/share/owd
 PrivateTmp=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallFilter=@system-service
+SystemCallArchitectures=native
 MemoryDenyWriteExecute=yes
 CapabilityBoundingSet=
 LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+KeyringMode=private
 
 [Install]
 WantedBy=default.target

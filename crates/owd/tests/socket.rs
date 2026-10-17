@@ -155,3 +155,34 @@ fn non_socket_at_socket_path_is_refused() {
     assert!(Server::bind(&p).is_err());
     assert!(p.socket().exists(), "must not delete a foreign file");
 }
+
+#[test]
+fn repeated_garbage_gets_disconnected() {
+    let h = Harness::start();
+    let mut s = h.connect();
+    s.write_all(&b"x\n".repeat(20)).unwrap();
+    let mut out = String::new();
+    s.read_to_string(&mut out).unwrap(); // must reach EOF, not hang
+    assert_eq!(out.matches("bad_request").count(), 8, "{out}");
+}
+
+#[test]
+fn concurrent_start_is_refused_by_lock() {
+    let h = Harness::start();
+    // Even with the socket file removed, the held lock blocks a second daemon.
+    std::fs::remove_file(h.paths.socket()).unwrap();
+    let e = Server::bind(&h.paths).err().expect("must refuse");
+    assert_eq!(e.kind(), std::io::ErrorKind::AddrInUse);
+}
+
+#[test]
+fn full_session_leaves_only_expected_files() {
+    let h = Harness::start();
+    let _ = h.ask("{\"v\":0,\"id\":1,\"op\":\"status\"}\n");
+    let mut names: Vec<_> = std::fs::read_dir(&h.paths.runtime)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["owd.lock", "owd.sock"]);
+}

@@ -1,9 +1,9 @@
 use crate::conn;
 use ow_core::Paths;
 use rustix::fs::FileType;
-use std::fs::DirBuilder;
+use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::{self, ErrorKind};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -12,7 +12,18 @@ use std::time::Duration;
 
 const MAX_CONNECTIONS: usize = 32;
 
+/// Frees a connection slot on drop, including when a handler thread panics.
+struct Slot(Arc<AtomicUsize>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 pub struct Server {
+    // Held for the daemon's lifetime: serialises concurrent starts (flock).
+    _lock: File,
     listener: UnixListener,
     path: PathBuf,
     active: Arc<AtomicUsize>,
@@ -59,6 +70,15 @@ impl Server {
         b.recursive(true).mode(0o700);
         b.create(&paths.runtime)?;
         check_dir(&paths.runtime)?;
+        // Exclusive lock first, so two concurrent starts cannot both pass the stale check.
+        let lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .mode(0o600)
+            .open(paths.runtime.join("owd.lock"))?;
+        rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive)
+            .map_err(|_| io::Error::new(ErrorKind::AddrInUse, "owd is already running"))?;
         let path = paths.socket();
         match std::fs::symlink_metadata(&path) {
             Ok(md) => {
@@ -81,6 +101,7 @@ impl Server {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
         listener.set_nonblocking(true)?;
         Ok(Server {
+            _lock: lock,
             listener,
             path,
             active: Arc::new(AtomicUsize::new(0)),
@@ -110,11 +131,13 @@ impl Server {
             self.active.fetch_sub(1, Ordering::AcqRel);
             return; // drop: over the connection cap
         }
-        let active = Arc::clone(&self.active);
-        std::thread::spawn(move || {
+        let slot = Slot(Arc::clone(&self.active));
+        // Builder::spawn returns Err instead of panicking when the OS refuses a thread;
+        // the closure (and its Slot) is dropped, which frees the slot.
+        let _ = std::thread::Builder::new().spawn(move || {
+            let _slot = slot;
             let _ = stream.set_nonblocking(false);
             conn::serve(stream);
-            active.fetch_sub(1, Ordering::AcqRel);
         });
     }
 }

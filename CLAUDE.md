@@ -51,7 +51,10 @@ A layer on top of Omarchy's existing plugin system, not a replacement. Parts: (1
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo deny check && cargo audit
-cargo run -p owd -- --config-dir "$TMPDIR/owd-dev"     # always a throwaway dir
+# daemon against a throwaway dir; keep the path short (Unix socket paths max 108 bytes) and absolute
+D=$(mktemp -d -p /tmp owd.XXXX); cargo run -p owd -- --config-dir "$D"
+cargo run -p ow -- --config-dir "$D" status
+(cd fuzz && cargo +nightly fuzz run <target>)          # frame_decoder request_parse grants_parse vault_open vault_payload
 qmllint path/to/*.qml
 ```
 

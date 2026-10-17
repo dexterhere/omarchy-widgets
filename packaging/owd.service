@@ -1,0 +1,46 @@
+# Sandboxed user service for owd (docs/DAEMON_SPEC.md section 10).
+# Verified 2026-10-17: `systemd-analyze --user security --offline` exposure 2.5 OK, and the same
+# directives (as a transient unit, throwaway dirs) start with Type=notify, answer `ow status`,
+# log to the journal and remove the socket on stop. Not yet run as an installed unit against the
+# real home directories.
+# Deliberately NOT set: ProcSubset=pid (the system provider reads /proc/stat, /proc/meminfo,
+# /proc/loadavg), IPAddressDeny (network providers need egress; use per-provider allow-lists),
+# PrivateUsers.
+# Open: there is no DataDirectory= directive, so ~/.local/share/owd must exist before start
+# (the "-" prefix tolerates absence, but then the vault dir is read-only). The package
+# post-install step or `ow` must create it.
+[Unit]
+Description=Widget provider daemon
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/owd
+Restart=on-failure
+UMask=0077
+RuntimeDirectory=owd
+RuntimeDirectoryMode=0700
+StateDirectory=owd
+StateDirectoryMode=0700
+ConfigurationDirectory=owd
+ConfigurationDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=-%h/.local/share/owd
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+KeyringMode=private
+ProtectProc=invisible
+
+[Install]
+WantedBy=default.target

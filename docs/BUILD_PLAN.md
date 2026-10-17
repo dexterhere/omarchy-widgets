@@ -31,6 +31,20 @@ packaging/            PKGBUILD, systemd unit
 
 Note: an Omarchy plugin install requires exactly one `manifest.json` at a repository root. Monorepo widgets therefore need mirror repos (or Plugin Depot-style single-commit fetch) for standalone `omarchy plugin add`. Decide this in Phase 0.
 
+## Progress (updated 2026-10-17)
+
+Phase 1, epic 1 (daemon core) is largely done ahead of the Phase 0 spikes because it is host-independent:
+
+- [x] Workspace, lints, CI (fmt, clippy, test, deny, audit), fuzz targets and fuzz CI
+- [x] DAEMON_SPEC step 1 and 2: skeleton, socket server, identity, codec (systemd unit written, **not yet verified** under `systemctl --user`)
+- [x] Step 3: grants, rate limit, redacted audit log
+- [x] Step 4 (partly): vault format v0.1 and passphrase mode, `ow vault` CLI. Keyring and TPM modes wait for spike S4; kernel-keyring key caching and daemon unlock are not built
+- [x] Step 5: provider hub, scheduler, push, `system` provider
+- [ ] Step 6 network providers, step 7 hardening/PKGBUILD/outside review
+- [ ] Epics 2 to 7 (bridge and kit, canvas, `ow` manager verbs, Widget Center, first widgets, packaging)
+
+Phase 0 spikes S1 to S13 and all **[Dexter]** tasks are untouched. Machine facts: bare metal Omarchy 4.0.4, Quickshell 0.3.1, Hyprland 0.56.2, TPM2 present (see DECISIONS.md).
+
 ## Phase 0: spikes and decisions (about 2 weeks)
 
 Goal: replace guesses with facts and settle the host and name. No production code beyond throwaway spikes, except the daemon skeleton if it falls out naturally.

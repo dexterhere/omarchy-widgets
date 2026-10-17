@@ -22,6 +22,7 @@ dependencies = [
  "blake2",
  "cpufeatures",
  "password-hash",
+ "zeroize",
 ]
 
 [[package]]
@@ -90,6 +91,7 @@ dependencies = [
  "cfg-if",
  "cipher",
  "cpufeatures",
+ "zeroize",
 ]
 
 [[package]]
@@ -102,6 +104,7 @@ dependencies = [
  "chacha20",
  "cipher",
  "poly1305",
+ "zeroize",
 ]
 
 [[package]]
@@ -329,6 +332,7 @@ dependencies = [
  "getrandom 0.4.3",
  "proptest",
  "rustix",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",
@@ -791,6 +795,9 @@ name = "zeroize"
 version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "zmij"

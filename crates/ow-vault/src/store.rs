@@ -2,16 +2,19 @@ use crate::format::{
     Header, Key32, MAX_FILE, MAX_RECORDS, MAX_VALUE, Mode, Profile, Records, VaultError, decode,
     encode, new_key, random, valid_name,
 };
+use rustix::fs::{CWD, OFlags, RenameFlags, renameat_with};
+use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
 
 const MIN_PASSPHRASE: usize = 12;
 
 /// An unlocked vault. Holds the master and data keys in zeroizing buffers for as long as it
-/// lives; drop it to lock.
+/// lives; drop it to lock. Every mutation re-reads the file under the write lock, so a stale
+/// handle fails with `Stale` instead of overwriting newer state.
 pub struct Vault {
     path: PathBuf,
     header: Header,
@@ -24,15 +27,43 @@ fn io<E>(_: E) -> VaultError {
     VaultError::Io
 }
 
+/// `<path><suffix>` appended to the full file name (never replaces an extension, so
+/// sidecar files cannot alias the vault itself).
+fn sidecar(path: &Path, suffix: &str) -> PathBuf {
+    let mut s: OsString = path.as_os_str().to_owned();
+    s.push(suffix);
+    PathBuf::from(s)
+}
+
+fn is_private_regular(md: &std::fs::Metadata) -> bool {
+    md.is_file() && md.mode() & 0o077 == 0 && md.uid() == rustix::process::geteuid().as_raw()
+}
+
+fn open_nofollow(path: &Path, opts: &mut OpenOptions) -> std::io::Result<File> {
+    opts.custom_flags((OFlags::NOFOLLOW | OFlags::NONBLOCK).bits() as i32)
+        .open(path)
+}
+
 /// Exclusive writer lock, held for the duration of one mutation.
 fn lock(path: &Path) -> Result<File, VaultError> {
-    let f = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .mode(0o600)
-        .open(path.with_extension("lock"))
-        .map_err(io)?;
+    let p = sidecar(path, ".lock");
+    let f = open_nofollow(
+        &p,
+        OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .mode(0o600),
+    )
+    .map_err(io)?;
+    if !is_private_regular(&f.metadata().map_err(io)?) {
+        // Pre-existing file with a loose mode: tighten once, then re-check ownership/type.
+        f.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(io)?;
+        if !is_private_regular(&f.metadata().map_err(io)?) {
+            return Err(VaultError::Insecure);
+        }
+    }
     rustix::fs::flock(&f, rustix::fs::FlockOperation::NonBlockingLockExclusive)
         .map_err(|_| VaultError::Busy)?;
     Ok(f)
@@ -40,14 +71,8 @@ fn lock(path: &Path) -> Result<File, VaultError> {
 
 /// Read with O_NOFOLLOW, check the open descriptor (regular, ours, no group/other access).
 fn read_private(path: &Path) -> Result<Vec<u8>, VaultError> {
-    let flags = rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK;
-    let f = OpenOptions::new()
-        .read(true)
-        .custom_flags(flags.bits() as i32)
-        .open(path)
-        .map_err(io)?;
-    let md = f.metadata().map_err(io)?;
-    if !md.is_file() || md.mode() & 0o077 != 0 || md.uid() != rustix::process::geteuid().as_raw() {
+    let f = open_nofollow(path, OpenOptions::new().read(true)).map_err(io)?;
+    if !is_private_regular(&f.metadata().map_err(io)?) {
         return Err(VaultError::Insecure);
     }
     let mut buf = Vec::new();
@@ -60,28 +85,56 @@ fn read_private(path: &Path) -> Result<Vec<u8>, VaultError> {
     Ok(buf)
 }
 
-/// temp file (0600) in the same directory, fsync, rename, fsync directory.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), VaultError> {
-    let tmp = path.with_extension("tmp");
-    let _ = std::fs::remove_file(&tmp);
+enum Commit {
+    /// Renamed and the directory synced.
+    Durable,
+    /// Renamed, but the directory fsync failed: the new file is visible, durability unknown.
+    NotSynced,
+}
+
+/// Unique temp file (0600, create_new) in the same directory, fsync, rename, fsync directory.
+/// With `replace == false` the rename refuses to overwrite (`Exists`), closing the window
+/// between an existence check and the rename.
+fn write_atomic(path: &Path, bytes: &[u8], replace: bool) -> Result<Commit, VaultError> {
+    let tmp = sidecar(path, &format!(".{}.tmp", hex(&random::<8>()?)));
     let mut f = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(&tmp)
         .map_err(io)?;
-    let res = f
-        .write_all(bytes)
-        .and_then(|()| f.sync_all())
-        .and_then(|()| std::fs::rename(&tmp, path));
-    if res.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(VaultError::Io);
+    let res = f.write_all(bytes).and_then(|()| f.sync_all());
+    let res = res.map_err(io).and_then(|()| {
+        let flags = if replace {
+            RenameFlags::empty()
+        } else {
+            RenameFlags::NOREPLACE
+        };
+        renameat_with(CWD, &tmp, CWD, path, flags).map_err(|e| {
+            if e == rustix::io::Errno::EXIST {
+                VaultError::Exists
+            } else {
+                VaultError::Io
+            }
+        })
+    });
+    if let Err(e) = res {
+        let _ = std::fs::remove_file(&tmp); // our own unique temp file only
+        return Err(e);
     }
-    if let Some(dir) = path.parent() {
-        File::open(dir).and_then(|d| d.sync_all()).map_err(io)?;
-    }
-    Ok(())
+    let dir = match path.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d,
+        _ => Path::new("."),
+    };
+    Ok(if File::open(dir).and_then(|d| d.sync_all()).is_ok() {
+        Commit::Durable
+    } else {
+        Commit::NotSynced
+    })
+}
+
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 fn check_passphrase(p: &[u8]) -> Result<(), VaultError> {
@@ -92,29 +145,42 @@ fn check_passphrase(p: &[u8]) -> Result<(), VaultError> {
     }
 }
 
+fn check_new_profile(p: Profile) -> Result<(), VaultError> {
+    // Minimum exists so old files can still be opened; new vaults use Standard or Strong.
+    if p == Profile::Minimum {
+        Err(VaultError::ProfileNotAllowed)
+    } else {
+        Ok(())
+    }
+}
+
 impl Vault {
     /// New passphrase vault. Passphrase bytes are used exactly as given (no normalization,
     /// no trimming; callers strip one trailing newline when reading stdin).
     pub fn create(path: &Path, passphrase: &[u8], profile: Profile) -> Result<Vault, VaultError> {
+        check_new_profile(profile)?;
+        Self::create_inner(path, passphrase, profile)
+    }
+
+    fn create_inner(path: &Path, passphrase: &[u8], profile: Profile) -> Result<Vault, VaultError> {
         check_passphrase(passphrase)?;
         let _lock = lock(path)?;
-        if std::fs::symlink_metadata(path).is_ok() {
-            return Err(VaultError::Exists);
-        }
         let salt = random::<16>()?;
-        let header = Header {
-            file_id: random::<16>()?,
-            mode: Mode::Passphrase { profile, salt },
-        };
         let v = Vault {
             path: path.to_owned(),
+            header: Header {
+                file_id: random::<16>()?,
+                mode: Mode::Passphrase { profile, salt },
+            },
             master: profile.derive(passphrase, &salt)?,
             data_key: new_key()?,
             records: Records::new(),
-            header,
         };
-        v.save(&v.records)?;
-        Ok(v)
+        // NOREPLACE: refuses to clobber a file that appeared at any point, not just now.
+        match v.save(&v.data_key, &v.records, false)? {
+            Commit::Durable => Ok(v),
+            Commit::NotSynced => Err(VaultError::Io),
+        }
     }
 
     pub fn open(path: &Path, passphrase: &[u8]) -> Result<Vault, VaultError> {
@@ -144,7 +210,6 @@ impl Vault {
         self.records.keys().map(String::as_str)
     }
 
-    /// Takes the value as bytes the caller already owns; it is stored zeroizing.
     pub fn set(&mut self, name: &str, value: &str) -> Result<(), VaultError> {
         if !valid_name(name) {
             return Err(VaultError::InvalidName);
@@ -152,33 +217,28 @@ impl Vault {
         if value.len() > MAX_VALUE {
             return Err(VaultError::TooLarge);
         }
-        let mut next = self.records.clone();
-        next.insert(name.to_owned(), Zeroizing::new(value.to_owned()));
-        if next.len() > MAX_RECORDS {
-            return Err(VaultError::TooLarge);
-        }
-        let _lock = lock(&self.path)?;
-        self.save(&next)?;
-        self.records = next;
-        Ok(())
+        self.mutate(|r| {
+            r.insert(name.to_owned(), Zeroizing::new(value.to_owned()));
+            if r.len() > MAX_RECORDS {
+                Err(VaultError::TooLarge)
+            } else {
+                Ok(true)
+            }
+        })
+        .map(drop)
     }
 
     pub fn remove(&mut self, name: &str) -> Result<bool, VaultError> {
-        let mut next = self.records.clone();
-        if next.remove(name).is_none() {
-            return Ok(false);
-        }
-        let _lock = lock(&self.path)?;
-        self.save(&next)?;
-        self.records = next;
-        Ok(true)
+        self.mutate(|r| Ok(r.remove(name).is_some()))
     }
 
     /// New passphrase, new salt, new profile and a NEW DATA KEY; everything is re-sealed so an
     /// archived old header plus the old passphrase cannot open the new file.
     pub fn rotate_passphrase(&mut self, new: &[u8], profile: Profile) -> Result<(), VaultError> {
+        check_new_profile(profile)?;
         check_passphrase(new)?;
         let _lock = lock(&self.path)?;
+        let (_, _, records) = self.current()?;
         let salt = random::<16>()?;
         let next = Vault {
             path: self.path.clone(),
@@ -188,15 +248,118 @@ impl Vault {
             },
             master: profile.derive(new, &salt)?,
             data_key: new_key()?,
-            records: self.records.clone(),
+            records,
         };
-        next.save(&next.records)?;
-        *self = next;
-        Ok(())
+        let commit = next.save(&next.data_key, &next.records, true);
+        // The rename may have happened even if a later step failed; keep memory in step with disk.
+        if commit.is_ok() {
+            *self = next;
+        }
+        commit.and_then(durable)
     }
 
-    fn save(&self, records: &Records) -> Result<(), VaultError> {
-        let bytes = encode(&self.header, &self.master, &self.data_key, records)?;
-        write_atomic(&self.path, &bytes)
+    /// Re-read the file under the lock using the master key we hold. A rotation by another
+    /// handle changes the master key, so decoding fails and we report `Stale`.
+    fn current(&self) -> Result<(Header, Key32, Records), VaultError> {
+        let bytes = read_private(&self.path)?;
+        decode(&bytes, |_| Ok(self.master.clone())).map_err(|e| match e {
+            VaultError::WrongKey => VaultError::Stale,
+            other => other,
+        })
+    }
+
+    /// Lock, take the latest on-disk records, apply `f`, write. `f` returns whether anything
+    /// changed. Memory is updated whenever the new file became visible.
+    fn mutate(
+        &mut self,
+        f: impl FnOnce(&mut Records) -> Result<bool, VaultError>,
+    ) -> Result<bool, VaultError> {
+        let _lock = lock(&self.path)?;
+        let (header, data_key, mut records) = self.current()?;
+        let changed = f(&mut records)?;
+        if !changed {
+            self.records = records;
+            return Ok(false);
+        }
+        let probe = Vault {
+            path: self.path.clone(),
+            header,
+            master: self.master.clone(),
+            data_key,
+            records: Records::new(),
+        };
+        let commit = probe.save(&probe.data_key, &records, true);
+        if commit.is_ok() {
+            self.header = probe.header;
+            self.data_key = probe.data_key;
+            self.records = records;
+        }
+        commit.and_then(durable).map(|()| true)
+    }
+
+    fn save(
+        &self,
+        data_key: &Key32,
+        records: &Records,
+        replace: bool,
+    ) -> Result<Commit, VaultError> {
+        let bytes = encode(&self.header, &self.master, data_key, records)?;
+        write_atomic(&self.path, &bytes, replace)
+    }
+}
+
+fn durable(c: Commit) -> Result<(), VaultError> {
+    match c {
+        Commit::Durable => Ok(()),
+        Commit::NotSynced => Err(VaultError::Io),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    const PW: &[u8] = b"correct horse battery";
+
+    #[test]
+    fn rotation_replaces_the_data_key() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("v.owv");
+        let mut v = Vault::create_inner(&p, PW, Profile::Minimum).unwrap();
+        let before = v.data_key.clone();
+        v.rotate_passphrase(b"another long passphrase", Profile::Standard)
+            .unwrap();
+        assert_ne!(*before, *v.data_key);
+    }
+
+    #[test]
+    fn vault_named_like_its_sidecars_is_safe() {
+        let d = tempfile::tempdir().unwrap();
+        for name in ["v.tmp", ".lock", "v.lock"] {
+            let p = d.path().join(name);
+            let mut v = Vault::create_inner(&p, PW, Profile::Minimum).unwrap();
+            v.set("a", "x").unwrap();
+            assert_eq!(Vault::open(&p, PW).unwrap().get("a"), Some("x"), "{name}");
+        }
+    }
+
+    #[test]
+    fn unrelated_neighbour_file_survives_and_relative_path_works() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("vault.tmp"), b"user data").unwrap();
+        let p = d.path().join("vault.owv");
+        let mut v = Vault::create_inner(&p, PW, Profile::Minimum).unwrap();
+        v.set("a", "x").unwrap();
+        assert_eq!(
+            std::fs::read(d.path().join("vault.tmp")).unwrap(),
+            b"user data"
+        );
+        // Bare relative file name: parent() is "" and must not break the directory sync.
+        let cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(d.path()).unwrap();
+        let r = Vault::create_inner(Path::new("rel.owv"), PW, Profile::Minimum);
+        std::env::set_current_dir(cwd).unwrap();
+        assert!(r.is_ok());
     }
 }

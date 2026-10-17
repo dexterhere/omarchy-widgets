@@ -18,6 +18,7 @@ pub(crate) const MAX_FILE: usize =
     FIXED_HEADER + 17 + 24 + WRAPPED_LEN + 24 + 4 + MAX_PLAINTEXT + TAG;
 
 pub type Key32 = Zeroizing<[u8; 32]>;
+/// Values are zeroized. Names are labels, not secrets, and are kept as plain strings.
 pub type Records = BTreeMap<String, Zeroizing<String>>;
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -34,6 +35,10 @@ pub enum VaultError {
     WeakPassphrase,
     #[error("vault already exists")]
     Exists,
+    #[error("the vault changed on disk or was rotated by another handle; reopen it")]
+    Stale,
+    #[error("this Argon2 profile is not allowed for new vaults or rotation")]
+    ProfileNotAllowed,
     #[error("vault is in use by another process")]
     Busy,
     #[error("vault file is not private (mode/owner/type)")]
@@ -78,8 +83,12 @@ impl Profile {
         let (m, t, p) = self.cost();
         let params = Params::new(m, t, p, Some(32)).map_err(|_| VaultError::Corrupt)?;
         let mut out = Zeroizing::new([0u8; 32]);
-        Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
-            .hash_password_into(passphrase, salt, out.as_mut())
+        let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+        // Caller-owned memory so the password-derived state is wiped when it drops.
+        let mut blocks: Zeroizing<Vec<argon2::Block>> =
+            Zeroizing::new(vec![argon2::Block::default(); argon.params().block_count()]);
+        argon
+            .hash_password_into_with_memory(passphrase, salt, out.as_mut(), blocks.as_mut_slice())
             .map_err(|_| VaultError::Corrupt)?;
         Ok(out)
     }
@@ -117,12 +126,20 @@ pub(crate) fn random<const N: usize>() -> Result<[u8; N], VaultError> {
 }
 
 pub(crate) fn new_key() -> Result<Key32, VaultError> {
-    Ok(Zeroizing::new(random::<32>()?))
+    let mut k = Zeroizing::new([0u8; 32]);
+    getrandom::fill(k.as_mut()).map_err(|_| VaultError::Entropy)?;
+    Ok(k)
+}
+
+/// Borrow the key (no stack copy); the cipher zeroizes its own state on drop.
+fn cipher(key: &[u8; 32]) -> Result<XChaCha20Poly1305, VaultError> {
+    let k = <&Key>::try_from(key.as_slice()).map_err(|_| VaultError::Corrupt)?;
+    Ok(XChaCha20Poly1305::new(k))
 }
 
 fn seal(key: &[u8; 32], aad: &[u8], plaintext: &[u8]) -> Result<([u8; 24], Vec<u8>), VaultError> {
     let nonce = random::<24>()?; // fresh for every seal
-    let c = XChaCha20Poly1305::new(&Key::from(*key));
+    let c = cipher(key)?;
     let ct = c
         .encrypt(
             &XNonce::from(nonce),
@@ -141,7 +158,7 @@ fn open(
     aad: &[u8],
     ct: &[u8],
 ) -> Result<Zeroizing<Vec<u8>>, VaultError> {
-    let c = XChaCha20Poly1305::new(&Key::from(*key));
+    let c = cipher(key)?;
     c.decrypt(&XNonce::from(*nonce), Payload { msg: ct, aad })
         .map(Zeroizing::new)
         .map_err(|_| VaultError::WrongKey)
@@ -165,12 +182,7 @@ fn encode_records(r: &Records) -> Result<Zeroizing<Vec<u8>>, VaultError> {
 }
 
 fn decode_records(bytes: &[u8]) -> Result<Records, VaultError> {
-    let parsed: BTreeMap<String, String> =
-        serde_json::from_slice(bytes).map_err(|_| VaultError::Corrupt)?;
-    let recs: Records = parsed
-        .into_iter()
-        .map(|(k, v)| (k, Zeroizing::new(v)))
-        .collect();
+    let recs: Records = serde_json::from_slice(bytes).map_err(|_| VaultError::Corrupt)?;
     if recs.len() > MAX_RECORDS
         || recs
             .iter()

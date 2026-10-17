@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)] // test code
 use ow_core::Paths;
-use owd::Server;
+use owd::{NoTopics, Server, TopicSource};
+use serde_json::{Map, Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
@@ -17,9 +18,19 @@ struct Harness {
 
 impl Harness {
     fn start() -> Harness {
+        Self::start_with(None, Box::new(NoTopics))
+    }
+
+    fn start_with(grants: Option<&str>, source: Box<dyn TopicSource>) -> Harness {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::under(dir.path());
-        let server = Server::bind(&paths).unwrap();
+        if let Some(g) = grants {
+            std::fs::create_dir_all(&paths.config).unwrap();
+            let p = paths.grants();
+            std::fs::write(&p, g).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let server = Server::bind(&paths, source).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let s2 = Arc::clone(&stop);
         let th = std::thread::spawn(move || server.run(&s2));
@@ -123,17 +134,19 @@ fn oversize_line_closes_connection() {
 #[test]
 fn second_instance_refused_and_stale_socket_replaced() {
     let h = Harness::start();
-    let e = Server::bind(&h.paths).err().expect("must refuse");
+    let e = Server::bind(&h.paths, Box::new(NoTopics))
+        .err()
+        .expect("must refuse");
     assert_eq!(e.kind(), std::io::ErrorKind::AddrInUse);
 
     // A stale socket file (nobody listening) is replaced.
     let dir = tempfile::tempdir().unwrap();
     let p = Paths::under(dir.path());
-    drop(Server::bind(&p).unwrap()); // Drop removes the socket...
+    drop(Server::bind(&p, Box::new(NoTopics)).unwrap()); // Drop removes the socket...
     std::os::unix::net::UnixListener::bind(p.socket())
         .map(drop)
         .unwrap(); // ...recreate a dead one
-    assert!(Server::bind(&p).is_ok());
+    assert!(Server::bind(&p, Box::new(NoTopics)).is_ok());
 }
 
 #[test]
@@ -142,7 +155,7 @@ fn unsafe_socket_dir_is_refused() {
     let p = Paths::under(dir.path());
     std::fs::create_dir_all(&p.runtime).unwrap();
     std::fs::set_permissions(&p.runtime, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert!(Server::bind(&p).is_err());
+    assert!(Server::bind(&p, Box::new(NoTopics)).is_err());
 }
 
 #[test]
@@ -152,7 +165,7 @@ fn non_socket_at_socket_path_is_refused() {
     std::fs::create_dir_all(&p.runtime).unwrap();
     std::fs::set_permissions(&p.runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
     std::fs::write(p.socket(), b"x").unwrap();
-    assert!(Server::bind(&p).is_err());
+    assert!(Server::bind(&p, Box::new(NoTopics)).is_err());
     assert!(p.socket().exists(), "must not delete a foreign file");
 }
 
@@ -171,7 +184,9 @@ fn concurrent_start_is_refused_by_lock() {
     let h = Harness::start();
     // Even with the socket file removed, the held lock blocks a second daemon.
     std::fs::remove_file(h.paths.socket()).unwrap();
-    let e = Server::bind(&h.paths).err().expect("must refuse");
+    let e = Server::bind(&h.paths, Box::new(NoTopics))
+        .err()
+        .expect("must refuse");
     assert_eq!(e.kind(), std::io::ErrorKind::AddrInUse);
 }
 
@@ -185,4 +200,106 @@ fn full_session_leaves_only_expected_files() {
         .collect();
     names.sort();
     assert_eq!(names, ["owd.lock", "owd.sock"]);
+}
+
+const SECRET: &str = "FAKE-SECRET-VALUE-9f3a";
+
+struct Fake;
+
+impl TopicSource for Fake {
+    fn snapshot(&self, topic: &str) -> Option<Map<String, Value>> {
+        (topic == "github.prs").then(|| {
+            json!({"open": 3, "review": 1, "token": SECRET})
+                .as_object()
+                .cloned()
+                .unwrap()
+        })
+    }
+}
+
+const GRANTS: &str =
+    "[[grant]]\nwidget=\"w1\"\ntopics=[\"github.prs\"]\nfields=[\"open\",\"review\"]\n";
+
+fn snap(h: &Harness, id: u32, widget: &str, topic: &str) -> String {
+    h.ask(&format!("{{\"v\":0,\"id\":{id},\"op\":\"snapshot\",\"widget\":\"{widget}\",\"topic\":\"{topic}\"}}\n"))
+}
+
+fn audit(h: &Harness) -> String {
+    std::fs::read_to_string(h.paths.audit()).unwrap_or_default()
+}
+
+#[test]
+fn granted_snapshot_is_field_filtered() {
+    let h = Harness::start_with(Some(GRANTS), Box::new(Fake));
+    let r = snap(&h, 1, "w1", "github.prs");
+    assert!(
+        r.contains("\"open\":3") && r.contains("\"review\":1"),
+        "{r}"
+    );
+    assert!(
+        !r.contains("token") && !r.contains(SECRET),
+        "ungranted field leaked: {r}"
+    );
+}
+
+#[test]
+fn ungranted_widget_or_topic_is_denied_and_audited() {
+    let h = Harness::start_with(Some(GRANTS), Box::new(Fake));
+    assert!(snap(&h, 1, "w2", "github.prs").contains("denied"));
+    assert!(snap(&h, 2, "w1", "other.topic").contains("denied"));
+    let a = audit(&h);
+    assert_eq!(a.matches("\"decision\":\"deny\"").count(), 2, "{a}");
+}
+
+#[test]
+fn granted_but_unknown_topic_reports_unknown_topic() {
+    let g = "[[grant]]\nwidget=\"w1\"\ntopics=[\"nope\"]\n";
+    let h = Harness::start_with(Some(g), Box::new(Fake));
+    assert!(snap(&h, 1, "w1", "nope").contains("unknown_topic"));
+}
+
+#[test]
+fn rate_limit_kicks_in() {
+    let h = Harness::start_with(Some(GRANTS), Box::new(Fake));
+    let mut limited = 0;
+    for i in 0..30 {
+        if snap(&h, i, "w1", "github.prs").contains("rate_limited") {
+            limited += 1;
+        }
+    }
+    assert!(limited >= 15, "only {limited} limited");
+}
+
+#[test]
+fn audit_log_never_contains_payload_values() {
+    let h = Harness::start_with(Some(GRANTS), Box::new(Fake));
+    let _ = snap(&h, 1, "w1", "github.prs");
+    let _ = snap(&h, 2, "w2", "github.prs");
+    let a = audit(&h);
+    assert!(
+        a.contains("\"op\":\"snapshot\"") && a.contains("\"bytes\":"),
+        "{a}"
+    );
+    assert!(
+        !a.contains(SECRET) && !a.contains("\"open\":3"),
+        "payload in audit: {a}"
+    );
+    let mode = std::fs::metadata(h.paths.audit())
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600);
+}
+
+#[test]
+fn insecure_or_broken_grants_file_stops_startup() {
+    for (body, mode) in [(GRANTS, 0o644), ("this is = not [valid", 0o600)] {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        std::fs::create_dir_all(&paths.config).unwrap();
+        std::fs::write(paths.grants(), body).unwrap();
+        std::fs::set_permissions(paths.grants(), std::fs::Permissions::from_mode(mode)).unwrap();
+        assert!(Server::bind(&paths, Box::new(NoTopics)).is_err());
+    }
 }

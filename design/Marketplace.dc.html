@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Omarchy Widgets marketplace</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;cursor:pointer}
+a{color:var(--acc)}
+a:hover{text-decoration:underline}
+.th-tokyo{--wall:#13141c;--bg:#1a1b26;--panel:#1f2335;--panel2:#292e42;--line:#3b4261;--fg:#c0caf5;--mut:#9aa5ce;--acc:#7aa2f7;--on:#12131c;--ok:#9ece6a;--warn:#e0af68;--p:#bb9af7}
+.th-gruv{--wall:#1d2021;--bg:#282828;--panel:#32302f;--panel2:#3c3836;--line:#504945;--fg:#ebdbb2;--mut:#bdae93;--acc:#fabd2f;--on:#1d2021;--ok:#b8bb26;--warn:#fe8019;--p:#d3869b}
+.th-mocha{--wall:#11111b;--bg:#1e1e2e;--panel:#262637;--panel2:#313244;--line:#45475a;--fg:#cdd6f4;--mut:#a6adc8;--acc:#89b4fa;--on:#11111b;--ok:#a6e3a1;--warn:#f9e2af;--p:#cba6f7}
+.th-rose{--wall:#12101c;--bg:#191724;--panel:#1f1d2e;--panel2:#2a273f;--line:#403d52;--fg:#e0def4;--mut:#a09cbc;--acc:#c4a7e7;--on:#191724;--ok:#9ccfd8;--warn:#f6c177;--p:#ebbcba}
+.th-latte{--wall:#ccd0da;--bg:#eff1f5;--panel:#e6e9ef;--panel2:#dce0e8;--line:#acb0be;--fg:#4c4f69;--mut:#5c5f77;--acc:#1e66f5;--on:#eff1f5;--ok:#2f8a1f;--warn:#b86e0a;--p:#8839ef}
+</style>
+</helmet>
+<div class="th-{{theme}}" style="min-height: 2050px; background: var(--bg); color: var(--fg); font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 16px; line-height: 24px">
+
+<div style="border-bottom: 1px solid var(--line)">
+<div style="max-width: 1184px; margin: 0 auto; box-sizing: border-box; padding: 16px 24px; display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: center; justify-content: space-between">
+<span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--acc)">omarchy-widgets</span>
+<nav style="display: flex; flex-wrap: wrap; gap: 8px 28px"><a href="#browse" style="color: var(--fg); text-decoration: none">Browse</a><a href="#make" style="color: var(--fg); text-decoration: none">Make your own</a><a href="#data" style="color: var(--fg); text-decoration: none">Your data</a><a href="#contribute" style="color: var(--fg); text-decoration: none">Contribute</a></nav>
+</div>
+</div>
+
+<div style="max-width: 1184px; margin: 0 auto; box-sizing: border-box; padding: 72px 24px 56px; display: flex; flex-wrap: wrap; gap: 48px; align-items: center">
+<div style="flex: 1 1 440px; min-width: 0">
+<h1 style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 48px; line-height: 56px; font-weight: 700">Widgets that wear your theme.</h1>
+<p style="margin: 20px 0 0; max-width: 520px; color: var(--mut)">Browse, install and tweak desktop widgets for Omarchy. Every one reads your theme colors, and your tokens and data stay in an encrypted local daemon.</p>
+<div style="margin-top: 28px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center">
+<a href="#browse" style="display: inline-flex; align-items: center; height: 44px; padding: 0 20px; background: var(--acc); color: var(--on); border-radius: 6px; font-weight: 600; text-decoration: none">Browse widgets</a>
+<span style="display: inline-flex; align-items: center; height: 44px; padding: 0 16px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--mut)">ow add clock</span>
+</div>
+<div style="margin-top: 28px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center"><span style="color: var(--mut); font-size: 14px">Preview in</span>
+<sc-for list="{{themes}}" as="th" hint-placeholder-count="5">
+<button aria-pressed="{{th.active}}" onClick="{{th.set}}" style="height: 44px; padding: 0 14px; display: flex; align-items: center; gap: 8px; background: var(--panel); color: var(--fg); border: 1px solid {{th.border}}; border-radius: 6px; font-size: 14px"><span style="width: 12px; height: 12px; background: {{th.bg}}; border: 1px solid {{th.fg}}"></span><span style="width: 12px; height: 12px; background: {{th.acc}}"></span>{{th.name}}</button>
+</sc-for>
+</div>
+</div>
+<div style="flex: 1 1 400px; min-width: 0; box-sizing: border-box; padding: 24px; background: var(--wall); border: 1px solid var(--line); border-radius: 8px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 16px">
+<sc-for list="{{featured}}" as="c" hint-placeholder-count="4">
+<div style="box-sizing: border-box; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font-family: 'JetBrains Mono', monospace">
+<div style="font-size: 12px; line-height: 16px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mut)">{{c.name}}</div>
+<div style="margin-top: 8px; font-size: 26px; line-height: 32px; font-weight: 700; color: var(--acc)">{{c.big}}</div>
+<div style="font-size: 13px; line-height: 18px; color: var(--mut)">{{c.sub}}</div>
+</div>
+</sc-for>
+</div>
+</div>
+
+<div id="browse" style="max-width: 1184px; margin: 0 auto; box-sizing: border-box; padding: 24px 24px 72px">
+<h2 style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 28px; line-height: 36px">Browse widgets</h2>
+<p style="margin: 8px 0 0; color: var(--mut)">Every card shows what the widget is allowed to read before you install it.</p>
+<div style="margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{cats}}" as="ct" hint-placeholder-count="7">
+<button aria-pressed="{{ct.active}}" onClick="{{ct.set}}" style="height: 44px; padding: 0 16px; background: {{ct.bg}}; color: {{ct.fg}}; border: 1px solid var(--line); border-radius: 22px; font-size: 14px">{{ct.label}}</button>
+</sc-for>
+</div>
+<div style="margin-top: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 20px">
+<sc-for list="{{cards}}" as="c" hint-placeholder-count="10">
+<div style="box-sizing: border-box; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; gap: 12px">
+<div style="box-sizing: border-box; height: 112px; padding: 14px; background: var(--wall); border: 1px solid var(--line); border-radius: 6px; font-family: 'JetBrains Mono', monospace; overflow: hidden">
+<div style="font-size: 26px; line-height: 32px; font-weight: 700; color: var(--acc)">{{c.big}}</div>
+<div style="font-size: 13px; line-height: 18px; color: var(--mut)">{{c.sub}}</div>
+<div style="margin-top: 10px; height: 6px; background: var(--panel2); border-radius: 2px"><div style="width: {{c.pct}}%; height: 6px; background: var(--acc); border-radius: 2px"></div></div>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: baseline"><b>{{c.name}}</b><span style="font-size: 13px; color: var(--mut)">{{c.cat}}</span></div>
+<div style="font-size: 14px; line-height: 20px; color: var(--mut)">{{c.desc}}</div>
+<div style="font-size: 13px; line-height: 18px">{{c.tier}}<br><span style="color: var(--mut)">reads: {{c.caps}}</span></div>
+<button onClick="{{c.install}}" style="height: 44px; margin-top: auto; background: {{c.bg}}; color: {{c.fg}}; border: 1px solid var(--acc); border-radius: 6px; font-weight: 600">{{c.label}}</button>
+</div>
+</sc-for>
+</div>
+</div>
+
+<div id="make" style="background: var(--panel); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">
+<div style="max-width: 1184px; margin: 0 auto; box-sizing: border-box; padding: 64px 24px">
+<h2 style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 28px; line-height: 36px">Make your own, at your level</h2>
+<div style="margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 20px">
+<div style="box-sizing: border-box; padding: 20px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px"><b>1. Tweak</b><p style="margin: 8px 0 0; color: var(--mut)">Change size, accent and fields on any installed widget. The original stays untouched.</p></div>
+<div style="box-sizing: border-box; padding: 20px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px"><b>2. Design visually</b><p style="margin: 8px 0 0; color: var(--mut)">Place text, bars and graphs on a canvas and bind them to provider fields. Exports a spec widget with no code.</p></div>
+<div style="box-sizing: border-box; padding: 20px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px"><b>3. Write code</b><p style="margin: 8px 0 0; color: var(--mut)">Scaffold a QML plugin with the kit and a manifest, then save to reload it.</p></div>
+</div>
+</div>
+</div>
+
+<div id="data" style="max-width: 1184px; margin: 0 auto; box-sizing: border-box; padding: 64px 24px">
+<h2 style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 28px; line-height: 36px">Your data stays yours</h2>
+<div style="margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 20px">
+<div style="border-left: 2px solid var(--ok); padding-left: 16px"><b>Encrypted vault</b><p style="margin: 6px 0 0; color: var(--mut)">Tokens and saved data are encrypted on disk. Network data lives in memory only.</p></div>
+<div style="border-left: 2px solid var(--warn); padding-left: 16px"><b>Per-widget grants</b><p style="margin: 6px 0 0; color: var(--mut)">A widget sees only the data you approved, and only from hosts its provider is allowed to call.</p></div>
+<div style="border-left: 2px solid var(--p); padding-left: 16px"><b>Audit log</b><p style="margin: 6px 0 0; color: var(--mut)">Every read is written down, so you can see which widget asked for what.</p></div>
+</div>
+</div>
+
+<div id="contribute" style="background: var(--panel); border-top: 1px solid var(--line)">
+<div style="max-width: 1184px; margin: 0 auto; box-sizing: border-box; padding: 64px 24px">
+<h2 style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 28px; line-height: 36px">Contribute a widget</h2>
+<ol style="margin: 24px 0 0; padding-left: 24px; display: flex; flex-direction: column; gap: 8px; color: var(--fg)">
+<li>Start from the template and describe your widget in widget.json.</li>
+<li>Open a pull request. CI validates the manifest, lints the permissions and renders a preview.</li>
+<li>A maintainer reviews it. The approved commit is what the marketplace installs.</li>
+</ol>
+</div>
+</div>
+
+<div style="max-width: 1184px; margin: 0 auto; box-sizing: border-box; padding: 32px 24px; color: var(--mut); font-size: 14px; line-height: 20px">Concept demo. Name, layout and widget data are placeholders until the host and naming decisions are made.</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":2050}}'>
+class Component extends DCLogic {
+  state = { theme: 'tokyo', cat: 'All', installed: { clock: true } };
+
+  catalog() {
+    return [
+      { id: 'clock', name: 'Clock', cat: 'Time', big: '14:32', sub: 'Saturday 17 October', pct: 60, desc: 'Digital time and date that follows the theme.', tier: 'Spec widget, no code', caps: 'nothing' },
+      { id: 'calendar', name: 'Calendar', cat: 'Time', big: 'October', sub: '17 today', pct: 55, desc: 'Month grid with today highlighted.', tier: 'Spec widget, no code', caps: 'nothing' },
+      { id: 'tasks', name: 'Tasks', cat: 'Productivity', big: '1 / 4', sub: 'tasks done', pct: 25, desc: 'Checklist stored encrypted on disk.', tier: 'Spec widget, no code', caps: 'its own storage' },
+      { id: 'system', name: 'System', cat: 'System', big: '32%', sub: 'CPU, memory, disk', pct: 32, desc: 'Live bars and a CPU history graph.', tier: 'Spec widget, no code', caps: 'system.stats' },
+      { id: 'battery', name: 'Battery', cat: 'System', big: '82%', sub: '4h 12m left', pct: 82, desc: 'Charge level and time remaining.', tier: 'Spec widget, no code', caps: 'system.power' },
+      { id: 'music', name: 'Music', cat: 'Media', big: 'Low Tide', sub: 'Sample Artist', pct: 34, desc: 'Now playing with transport controls.', tier: 'Code widget, reviewed', caps: 'media.mpris' },
+      { id: 'ai', name: 'AI usage', cat: 'Developer', big: '3.0M', sub: 'tokens today', pct: 78, desc: 'Detects installed agent harnesses and totals their usage. Counts only.', tier: 'Spec widget, no code', caps: 'ai.usage (counts only)' },
+      { id: 'github', name: 'GitHub', cat: 'Developer', big: '1', sub: 'review requested', pct: 40, desc: 'Review requests, CI state and notifications.', tier: 'Spec widget, no code', caps: 'github.read, api.github.com' },
+      { id: 'docker', name: 'Docker', cat: 'Developer', big: '2 / 3', sub: 'containers running', pct: 66, desc: 'Container status, read-only.', tier: 'Code widget, reviewed', caps: 'docker.read' },
+      { id: 'gmail', name: 'Gmail', cat: 'Communication', big: '3', sub: 'unread', pct: 30, desc: 'Unread count and latest subjects.', tier: 'Spec widget, no code', caps: 'mail.read, imap.gmail.com' }
+    ];
+  }
+
+  renderVals() {
+    const s = this.state;
+    const cat = this.catalog();
+    const themes = [
+      { id: 'tokyo', name: 'Tokyo Night', bg: '#1a1b26', acc: '#7aa2f7', fg: '#c0caf5' },
+      { id: 'gruv', name: 'Gruvbox', bg: '#282828', acc: '#fabd2f', fg: '#ebdbb2' },
+      { id: 'mocha', name: 'Catppuccin', bg: '#1e1e2e', acc: '#89b4fa', fg: '#cdd6f4' },
+      { id: 'rose', name: 'Rose Pine', bg: '#191724', acc: '#c4a7e7', fg: '#e0def4' },
+      { id: 'latte', name: 'Latte', bg: '#eff1f5', acc: '#1e66f5', fg: '#4c4f69' }
+    ].map((t) => ({
+      name: t.name, bg: t.bg, acc: t.acc, fg: t.fg, active: s.theme === t.id,
+      border: s.theme === t.id ? 'var(--acc)' : 'var(--line)',
+      set: () => this.setState({ theme: t.id })
+    }));
+    const cats = ['All', 'Time', 'System', 'Developer', 'Media', 'Productivity', 'Communication'].map((c) => ({
+      label: c, active: s.cat === c,
+      bg: s.cat === c ? 'var(--acc)' : 'transparent', fg: s.cat === c ? 'var(--on)' : 'var(--fg)',
+      set: () => this.setState({ cat: c })
+    }));
+    const cards = cat.filter((c) => s.cat === 'All' || c.cat === s.cat).map((c) => ({
+      ...c,
+      label: s.installed[c.id] ? 'Installed' : 'Install',
+      bg: s.installed[c.id] ? 'var(--acc)' : 'transparent', fg: s.installed[c.id] ? 'var(--on)' : 'var(--acc)',
+      install: () => this.setState({ installed: { ...s.installed, [c.id]: !s.installed[c.id] } })
+    }));
+    const featured = ['clock', 'system', 'battery', 'tasks'].map((id) => cat.find((c) => c.id === id));
+    return { theme: s.theme, themes, cats, cards, featured };
+  }
+}
+</script>
+</body>
+</html>

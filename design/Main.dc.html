@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Omarchy desktop with Widget Center</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;cursor:pointer}
+.th-tokyo{--wall:#13141c;--bg:#1a1b26;--panel:#1f2335;--panel2:#292e42;--line:#3b4261;--fg:#c0caf5;--mut:#9aa5ce;--acc:#7aa2f7;--on:#12131c;--ok:#9ece6a;--warn:#e0af68;--bad:#f7768e;--p:#bb9af7}
+.th-gruv{--wall:#1d2021;--bg:#282828;--panel:#32302f;--panel2:#3c3836;--line:#504945;--fg:#ebdbb2;--mut:#bdae93;--acc:#fabd2f;--on:#1d2021;--ok:#b8bb26;--warn:#fe8019;--bad:#fb4934;--p:#d3869b}
+.th-mocha{--wall:#11111b;--bg:#1e1e2e;--panel:#262637;--panel2:#313244;--line:#45475a;--fg:#cdd6f4;--mut:#a6adc8;--acc:#89b4fa;--on:#11111b;--ok:#a6e3a1;--warn:#f9e2af;--bad:#f38ba8;--p:#cba6f7}
+.th-rose{--wall:#12101c;--bg:#191724;--panel:#1f1d2e;--panel2:#2a273f;--line:#403d52;--fg:#e0def4;--mut:#a09cbc;--acc:#c4a7e7;--on:#191724;--ok:#9ccfd8;--warn:#f6c177;--bad:#eb6f92;--p:#ebbcba}
+.th-latte{--wall:#ccd0da;--bg:#eff1f5;--panel:#e6e9ef;--panel2:#dce0e8;--line:#acb0be;--fg:#4c4f69;--mut:#5c5f77;--acc:#1e66f5;--on:#eff1f5;--ok:#2f8a1f;--warn:#b86e0a;--bad:#d20f39;--p:#8839ef}
+</style>
+</helmet>
+<div data-desk="1" class="th-{{theme}}" onMouseMove="{{onMove}}" onMouseUp="{{onUp}}" onMouseLeave="{{onUp}}" style="position: relative; width: 1440px; height: 900px; overflow: hidden; background-color: var(--wall); background-image: {{gridImage}}; background-size: 20px 20px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; color: var(--fg); user-select: none">
+
+<div style="position: absolute; left: 0; top: 0; width: 1440px; height: 36px; box-sizing: border-box; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; background: var(--bg); border-bottom: 1px solid var(--line); z-index: 60">
+<div style="display: flex; gap: 14px; align-items: center">
+<span style="color: var(--acc); font-weight: 700">1</span>
+<span style="color: var(--mut)">2</span>
+<span style="color: var(--mut)">3</span>
+<span style="color: var(--mut)">4</span>
+<span style="color: var(--mut)">5</span>
+</div>
+<div style="position: absolute; left: 0; right: 0; text-align: center; pointer-events: none">{{barClock}}</div>
+<div style="display: flex; gap: 16px; align-items: center; color: var(--mut)">
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" style="fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round"><path d="M2 6.5a9 9 0 0 1 12 0M4.5 9a5.5 5.5 0 0 1 7 0M7 11.5a2 2 0 0 1 2 0"/></svg>
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" style="fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round"><path d="M2 6h3l4-3v10l-4-3H2zM11.5 5.5a3.5 3.5 0 0 1 0 5"/></svg>
+<span>82%</span>
+<button aria-label="Toggle Widget Center" onClick="{{toggleOpen}}" style="display: flex; gap: 8px; align-items: center; height: 24px; padding: 0 10px; background: {{barBtnBg}}; color: {{barBtnFg}}; border: 1px solid var(--line); border-radius: 4px">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" style="fill: none; stroke: currentColor; stroke-width: 1.5"><rect x="1.5" y="1.5" width="4.5" height="4.5"/><rect x="8" y="1.5" width="4.5" height="4.5"/><rect x="1.5" y="8" width="4.5" height="4.5"/><rect x="8" y="8" width="4.5" height="4.5"/></svg>
+<span>widgets</span>
+</button>
+</div>
+</div>
+
+<sc-for list="{{widgets}}" as="w" hint-placeholder-count="6">
+<div style="position: absolute; left: {{w.left}}; top: {{w.top}}; width: {{w.width}}; height: {{w.height}}; z-index: {{w.z}}; box-sizing: border-box; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; color: var(--fg)">
+<div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mut)"><span>{{w.name}}</span><span>{{w.tag}}</span></div>
+
+<sc-if value="{{w.isClock}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center">
+<div style="display: flex; align-items: baseline; gap: 8px"><span style="font-size: {{w.clockSize}}px; font-weight: 700; line-height: 1; color: {{w.accent}}">{{time.hm}}</span><sc-if value="{{w.showSec}}" hint-placeholder-val="{{ true }}"><span style="font-size: 20px; color: var(--mut)">{{time.s}}</span></sc-if></div>
+<div style="margin-top: 10px; font-size: 14px">{{time.date}}</div>
+</div>
+</sc-if>
+
+<sc-if value="{{w.isCalendar}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 4px">
+<div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); text-align: center; font-size: 12px; color: var(--mut)"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+<div style="flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: repeat(6, minmax(0, 1fr)); gap: 2px; text-align: center">
+<sc-for list="{{calCells}}" as="c" hint-placeholder-count="42">
+<div style="display: flex; align-items: center; justify-content: center; border-radius: 4px; background: {{c.bg}}; color: {{c.color}}; font-weight: {{c.weight}}">{{c.label}}</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{w.isTasks}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 4px; overflow: hidden">
+<sc-for list="{{tasks}}" as="t" hint-placeholder-count="4">
+<button aria-pressed="{{t.done}}" onClick="{{t.toggle}}" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 0; text-align: left; background: transparent; border: none; color: {{t.color}}; text-decoration: {{t.deco}}">
+<span style="flex: none; width: 14px; height: 14px; box-sizing: border-box; border: 1.5px solid {{w.accent}}; background: {{t.fill}}"></span>
+<span>{{t.text}}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{w.isSystem}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow: hidden">
+<sc-for list="{{sysRows}}" as="r" hint-placeholder-count="3">
+<div style="display: flex; align-items: center; gap: 10px"><span style="width: 40px; color: var(--mut)">{{r.label}}</span><div style="flex: 1; height: 8px; background: var(--panel2); border-radius: 2px"><div style="width: {{r.pct}}%; height: 8px; background: {{r.color}}; border-radius: 2px"></div></div><span style="width: 40px; text-align: right">{{r.val}}</span></div>
+</sc-for>
+<sc-if value="{{w.showSpark}}" hint-placeholder-val="{{ true }}">
+<svg aria-label="CPU history" role="img" viewBox="0 0 100 30" preserveAspectRatio="none" style="width: 100%; flex: 1; min-height: 24px; border-top: 1px solid var(--line)"><polyline points="{{sparkPoints}}" style="fill: none; stroke: {{w.accent}}; stroke-width: 1.5; vector-effect: non-scaling-stroke"/></svg>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{w.isBattery}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 10px">
+<div style="display: flex; align-items: baseline; gap: 12px"><span style="font-size: 32px; font-weight: 700; color: {{w.accent}}">82%</span><span style="color: var(--mut)">4h 12m left</span></div>
+<div style="height: 10px; background: var(--panel2); border-radius: 2px"><div style="width: 82%; height: 10px; background: {{w.accent}}; border-radius: 2px"></div></div>
+</div>
+</sc-if>
+
+<sc-if value="{{w.isMusic}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: space-between">
+<div><div style="font-size: 16px; font-weight: 700">Low Tide</div><div style="color: var(--mut); margin-top: 2px">Sample Artist</div></div>
+<div>
+<div style="height: 6px; background: var(--panel2); border-radius: 2px"><div style="width: {{music.pct}}%; height: 6px; background: {{w.accent}}; border-radius: 2px"></div></div>
+<div style="display: flex; justify-content: space-between; margin-top: 6px; color: var(--mut); font-size: 12px"><span>{{music.pos}}</span><span>3:34</span></div>
+<div style="display: flex; gap: 8px; margin-top: 6px">
+<button aria-label="Previous track" style="width: 32px; height: 28px; background: transparent; border: 1px solid var(--line); border-radius: 4px; color: var(--fg)"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" style="fill: currentColor"><path d="M2 2h1.5v8H2zM10 2v8L4.5 6z"/></svg></button>
+<button aria-label="Play or pause" onClick="{{togglePlay}}" style="width: 44px; height: 28px; background: {{w.accent}}; border: none; border-radius: 4px; color: var(--on)"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" style="fill: currentColor"><path d="{{music.icon}}"/></svg></button>
+<button aria-label="Next track" style="width: 32px; height: 28px; background: transparent; border: 1px solid var(--line); border-radius: 4px; color: var(--fg)"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" style="fill: currentColor"><path d="M10 2h-1.5v8H10zM2 2v8l5.5-4z"/></svg></button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{w.isAi}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow: hidden">
+<sc-for list="{{aiRows}}" as="a" hint-placeholder-count="3">
+<div><div style="display: flex; justify-content: space-between"><span>{{a.name}}</span><span style="color: var(--mut)">{{a.val}}</span></div><div style="height: 6px; margin-top: 4px; background: var(--panel2); border-radius: 2px"><div style="width: {{a.pct}}%; height: 6px; background: {{w.accent}}; border-radius: 2px"></div></div></div>
+</sc-for>
+<div style="color: var(--mut); font-size: 12px">tokens today, counts only</div>
+</div>
+</sc-if>
+
+<sc-if value="{{w.isGithub}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow: hidden">
+<sc-for list="{{ghRows}}" as="g" hint-placeholder-count="3">
+<div style="display: flex; gap: 10px; align-items: baseline"><span style="flex: none; width: 8px; height: 8px; background: {{g.color}}; border-radius: 4px"></span><span>{{g.text}}</span></div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{w.isDocker}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow: hidden">
+<sc-for list="{{dockerRows}}" as="d" hint-placeholder-count="3">
+<div style="display: flex; justify-content: space-between"><span style="display: flex; gap: 10px; align-items: center"><span style="width: 8px; height: 8px; background: {{d.color}}; border-radius: 4px"></span>{{d.name}}</span><span style="color: var(--mut)">{{d.state}}</span></div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{w.isGmail}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden">
+<sc-for list="{{mailRows}}" as="m" hint-placeholder-count="3">
+<div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><span style="color: {{w.accent}}">{{m.from}}</span> <span style="color: var(--mut)">{{m.subject}}</span></div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{editing}}" hint-placeholder-val="{{ true }}">
+<div onMouseDown="{{w.startMove}}" style="position: absolute; left: 0; top: 0; right: 0; bottom: 0; box-sizing: border-box; border: {{w.ovBorder}}; background: {{w.ovBg}}; cursor: move; border-radius: 6px">
+<button aria-label="Remove {{w.name}} from desktop" onMouseDown="{{w.stop}}" onClick="{{w.remove}}" style="position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; padding: 0; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; line-height: 1">x</button>
+<button aria-label="Resize {{w.name}}" onMouseDown="{{w.startResize}}" style="position: absolute; right: 0; bottom: 0; width: 20px; height: 20px; padding: 0; background: var(--acc); border: none; cursor: nwse-resize"></button>
+</div>
+</sc-if>
+</div>
+</sc-for>
+
+<sc-if value="{{closed}}" hint-placeholder-val="{{ false }}">
+<button onClick="{{toggleOpen}}" style="position: absolute; left: 520px; width: 400px; bottom: 28px; height: 44px; display: flex; align-items: center; justify-content: center; gap: 12px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; z-index: 40"><span>Open Widget Center</span><span style="padding: 2px 8px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; color: var(--mut); font-size: 12px">SUPER + SHIFT + W</span></button>
+</sc-if>
+
+<sc-if value="{{open}}" hint-placeholder-val="{{ true }}">
+<div style="position: absolute; left: 0; bottom: 0; width: 1440px; height: 280px; box-sizing: border-box; z-index: 50; display: flex; flex-direction: column; background: var(--panel); border-top: 1px solid var(--line)">
+
+<div style="height: 52px; flex: none; box-sizing: border-box; padding: 0 24px; display: flex; align-items: center; gap: 24px; border-bottom: 1px solid var(--line)">
+<span style="font-weight: 700; color: var(--acc)">Widget Center</span>
+<div style="display: flex; gap: 4px; height: 100%">
+<sc-for list="{{tabs}}" as="tb" hint-placeholder-count="4">
+<button onClick="{{tb.set}}" style="padding: 0 14px; background: transparent; border: none; border-bottom: 2px solid {{tb.line}}; color: {{tb.color}}">{{tb.label}}</button>
+</sc-for>
+</div>
+<div style="flex: 1"></div>
+<div style="display: flex; gap: 8px; align-items: center">
+<sc-for list="{{themes}}" as="th" hint-placeholder-count="5">
+<button aria-label="Theme {{th.name}}" aria-pressed="{{th.active}}" onClick="{{th.set}}" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; background: var(--panel2); color: var(--fg); border: 1px solid {{th.border}}; border-radius: 4px; font-size: 12px"><span style="width: 10px; height: 10px; background: {{th.bg}}; border: 1px solid {{th.fg}}"></span><span style="width: 10px; height: 10px; background: {{th.acc}}"></span><span>{{th.name}}</span></button>
+</sc-for>
+</div>
+<button onClick="{{toggleOpen}}" style="height: 28px; padding: 0 14px; background: var(--acc); color: var(--on); border: none; border-radius: 4px; font-weight: 700">Done</button>
+</div>
+
+<div style="flex: 1; min-height: 0; display: flex">
+<div style="flex: 1; min-width: 0; box-sizing: border-box; padding: 16px 24px; overflow-x: auto; display: flex; gap: 12px; align-items: flex-start">
+
+<sc-if value="{{isInstalled}}" hint-placeholder-val="{{ true }}">
+<sc-for list="{{installedCards}}" as="ic" hint-placeholder-count="6">
+<div style="flex: none; width: 176px; height: 168px; box-sizing: border-box; padding: 12px; display: flex; flex-direction: column; gap: 4px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px">
+<span style="font-weight: 700">{{ic.name}}</span>
+<span style="color: var(--mut); font-size: 12px">{{ic.cat}} · {{ic.kind}}</span>
+<span style="color: var(--mut); font-size: 12px">{{ic.caps}}</span>
+<div style="flex: 1"></div>
+<button onClick="{{ic.toggle}}" style="height: 30px; background: {{ic.bg}}; color: {{ic.fg}}; border: 1px solid var(--acc); border-radius: 4px">{{ic.label}}</button>
+</div>
+</sc-for>
+</sc-if>
+
+<sc-if value="{{isDiscover}}" hint-placeholder-val="{{ false }}">
+<sc-for list="{{discoverCards}}" as="dc" hint-placeholder-count="4">
+<div style="flex: none; width: 236px; height: 168px; box-sizing: border-box; padding: 12px; display: flex; flex-direction: column; gap: 4px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px">
+<span style="display: flex; justify-content: space-between"><b>{{dc.name}}</b><span style="color: var(--mut); font-size: 12px">{{dc.kind}}</span></span>
+<span style="color: var(--mut); font-size: 12px">{{dc.desc}}</span>
+<span style="font-size: 12px">needs: {{dc.caps}}</span>
+<div style="flex: 1"></div>
+<button onClick="{{dc.install}}" style="height: 30px; background: {{dc.bg}}; color: {{dc.fg}}; border: 1px solid var(--acc); border-radius: 4px">{{dc.label}}</button>
+</div>
+</sc-for>
+</sc-if>
+
+<sc-if value="{{isLayouts}}" hint-placeholder-val="{{ false }}">
+<sc-for list="{{layoutCards}}" as="lc" hint-placeholder-count="3">
+<button onClick="{{lc.apply}}" style="flex: none; width: 176px; height: 168px; box-sizing: border-box; padding: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; background: var(--panel2); color: var(--fg); border: 1px solid {{lc.border}}; border-radius: 6px; text-align: left">
+<div style="position: relative; width: 144px; height: 90px; background: var(--wall); border: 1px solid var(--line)">
+<sc-for list="{{lc.rects}}" as="r" hint-placeholder-count="4">
+<div style="position: absolute; left: {{r.left}}; top: {{r.top}}; width: {{r.width}}; height: {{r.height}}; background: var(--acc); opacity: 0.8"></div>
+</sc-for>
+</div>
+<span style="font-weight: 700">{{lc.name}}</span>
+<span style="color: var(--mut); font-size: 12px">{{lc.count}} widgets</span>
+</button>
+</sc-for>
+<button onClick="{{saveLayout}}" style="flex: none; width: 176px; height: 168px; background: transparent; color: var(--acc); border: 1px dashed var(--acc); border-radius: 6px">Save current layout</button>
+</sc-if>
+
+<sc-if value="{{isCreate}}" hint-placeholder-val="{{ false }}">
+<div style="flex: none; width: 232px; height: 168px; box-sizing: border-box; padding: 12px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; display: flex; flex-direction: column; gap: 6px"><b>1. Tweak</b><span style="color: var(--mut)">Change size class, accent and fields of any installed widget. Saved as an override; the original is untouched.</span><span style="color: var(--acc); font-size: 12px">ow tweak clock</span></div>
+<div style="flex: none; width: 232px; height: 168px; box-sizing: border-box; padding: 12px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; display: flex; flex-direction: column; gap: 6px"><b>2. Design visually</b><span style="color: var(--mut)">Drop text, bars and graphs on a canvas, bind each to a provider field. Exports a spec widget.</span><span style="color: var(--acc); font-size: 12px">ow new --visual</span></div>
+<div style="flex: none; width: 232px; height: 168px; box-sizing: border-box; padding: 12px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; display: flex; flex-direction: column; gap: 6px"><b>3. Write code</b><span style="color: var(--mut)">Scaffold a QML plugin with the kit and a manifest. Reloads on save.</span><span style="color: var(--acc); font-size: 12px">ow new my-widget --template qml</span></div>
+<pre style="flex: none; width: 262px; height: 168px; box-sizing: border-box; margin: 0; padding: 12px; overflow: hidden; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font-family: inherit; font-size: 11px; line-height: 1.5; color: var(--mut)">{{specSnippet}}</pre>
+</sc-if>
+
+</div>
+
+<div style="flex: none; width: 360px; box-sizing: border-box; padding: 16px 20px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; overflow: hidden">
+<sc-if value="{{hasSel}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><b>{{selName}}</b><span style="color: var(--mut); font-size: 12px">size class {{selClass}}</span></div>
+<div style="color: var(--mut); font-size: 12px">x {{selX}} · y {{selY}} · {{selW}} × {{selH}} · grid 20</div>
+<div style="display: flex; align-items: center; gap: 8px"><span style="width: 56px; color: var(--mut); font-size: 12px">layer</span>
+<sc-for list="{{layerBtns}}" as="lb" hint-placeholder-count="3">
+<button onClick="{{lb.set}}" style="height: 26px; padding: 0 10px; background: {{lb.bg}}; color: {{lb.fg}}; border: 1px solid var(--line); border-radius: 4px; font-size: 12px">{{lb.label}}</button>
+</sc-for>
+</div>
+<div style="display: flex; align-items: center; gap: 8px"><span style="width: 56px; color: var(--mut); font-size: 12px">accent</span>
+<sc-for list="{{accentBtns}}" as="ab" hint-placeholder-count="5">
+<button aria-label="Accent {{ab.name}}" aria-pressed="{{ab.active}}" onClick="{{ab.set}}" style="width: 26px; height: 26px; padding: 0; background: {{ab.color}}; border: 2px solid {{ab.border}}; border-radius: 4px"></button>
+</sc-for>
+</div>
+<div style="font-size: 12px"><span style="color: var(--mut)">data </span>{{selCaps}}</div>
+<button onClick="{{removeSel}}" style="align-self: flex-start; height: 28px; padding: 0 12px; background: transparent; color: var(--bad); border: 1px solid var(--bad); border-radius: 4px">Remove from desktop</button>
+</sc-if>
+<sc-if value="{{noSel}}" hint-placeholder-val="{{ false }}">
+<b>Nothing selected</b>
+<span style="color: var(--mut)">Drag a widget to move it, pull the corner to resize, click it to tweak. Everything snaps to a 20 px grid. Switch the theme above and every widget follows.</span>
+</sc-if>
+</div>
+</div>
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  state = {
+    theme: 'tokyo', open: true, tab: 'installed', sel: 'clock', drag: null,
+    now: new Date(), playing: true, prog: 74, saved: [],
+    cpu: [22,25,30,28,35,31,26,24,29,33,38,34,30,27,25,28,32,36,31,29,26,30,34,37,33,29,27,31,35,32],
+    tasks: [
+      { text: 'Write Phase 0 spike notes', done: true },
+      { text: 'Review widget kit PR', done: false },
+      { text: 'Reply to host maintainers', done: false },
+      { text: 'Draft marketplace copy', done: false }
+    ],
+    installed: { clock: true, calendar: true, tasks: true, system: true, battery: true, music: true },
+    widgets: [
+      { id: 'clock', x: 60, y: 60, w: 300, h: 160, accent: 'acc', layer: 'Bottom' },
+      { id: 'calendar', x: 60, y: 240, w: 300, h: 320, accent: 'acc', layer: 'Bottom' },
+      { id: 'tasks', x: 380, y: 60, w: 300, h: 260, accent: 'acc', layer: 'Bottom' },
+      { id: 'music', x: 380, y: 340, w: 300, h: 160, accent: 'p', layer: 'Bottom' },
+      { id: 'system', x: 700, y: 60, w: 340, h: 200, accent: 'acc', layer: 'Bottom' },
+      { id: 'battery', x: 700, y: 280, w: 340, h: 120, accent: 'ok', layer: 'Bottom' }
+    ]
+  };
+
+  componentDidMount() { this.timer = setInterval(this.tick, 1000); }
+  componentWillUnmount() { if (this.timer) clearInterval(this.timer); }
+
+  tick = () => {
+    const s = this.state;
+    let next = s.cpu[s.cpu.length - 1] + (Math.random() - 0.5) * 14;
+    next = Math.max(8, Math.min(90, next));
+    this.setState({ now: new Date(), cpu: s.cpu.slice(1).concat(next), prog: s.playing ? (s.prog + 1) % 214 : s.prog });
+  };
+
+  catalog() {
+    return [
+      { id: 'clock', name: 'Clock', cat: 'Time', kind: 'spec', caps: 'no data grants', w: 300, h: 160, desc: 'Digital time and date that follows the theme.' },
+      { id: 'calendar', name: 'Calendar', cat: 'Time', kind: 'spec', caps: 'no data grants', w: 300, h: 320, desc: 'Month grid with today highlighted.' },
+      { id: 'tasks', name: 'Tasks', cat: 'Productivity', kind: 'spec', caps: 'storage: own', w: 300, h: 260, desc: 'Checklist stored encrypted on disk.' },
+      { id: 'system', name: 'System', cat: 'System', kind: 'spec', caps: 'system.stats', w: 340, h: 200, desc: 'CPU, memory, disk and a live graph.' },
+      { id: 'battery', name: 'Battery', cat: 'System', kind: 'spec', caps: 'system.power', w: 340, h: 120, desc: 'Charge level and time remaining.' },
+      { id: 'music', name: 'Music', cat: 'Media', kind: 'code', caps: 'media.mpris', w: 300, h: 160, desc: 'Now playing with transport controls.' },
+      { id: 'ai', name: 'AI usage', cat: 'Developer', kind: 'spec', caps: 'ai.usage (counts only)', w: 300, h: 180, desc: 'Detects installed agent harnesses and totals tokens.' },
+      { id: 'github', name: 'GitHub', cat: 'Developer', kind: 'spec', caps: 'github.read, net: api.github.com', w: 300, h: 180, desc: 'Review requests, CI state, notifications.' },
+      { id: 'docker', name: 'Docker', cat: 'Developer', kind: 'code', caps: 'docker.read', w: 300, h: 140, desc: 'Container status, read-only.' },
+      { id: 'gmail', name: 'Gmail', cat: 'Communication', kind: 'spec', caps: 'mail.read, net: imap.gmail.com', w: 300, h: 140, desc: 'Unread count and latest subjects.' }
+    ];
+  }
+
+  themes() {
+    return [
+      { id: 'tokyo', name: 'Tokyo Night', bg: '#1a1b26', acc: '#7aa2f7', fg: '#c0caf5' },
+      { id: 'gruv', name: 'Gruvbox', bg: '#282828', acc: '#fabd2f', fg: '#ebdbb2' },
+      { id: 'mocha', name: 'Catppuccin', bg: '#1e1e2e', acc: '#89b4fa', fg: '#cdd6f4' },
+      { id: 'rose', name: 'Rose Pine', bg: '#191724', acc: '#c4a7e7', fg: '#e0def4' },
+      { id: 'latte', name: 'Latte', bg: '#eff1f5', acc: '#1e66f5', fg: '#4c4f69' }
+    ];
+  }
+
+  presets() {
+    const g = (id, x, y, w, h, accent) => ({ id, x, y, w, h, accent: accent || 'acc', layer: 'Bottom' });
+    return [
+      { name: 'Dashboard', list: [g('clock', 60, 60, 300, 160), g('calendar', 60, 240, 300, 320), g('tasks', 380, 60, 300, 260), g('music', 380, 340, 300, 160, 'p'), g('system', 700, 60, 340, 200), g('battery', 700, 280, 340, 120, 'ok')] },
+      { name: 'Focus', list: [g('clock', 60, 60, 300, 160), g('tasks', 60, 240, 300, 260), g('music', 380, 60, 300, 160, 'p')] },
+      { name: 'Minimal', list: [g('clock', 60, 60, 420, 200)] }
+    ];
+  }
+
+  autoPlace(id, widgets) {
+    const c = this.catalog().find((x) => x.id === id);
+    const gap = 20;
+    for (let y = 60; y <= 600 - c.h; y += 20) {
+      for (let x = 60; x <= 1440 - c.w - 60; x += 20) {
+        const hit = widgets.some((o) => x < o.x + o.w + gap && x + c.w + gap > o.x && y < o.y + o.h + gap && y + c.h + gap > o.y);
+        if (!hit) return { id, x, y, w: c.w, h: c.h, accent: 'acc', layer: 'Bottom' };
+      }
+    }
+    return { id, x: 420, y: 120, w: c.w, h: c.h, accent: 'acc', layer: 'Bottom' };
+  }
+
+  place(id) {
+    const s = this.state;
+    if (s.widgets.some((w) => w.id === id)) return;
+    this.setState({ widgets: s.widgets.concat([this.autoPlace(id, s.widgets)]), installed: { ...s.installed, [id]: true }, sel: id });
+  }
+
+  unplace(id) {
+    const s = this.state;
+    this.setState({ widgets: s.widgets.filter((w) => w.id !== id), sel: s.sel === id ? null : s.sel });
+  }
+
+  beginDrag(e, id, mode) {
+    e.preventDefault();
+    e.stopPropagation();
+    const desk = e.currentTarget.closest('[data-desk]');
+    const scale = desk && desk.offsetWidth ? desk.getBoundingClientRect().width / desk.offsetWidth : 1;
+    const w = this.state.widgets.find((x) => x.id === id);
+    this.setState({ sel: id, drag: { id, mode, sx: e.clientX, sy: e.clientY, ox: w.x, oy: w.y, ow: w.w, oh: w.h, scale } });
+  }
+
+  onMove = (e) => {
+    const d = this.state.drag;
+    if (!d) return;
+    const dx = (e.clientX - d.sx) / d.scale;
+    const dy = (e.clientY - d.sy) / d.scale;
+    const snap = (v) => Math.round(v / 20) * 20;
+    this.setState({
+      widgets: this.state.widgets.map((w) => {
+        if (w.id !== d.id) return w;
+        if (d.mode === 'move') {
+          return { ...w, x: Math.max(0, Math.min(1440 - w.w, snap(d.ox + dx))), y: Math.max(40, Math.min(900 - w.h, snap(d.oy + dy))) };
+        }
+        return { ...w, w: Math.max(160, Math.min(1440 - w.x, snap(d.ow + dx))), h: Math.max(100, Math.min(900 - w.y, snap(d.oh + dy))) };
+      })
+    });
+  };
+
+  onUp = () => { if (this.state.drag) this.setState({ drag: null }); };
+
+  renderVals() {
+    const s = this.state;
+    const cat = this.catalog();
+    const byId = {};
+    cat.forEach((c) => { byId[c.id] = c; });
+    const pad = (n) => String(n).padStart(2, '0');
+    const now = s.now;
+    const hm = pad(now.getHours()) + ':' + pad(now.getMinutes());
+    const date = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+    const barClock = now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + '   ' + hm;
+
+    const y = now.getFullYear(), m = now.getMonth();
+    const lead = (new Date(y, m, 1).getDay() + 6) % 7;
+    const dim = new Date(y, m + 1, 0).getDate();
+    const calCells = [];
+    for (let i = 0; i < 42; i++) {
+      const d = i - lead + 1;
+      if (d < 1 || d > dim) calCells.push({ label: '', bg: 'transparent', color: 'var(--mut)', weight: 400 });
+      else if (d === now.getDate()) calCells.push({ label: String(d), bg: 'var(--acc)', color: 'var(--on)', weight: 700 });
+      else calCells.push({ label: String(d), bg: 'transparent', color: 'var(--fg)', weight: 400 });
+    }
+    const monthName = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+    const doneCount = s.tasks.filter((t) => t.done).length;
+    const tasks = s.tasks.map((t, i) => ({
+      text: t.text, done: t.done,
+      color: t.done ? 'var(--mut)' : 'var(--fg)', deco: t.done ? 'line-through' : 'none',
+      fill: t.done ? 'var(--acc)' : 'transparent',
+      toggle: () => this.setState({ tasks: s.tasks.map((x, j) => (j === i ? { ...x, done: !x.done } : x)) })
+    }));
+
+    const cpuNow = Math.round(s.cpu[s.cpu.length - 1]);
+    const sysRows = [
+      { label: 'CPU', pct: cpuNow, val: cpuNow + '%', color: 'var(--acc)' },
+      { label: 'MEM', pct: 41, val: '41%', color: 'var(--p)' },
+      { label: 'DISK', pct: 63, val: '63%', color: 'var(--warn)' }
+    ];
+    const sparkPoints = s.cpu.map((v, i) => (i * 100 / (s.cpu.length - 1)).toFixed(1) + ',' + (29 - v * 0.3).toFixed(1)).join(' ');
+
+    const mm = Math.floor(s.prog / 60);
+    const music = {
+      pct: (s.prog / 214 * 100).toFixed(1), pos: mm + ':' + pad(s.prog % 60),
+      icon: s.playing ? 'M2.5 2h2.5v8H2.5zM7 2h2.5v8H7z' : 'M3 2l7 4-7 4z'
+    };
+
+    const aiRows = [
+      { name: 'Claude Code', val: '1.8M', pct: 78 },
+      { name: 'Codex CLI', val: '0.9M', pct: 40 },
+      { name: 'OpenCode', val: '0.3M', pct: 14 }
+    ];
+    const ghRows = [
+      { color: 'var(--warn)', text: 'widgets-kit #12 review requested' },
+      { color: 'var(--ok)', text: 'owd main, CI passing' },
+      { color: 'var(--acc)', text: '3 new notifications' }
+    ];
+    const dockerRows = [
+      { color: 'var(--ok)', name: 'postgres', state: 'running' },
+      { color: 'var(--ok)', name: 'redis', state: 'running' },
+      { color: 'var(--mut)', name: 'api-dev', state: 'exited' }
+    ];
+    const mailRows = [
+      { from: 'Maintainer', subject: 'Spike report feedback' },
+      { from: 'CI', subject: 'Build passed' },
+      { from: 'Registry', subject: 'Widget approved' }
+    ];
+
+    const tags = {
+      clock: 'local', calendar: monthName, tasks: doneCount + '/' + s.tasks.length, system: 'live', battery: 'BAT0',
+      music: s.playing ? 'playing' : 'paused', ai: '3 detected', github: '1 to review', docker: '2 running', gmail: '3 unread'
+    };
+
+    const widgets = s.widgets.map((w) => {
+      const selected = s.sel === w.id;
+      return {
+        id: w.id, name: byId[w.id].name, tag: tags[w.id],
+        left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', z: selected ? 20 : 2,
+        accent: 'var(--' + w.accent + ')',
+        isClock: w.id === 'clock', isCalendar: w.id === 'calendar', isTasks: w.id === 'tasks', isSystem: w.id === 'system',
+        isBattery: w.id === 'battery', isMusic: w.id === 'music', isAi: w.id === 'ai', isGithub: w.id === 'github',
+        isDocker: w.id === 'docker', isGmail: w.id === 'gmail',
+        clockSize: Math.floor(Math.max(28, Math.min(w.w / 5.2, (w.h - 80) * 0.9, 84))),
+        showSec: w.w >= 280, showSpark: w.h >= 180,
+        ovBorder: selected ? '2px solid var(--acc)' : '1px dashed var(--mut)',
+        ovBg: selected ? 'color-mix(in srgb, var(--acc) 12%, transparent)' : 'transparent',
+        startMove: (e) => this.beginDrag(e, w.id, 'move'),
+        startResize: (e) => this.beginDrag(e, w.id, 'resize'),
+        stop: (e) => e.stopPropagation(),
+        remove: () => this.unplace(w.id)
+      };
+    });
+
+    const placed = {};
+    s.widgets.forEach((w) => { placed[w.id] = true; });
+
+    const tabDefs = [['installed', 'Installed'], ['discover', 'Discover'], ['layouts', 'Layouts'], ['create', 'Create']];
+    const tabs = tabDefs.map((t) => ({
+      label: t[1], color: s.tab === t[0] ? 'var(--fg)' : 'var(--mut)', line: s.tab === t[0] ? 'var(--acc)' : 'transparent',
+      set: () => this.setState({ tab: t[0] })
+    }));
+
+    const themes = this.themes().map((t) => ({
+      name: t.name, bg: t.bg, acc: t.acc, fg: t.fg, active: s.theme === t.id,
+      border: s.theme === t.id ? 'var(--acc)' : 'var(--line)',
+      set: () => this.setState({ theme: t.id })
+    }));
+
+    const installedCards = cat.filter((c) => s.installed[c.id]).map((c) => ({
+      name: c.name, cat: c.cat, kind: c.kind, caps: c.caps,
+      label: placed[c.id] ? 'On desktop' : 'Add to desktop',
+      bg: placed[c.id] ? 'var(--acc)' : 'transparent', fg: placed[c.id] ? 'var(--on)' : 'var(--acc)',
+      toggle: () => (placed[c.id] ? this.unplace(c.id) : this.place(c.id))
+    }));
+
+    const discoverCards = cat.map((c) => ({
+      name: c.name, kind: c.kind, desc: c.desc, caps: c.caps,
+      label: s.installed[c.id] ? 'Installed' : 'Install',
+      bg: s.installed[c.id] ? 'var(--acc)' : 'transparent', fg: s.installed[c.id] ? 'var(--on)' : 'var(--acc)',
+      install: () => { if (!s.installed[c.id]) this.place(c.id); }
+    }));
+
+    const toCard = (name, list, active) => ({
+      name, count: list.length, border: active ? 'var(--acc)' : 'var(--line)',
+      rects: list.map((w) => ({ left: (w.x / 10) + 'px', top: (w.y / 10) + 'px', width: (w.w / 10) + 'px', height: (w.h / 10) + 'px' })),
+      apply: () => {
+        const inst = { ...s.installed };
+        list.forEach((w) => { inst[w.id] = true; });
+        this.setState({ widgets: list.map((w) => ({ ...w })), installed: inst, sel: list[0] ? list[0].id : null });
+      }
+    });
+    const same = (a, b) => a.length === b.length && a.every((w, i) => b[i] && w.id === b[i].id && w.x === b[i].x && w.y === b[i].y && w.w === b[i].w && w.h === b[i].h);
+    const layoutCards = this.presets().map((p) => toCard(p.name, p.list, same(p.list, s.widgets)))
+      .concat(s.saved.map((p) => toCard(p.name, p.list, same(p.list, s.widgets))));
+
+    const sw = s.widgets.find((w) => w.id === s.sel);
+    const area = sw ? sw.w * sw.h : 0;
+    const accNames = [['acc', 'theme accent'], ['ok', 'green'], ['warn', 'amber'], ['bad', 'red'], ['p', 'purple']];
+    const layerBtns = ['Background', 'Bottom', 'Top'].map((l) => ({
+      label: l, bg: sw && sw.layer === l ? 'var(--acc)' : 'transparent', fg: sw && sw.layer === l ? 'var(--on)' : 'var(--fg)',
+      set: () => this.setState({ widgets: s.widgets.map((w) => (w.id === s.sel ? { ...w, layer: l } : w)) })
+    }));
+    const accentBtns = accNames.map((a) => ({
+      name: a[1], color: 'var(--' + a[0] + ')', active: !!sw && sw.accent === a[0],
+      border: sw && sw.accent === a[0] ? 'var(--fg)' : 'transparent',
+      set: () => this.setState({ widgets: s.widgets.map((w) => (w.id === s.sel ? { ...w, accent: a[0] } : w)) })
+    }));
+
+    const specSnippet = [
+      '{',
+      '  "id": "my-clock",',
+      '  "layout": [',
+      '    { "text": "time.hm",',
+      '      "size": 56,',
+      '      "color": "accent" },',
+      '    { "text": "time.date",',
+      '      "color": "muted" }',
+      '  ],',
+      '  "providers": ["system.time"]',
+      '}'
+    ].join('\n');
+
+    return {
+      theme: s.theme, open: s.open, closed: !s.open, editing: s.open,
+      gridImage: s.open ? 'radial-gradient(circle, var(--line) 1px, transparent 1.5px)' : 'none',
+      barClock, barBtnBg: s.open ? 'var(--acc)' : 'transparent', barBtnFg: s.open ? 'var(--on)' : 'var(--fg)',
+      toggleOpen: () => this.setState({ open: !s.open }),
+      onMove: this.onMove, onUp: this.onUp,
+      time: { hm, s: pad(now.getSeconds()), date },
+      calCells, tasks, sysRows, sparkPoints, music, aiRows, ghRows, dockerRows, mailRows,
+      togglePlay: () => this.setState({ playing: !s.playing }),
+      widgets, tabs, themes,
+      isInstalled: s.tab === 'installed', isDiscover: s.tab === 'discover', isLayouts: s.tab === 'layouts', isCreate: s.tab === 'create',
+      installedCards, discoverCards, layoutCards, specSnippet,
+      saveLayout: () => this.setState({ saved: s.saved.concat([{ name: 'My layout ' + (s.saved.length + 1), list: s.widgets.map((w) => ({ ...w })) }]) }),
+      hasSel: !!sw, noSel: !sw,
+      selName: sw ? byId[sw.id].name : '', selX: sw ? sw.x : 0, selY: sw ? sw.y : 0, selW: sw ? sw.w : 0, selH: sw ? sw.h : 0,
+      selClass: area < 40000 ? 'S' : area < 80000 ? 'M' : 'L',
+      selCaps: sw ? byId[sw.id].caps : '',
+      layerBtns, accentBtns,
+      removeSel: () => { if (s.sel) this.unplace(s.sel); }
+    };
+  }
+}
+</script>
+</body>
+</html>

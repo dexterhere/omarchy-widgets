@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>One request through the daemon</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div style="position: relative; width: 1440px; height: 900px; background: #1a1b26; color: #c0caf5; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; line-height: 20px">
+
+<div style="position: absolute; left: 64px; top: 64px; font-size: 28px; line-height: 36px; font-weight: 600">One request, step by step</div>
+<div style="position: absolute; left: 64px; top: 108px; width: 1100px; font-size: 16px; line-height: 24px; color: #9aa5ce">A GitHub card asks for pull requests. The token is used inside owd and never reaches the widget.</div>
+
+<svg width="8" height="560" viewBox="0 0 8 560" preserveAspectRatio="none" style="position: absolute; left: 148px; top: 224px; width: 8px; height: 560px; overflow: visible; fill: none; stroke: #3b4261; stroke-width: 2; stroke-dasharray: 6 6"><path d="M 4 0 L 4 560"></path></svg>
+<svg width="8" height="560" viewBox="0 0 8 560" preserveAspectRatio="none" style="position: absolute; left: 375px; top: 224px; width: 8px; height: 560px; overflow: visible; fill: none; stroke: #3b4261; stroke-width: 2; stroke-dasharray: 6 6"><path d="M 4 0 L 4 560"></path></svg>
+<svg width="8" height="560" viewBox="0 0 8 560" preserveAspectRatio="none" style="position: absolute; left: 602px; top: 224px; width: 8px; height: 560px; overflow: visible; fill: none; stroke: #3b4261; stroke-width: 2; stroke-dasharray: 6 6"><path d="M 4 0 L 4 560"></path></svg>
+<svg width="8" height="560" viewBox="0 0 8 560" preserveAspectRatio="none" style="position: absolute; left: 829px; top: 224px; width: 8px; height: 560px; overflow: visible; fill: none; stroke: #3b4261; stroke-width: 2; stroke-dasharray: 6 6"><path d="M 4 0 L 4 560"></path></svg>
+<svg width="8" height="560" viewBox="0 0 8 560" preserveAspectRatio="none" style="position: absolute; left: 1056px; top: 224px; width: 8px; height: 560px; overflow: visible; fill: none; stroke: #3b4261; stroke-width: 2; stroke-dasharray: 6 6"><path d="M 4 0 L 4 560"></path></svg>
+<svg width="8" height="560" viewBox="0 0 8 560" preserveAspectRatio="none" style="position: absolute; left: 1283px; top: 224px; width: 8px; height: 560px; overflow: visible; fill: none; stroke: #3b4261; stroke-width: 2; stroke-dasharray: 6 6"><path d="M 4 0 L 4 560"></path></svg>
+
+<svg width="226" height="8" viewBox="0 0 226 8" preserveAspectRatio="none" style="position: absolute; left: 152px; top: 268px; width: 226px; height: 8px; overflow: visible; fill: none; stroke: #7aa2f7; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-1" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#7aa2f7" stroke="none" style="stroke: none; fill: #7aa2f7; fill: context-stroke"/></marker></defs><path d="M 0 4 L 222 4" marker-end="url(#dc-arrow-head-filled-1)"></path></svg>
+<svg width="226" height="8" viewBox="0 0 226 8" preserveAspectRatio="none" style="position: absolute; left: 379px; top: 316px; width: 226px; height: 8px; overflow: visible; fill: none; stroke: #7aa2f7; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-2" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#7aa2f7" stroke="none" style="stroke: none; fill: #7aa2f7; fill: context-stroke"/></marker></defs><path d="M 0 4 L 222 4" marker-end="url(#dc-arrow-head-filled-2)"></path></svg>
+<svg width="226" height="8" viewBox="0 0 226 8" preserveAspectRatio="none" style="position: absolute; left: 606px; top: 428px; width: 226px; height: 8px; overflow: visible; fill: none; stroke: #7aa2f7; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-3" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#7aa2f7" stroke="none" style="stroke: none; fill: #7aa2f7; fill: context-stroke"/></marker></defs><path d="M 0 4 L 222 4" marker-end="url(#dc-arrow-head-filled-3)"></path></svg>
+<svg width="226" height="8" viewBox="0 0 226 8" preserveAspectRatio="none" style="position: absolute; left: 833px; top: 476px; width: 226px; height: 8px; overflow: visible; fill: none; stroke: #e0af68; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-4" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#e0af68" stroke="none" style="stroke: none; fill: #e0af68; fill: context-stroke"/></marker></defs><path d="M 0 4 L 222 4" marker-end="url(#dc-arrow-head-filled-4)"></path></svg>
+<svg width="226" height="8" viewBox="0 0 226 8" preserveAspectRatio="none" style="position: absolute; left: 834px; top: 524px; width: 226px; height: 8px; overflow: visible; fill: none; stroke: #e0af68; stroke-width: 2; stroke-dasharray: 6 6; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-5" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#e0af68" stroke="none" style="stroke: none; fill: #e0af68; fill: context-stroke"/></marker></defs><path d="M 226 4 L 4 4" marker-end="url(#dc-arrow-head-filled-5)"></path></svg>
+<svg width="453" height="8" viewBox="0 0 453 8" preserveAspectRatio="none" style="position: absolute; left: 833px; top: 572px; width: 453px; height: 8px; overflow: visible; fill: none; stroke: #8f98c4; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-6" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8f98c4" stroke="none" style="stroke: none; fill: #8f98c4; fill: context-stroke"/></marker></defs><path d="M 0 4 L 449 4" marker-end="url(#dc-arrow-head-filled-6)"></path></svg>
+<svg width="453" height="8" viewBox="0 0 453 8" preserveAspectRatio="none" style="position: absolute; left: 834px; top: 620px; width: 453px; height: 8px; overflow: visible; fill: none; stroke: #8f98c4; stroke-width: 2; stroke-dasharray: 6 6; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-7" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8f98c4" stroke="none" style="stroke: none; fill: #8f98c4; fill: context-stroke"/></marker></defs><path d="M 453 4 L 4 4" marker-end="url(#dc-arrow-head-filled-7)"></path></svg>
+<svg width="226" height="8" viewBox="0 0 226 8" preserveAspectRatio="none" style="position: absolute; left: 607px; top: 668px; width: 226px; height: 8px; overflow: visible; fill: none; stroke: #9ece6a; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-8" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#9ece6a" stroke="none" style="stroke: none; fill: #9ece6a; fill: context-stroke"/></marker></defs><path d="M 226 4 L 4 4" marker-end="url(#dc-arrow-head-filled-8)"></path></svg>
+<svg width="226" height="8" viewBox="0 0 226 8" preserveAspectRatio="none" style="position: absolute; left: 380px; top: 716px; width: 226px; height: 8px; overflow: visible; fill: none; stroke: #9ece6a; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-9" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#9ece6a" stroke="none" style="stroke: none; fill: #9ece6a; fill: context-stroke"/></marker></defs><path d="M 226 4 L 4 4" marker-end="url(#dc-arrow-head-filled-9)"></path></svg>
+<svg width="226" height="8" viewBox="0 0 226 8" preserveAspectRatio="none" style="position: absolute; left: 153px; top: 764px; width: 226px; height: 8px; overflow: visible; fill: none; stroke: #9ece6a; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-10" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#9ece6a" stroke="none" style="stroke: none; fill: #9ece6a; fill: context-stroke"/></marker></defs><path d="M 226 4 L 4 4" marker-end="url(#dc-arrow-head-filled-10)"></path></svg>
+
+<div style="position: absolute; left: 64px; top: 160px; width: 177px; height: 64px; box-sizing: border-box; padding: 8px 12px; display: flex; align-items: center; background: #202642; border: 1px solid #7aa2f7; border-radius: 6px"><span><b>Widget</b><br>QML or spec</span></div>
+<div style="position: absolute; left: 291px; top: 160px; width: 177px; height: 64px; box-sizing: border-box; padding: 8px 12px; display: flex; align-items: center; background: #202642; border: 1px solid #7aa2f7; border-radius: 6px"><span><b>Bridge</b><br>service in the shell</span></div>
+<div style="position: absolute; left: 518px; top: 160px; width: 177px; height: 64px; box-sizing: border-box; padding: 8px 12px; display: flex; align-items: center; background: #202642; border: 1px solid #7aa2f7; border-radius: 6px"><span><b>owd core</b><br>socket + grants</span></div>
+<div style="position: absolute; left: 745px; top: 160px; width: 177px; height: 64px; box-sizing: border-box; padding: 8px 12px; display: flex; align-items: center; background: #202642; border: 1px solid #7aa2f7; border-radius: 6px"><span><b>Provider</b><br>github module</span></div>
+<div style="position: absolute; left: 972px; top: 160px; width: 177px; height: 64px; box-sizing: border-box; padding: 8px 12px; display: flex; align-items: center; background: #202642; border: 1px solid #7aa2f7; border-radius: 6px"><span><b>Vault</b><br>backed by the keyring</span></div>
+<div style="position: absolute; left: 1199px; top: 160px; width: 177px; height: 64px; box-sizing: border-box; padding: 8px 12px; display: flex; align-items: center; background: #1f2335; border: 1px solid #3b4261; border-radius: 6px"><span><b>api.github.com</b><br>outside world</span></div>
+
+<div style="position: absolute; left: 502px; top: 344px; width: 208px; height: 56px; box-sizing: border-box; padding: 8px 12px; display: flex; align-items: center; background: #2a2540; border: 1px solid #bb9af7; border-radius: 6px"><span><b>3</b> who is asking? granted?<br>audit line is written</span></div>
+
+<div style="position: absolute; left: 165px; top: 244px; width: 200px; text-align: center; font-size: 13px; line-height: 16px; color: #9aa5ce"><b>1</b> ask for github.prs</div>
+<div style="position: absolute; left: 392px; top: 292px; width: 200px; text-align: center; font-size: 13px; line-height: 16px; color: #9aa5ce"><b>2</b> subscribe over the socket</div>
+<div style="position: absolute; left: 620px; top: 404px; width: 200px; text-align: center; font-size: 13px; line-height: 16px; color: #9aa5ce"><b>4</b> run the provider</div>
+<div style="position: absolute; left: 846px; top: 452px; width: 200px; text-align: center; font-size: 13px; line-height: 16px; color: #9aa5ce"><b>5</b> need the token</div>
+<div style="position: absolute; left: 846px; top: 500px; width: 200px; text-align: center; font-size: 13px; line-height: 16px; color: #9aa5ce">token, stays inside owd</div>
+<div style="position: absolute; left: 845px; top: 548px; width: 205px; font-size: 13px; line-height: 16px; color: #9aa5ce"><b>6</b> HTTPS GET, allow-listed host</div>
+<div style="position: absolute; left: 845px; top: 596px; width: 205px; font-size: 13px; line-height: 16px; color: #9aa5ce">JSON response</div>
+<div style="position: absolute; left: 620px; top: 644px; width: 200px; text-align: center; font-size: 13px; line-height: 16px; color: #9aa5ce"><b>7</b> keep only the schema fields</div>
+<div style="position: absolute; left: 393px; top: 692px; width: 200px; text-align: center; font-size: 13px; line-height: 16px; color: #9aa5ce"><b>8</b> push to subscribers</div>
+<div style="position: absolute; left: 166px; top: 740px; width: 200px; text-align: center; font-size: 13px; line-height: 16px; color: #9aa5ce"><b>9</b> the card redraws</div>
+
+<div style="position: absolute; left: 64px; top: 804px; width: 1312px; font-size: 13px; line-height: 18px; color: #9aa5ce">Repeats on a timer (60 s by default, conditional requests with ETag). If step 3 fails, the bridge gets a denied reply and Widget Center shows an approve-or-deny prompt.</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

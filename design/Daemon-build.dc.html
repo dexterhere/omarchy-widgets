@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>How to build the daemon</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div style="position: relative; width: 1440px; height: 900px; box-sizing: border-box; padding: 64px; background: #1a1b26; color: #c0caf5; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; line-height: 20px">
+
+<div style="font-size: 28px; line-height: 36px; font-weight: 600">How to build it</div>
+<div style="margin-top: 8px; font-size: 16px; line-height: 24px; color: #9aa5ce">Seven steps in Rust. Each one ends with something you can run and test before starting the next.</div>
+
+<div style="margin-top: 32px; display: flex; gap: 32px; align-items: flex-start">
+
+<div style="flex: none; width: 340px; display: flex; flex-direction: column; gap: 32px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 12px; line-height: 16px; letter-spacing: 0.08em; text-transform: uppercase; color: #9aa5ce">Workspace layout</div>
+<pre style="margin: 0; box-sizing: border-box; padding: 14px; background: #16161f; border: 1px solid #2a2f45; border-radius: 6px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; line-height: 20px; white-space: pre; overflow: hidden">{{layoutText}}</pre>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 12px; line-height: 16px; letter-spacing: 0.08em; text-transform: uppercase; color: #9aa5ce">Wire format: JSON lines</div>
+<pre style="margin: 0; box-sizing: border-box; padding: 14px; background: #16161f; border: 1px solid #2a2f45; border-radius: 6px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; line-height: 20px; white-space: pre; overflow: hidden">{{wireText}}</pre>
+</div>
+</div>
+
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 12px; line-height: 16px; letter-spacing: 0.08em; text-transform: uppercase; color: #9aa5ce">Build order</div>
+<div style="display: flex; flex-direction: column; gap: 12px">
+<sc-for list="{{steps}}" as="s" hint-placeholder-count="7">
+<div style="box-sizing: border-box; height: 76px; padding: 10px 14px; display: flex; gap: 14px; align-items: center; background: #202642; border: 1px solid #3b4261; border-radius: 6px">
+<div style="flex: none; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: #7aa2f7; color: #12131c; font-weight: 600; border-radius: 4px">{{s.n}}</div>
+<div style="min-width: 0"><div><b>{{s.title}}</b> · {{s.desc}}</div><div style="font-size: 13px; line-height: 18px; color: #9aa5ce">Done when {{s.done}}</div></div>
+</div>
+</sc-for>
+</div>
+</div>
+
+<div style="flex: none; width: 340px; display: flex; flex-direction: column; gap: 32px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 12px; line-height: 16px; letter-spacing: 0.08em; text-transform: uppercase; color: #9aa5ce">systemd hardening, verify per distro</div>
+<pre style="margin: 0; box-sizing: border-box; padding: 14px; background: #16161f; border: 1px solid #2a2f45; border-radius: 6px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; line-height: 20px; white-space: pre; overflow: hidden">{{unitText}}</pre>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 12px; line-height: 16px; letter-spacing: 0.08em; text-transform: uppercase; color: #9aa5ce">Worth saying out loud</div>
+<div style="box-sizing: border-box; padding: 14px; background: #2a2540; border: 1px solid #bb9af7; border-radius: 6px">A code widget runs as you, so it can still reach anything you can. owd keeps tokens out of widget code and limits what each widget may ask for. Spec widgets contain no code, so they stay the safe default.</div>
+</div>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const layoutText = [
+      'omarchy-widgets/',
+      '  crates/',
+      '    ow-proto/     wire types, versioned',
+      '    ow-vault/     keys, sealed records',
+      '    ow-core/      grants, audit, cache',
+      '    ow-providers/ system, github, docker',
+      '    owd/          the daemon binary',
+      '    ow/           CLI: grants, audit, add',
+      '  packaging/      systemd unit, PKGBUILD',
+      '  deny.toml       cargo-deny policy'
+    ].join('\n');
+    const wireText = [
+      '→ {"op":"subscribe","topic":"github.prs"}',
+      '← {"ok":true,"sub":7}',
+      '← {"sub":7,"data":{"open":3,"review":1}}',
+      '← {"error":"denied","topic":"docker.ps"}'
+    ].join('\n');
+    const unitText = [
+      '[Service]',
+      'NoNewPrivileges=yes',
+      'ProtectSystem=strict',
+      'ProtectHome=read-only',
+      'PrivateTmp=yes',
+      'RestrictAddressFamilies=AF_UNIX \\',
+      '  AF_INET AF_INET6',
+      'SystemCallFilter=@system-service',
+      'MemoryDenyWriteExecute=yes',
+      'CapabilityBoundingSet='
+    ].join('\n');
+    const steps = [
+      { n: 1, title: 'Skeleton', desc: 'Cargo workspace; owd runs under systemctl --user', done: 'it starts, stops and logs to journalctl.' },
+      { n: 2, title: 'Socket + identity', desc: '0600 socket, SO_PEERCRED, versioned JSON lines', done: 'a second user cannot connect and the parser survives fuzzing.' },
+      { n: 3, title: 'Grants + audit', desc: 'deny by default, append-only log', done: 'an ungranted topic is refused and leaves an audit line.' },
+      { n: 4, title: 'Vault', desc: 'random data key, XChaCha20-Poly1305 records', done: 'a tampered file fails to open and keys are zeroized.' },
+      { n: 5, title: 'Local providers', desc: 'system and battery, RAM cache, push updates', done: 'the System card in the shell updates live.' },
+      { n: 6, title: 'Network providers', desc: 'GitHub device flow, egress allow-list, ETag', done: 'the token appears in no log and no widget message.' },
+      { n: 7, title: 'Harden and ship', desc: 'sandbox, cargo-deny, fuzzing, signed releases', done: 'systemd-analyze security is green and an outside review passes.' }
+    ];
+    return { layoutText, wireText, unitText, steps };
+  }
+}
+</script>
+</body>
+</html>

@@ -8,4 +8,4 @@ mod format;
 mod store;
 
 pub use format::{MAX_NAME, MAX_RECORDS, MAX_VALUE, Profile, VaultError};
-pub use store::Vault;
+pub use store::{Info, Vault, inspect, wipe};

@@ -48,6 +48,10 @@ impl Paths {
         self.config.join("grants.toml")
     }
 
+    pub fn vault(&self) -> PathBuf {
+        self.data.join("vault.owv")
+    }
+
     pub fn audit(&self) -> PathBuf {
         self.state.join("audit.jsonl")
     }

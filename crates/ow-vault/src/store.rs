@@ -308,6 +308,32 @@ impl Vault {
     }
 }
 
+/// What can be known without the passphrase (the header is not secret).
+#[derive(Debug, PartialEq, Eq)]
+pub struct Info {
+    pub mode: &'static str,
+    pub profile: Profile,
+}
+
+pub fn inspect(path: &Path) -> Result<Info, VaultError> {
+    let bytes = read_private(path)?;
+    match crate::format::parse_header(&bytes)?.mode {
+        Mode::Passphrase { profile, .. } => Ok(Info {
+            mode: "passphrase",
+            profile,
+        }),
+    }
+}
+
+/// Remove the vault file and its lock file. Backups and snapshots are NOT touched and stay
+/// decryptable with the passphrase.
+pub fn wipe(path: &Path) -> Result<(), VaultError> {
+    let _lock = lock(path)?;
+    std::fs::remove_file(path).map_err(io)?;
+    let _ = std::fs::remove_file(sidecar(path, ".lock"));
+    Ok(())
+}
+
 fn durable(c: Commit) -> Result<(), VaultError> {
     match c {
         Commit::Durable => Ok(()),

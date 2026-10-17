@@ -33,8 +33,10 @@ pub struct Server {
     shared: Arc<Shared>,
 }
 
-/// Disable core dumps and ptrace/proc-mem access to this process.
+/// Private umask, no core dumps, not dumpable (blocks ptrace/proc-mem by other same-uid processes).
 pub fn harden_process() -> io::Result<()> {
+    // Everything the daemon creates (vault, audit, grants, sockets) is private by default.
+    rustix::process::umask(rustix::fs::Mode::from_raw_mode(0o077));
     use rustix::process::{Resource, Rlimit, setrlimit};
     rustix::process::set_dumpable_behavior(rustix::process::DumpableBehavior::NotDumpable)?;
     setrlimit(

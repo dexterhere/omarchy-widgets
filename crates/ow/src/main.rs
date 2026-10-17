@@ -1,6 +1,9 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::print_stdout)] // CLI output is its job
 
+mod input;
+mod vault_cmd;
+
 use ow_core::Paths;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -33,7 +36,8 @@ fn run() -> Result<(), String> {
             println!("{}", status(&paths)?);
             Ok(())
         }
-        _ => Err("usage: ow [--config-dir DIR] status".into()),
+        Some("vault") => vault_cmd::run(&paths, &args[1..], &mut std::io::stdout()),
+        _ => Err("usage: ow [--config-dir DIR] status | vault ...".into()),
     }
 }
 

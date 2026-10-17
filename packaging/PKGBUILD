@@ -8,9 +8,14 @@ url='https://github.com/dexterhere/omarchy-widgets'
 license=(MIT)
 depends=(gcc-libs)
 makedepends=(cargo git)
-# Release builds use a signed tag; override for local testing with: source=("git+file://$PWD#branch=develop")
-source=("git+$url.git#tag=v$pkgver")
-sha256sums=(SKIP)
+# Release builds verify the maintainer's signature on the tag (`?signed`). validpgpkeys is empty
+# on purpose until the maintainer publishes a signing key: makepkg then fails closed instead of
+# building unverified source. [Maintainer task] add the full 40-hex key fingerprint below, and
+# sign release tags with `git tag -s`.
+# Local testing only: source=("omarchy-widgets::git+file://$PWD#branch=develop") and drop ?signed.
+source=("omarchy-widgets::git+$url.git?signed#tag=v$pkgver")
+validpgpkeys=()
+sha256sums=(SKIP) # git sources are verified by the signed tag, not a hash
 
 prepare() {
   cd omarchy-widgets

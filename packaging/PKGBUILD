@@ -1,0 +1,41 @@
+# Maintainer: the Omarchy widget layer contributors
+pkgname=omarchy-widgets
+pkgver=0.0.0
+pkgrel=1
+pkgdesc='Provider daemon (owd) and CLI (ow) for Omarchy desktop widgets: encrypted vault, grants, audit'
+arch=(x86_64)
+url='https://github.com/dexterhere/omarchy-widgets'
+license=(MIT)
+depends=(gcc-libs)
+makedepends=(cargo git)
+# Release builds use a signed tag; override for local testing with: source=("git+file://$PWD#branch=develop")
+source=("git+$url.git#tag=v$pkgver")
+sha256sums=(SKIP)
+
+prepare() {
+  cd omarchy-widgets
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd omarchy-widgets
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p owd -p ow
+}
+
+check() {
+  cd omarchy-widgets
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo test --frozen --workspace
+}
+
+package() {
+  cd omarchy-widgets
+  install -Dm755 target/release/owd "$pkgdir/usr/bin/owd"
+  install -Dm755 target/release/ow "$pkgdir/usr/bin/ow"
+  install -Dm644 packaging/owd.service "$pkgdir/usr/lib/systemd/user/owd.service"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 SECURITY.md "$pkgdir/usr/share/doc/$pkgname/SECURITY.md"
+  install -Dm644 docs/threat-model.md "$pkgdir/usr/share/doc/$pkgname/threat-model.md"
+}

@@ -29,6 +29,7 @@ static TOPICS: [TopicSpec; 3] = [
 #[derive(Clone, Copy)]
 struct CpuSample {
     idle: u64,
+    iowait: u64,
     total: u64,
     pct: Option<f64>,
 }
@@ -45,10 +46,13 @@ impl System {
 
     /// Read from another directory laid out like /proc (tests).
     pub fn with_root(proc_root: PathBuf) -> Self {
-        Self {
+        let s = Self {
             proc_root,
             last_cpu: Mutex::new(None),
-        }
+        };
+        // Baseline now, so the first real fetch already has a delta to work with.
+        let _ = s.cpu_usage();
+        s
     }
 
     fn read(&self, file: &str) -> Result<String, ProviderError> {
@@ -61,7 +65,7 @@ impl System {
     /// and reports `Unavailable` instead of a made-up number; if no tick elapsed since the
     /// last sample the last computed value is returned.
     fn cpu_usage(&self) -> Result<f64, ProviderError> {
-        let (idle, total) = parse_cpu(&self.read("stat")?).ok_or(ProviderError::Format)?;
+        let (idle, iowait, total) = parse_cpu(&self.read("stat")?).ok_or(ProviderError::Format)?;
         let mut last = self
             .last_cpu
             .lock()
@@ -69,6 +73,7 @@ impl System {
         let prev = *last;
         let fresh = CpuSample {
             idle,
+            iowait,
             total,
             pct: None,
         };
@@ -76,6 +81,8 @@ impl System {
             *last = Some(fresh);
             return Err(ProviderError::Unavailable);
         };
+        // `idle` and `total` are monotonic; a drop means a reset. `iowait` is documented as
+        // unreliable and can go backwards, so a drop there counts as zero idle time gained.
         if total < p.total || idle < p.idle {
             *last = Some(fresh);
             return Err(ProviderError::Unavailable);
@@ -83,11 +90,12 @@ impl System {
         if total == p.total {
             return p.pct.ok_or(ProviderError::Unavailable);
         }
-        let busy =
-            (100.0 * (1.0 - (idle - p.idle) as f64 / (total - p.total) as f64)).clamp(0.0, 100.0);
+        let idle_gain = (idle - p.idle) + iowait.saturating_sub(p.iowait);
+        let busy = (100.0 * (1.0 - idle_gain as f64 / (total - p.total) as f64)).clamp(0.0, 100.0);
         let pct = round1(busy);
         *last = Some(CpuSample {
             idle,
+            iowait,
             total,
             pct: Some(pct),
         });
@@ -101,8 +109,8 @@ impl Default for System {
     }
 }
 
-/// `cpu  user nice system idle iowait irq softirq steal ...` -> (idle+iowait, total).
-pub(crate) fn parse_cpu(stat: &str) -> Option<(u64, u64)> {
+/// `cpu  user nice system idle iowait irq softirq steal ...` -> (idle, iowait, total).
+pub(crate) fn parse_cpu(stat: &str) -> Option<(u64, u64, u64)> {
     let line = stat.lines().find(|l| l.starts_with("cpu "))?;
     let v: Vec<u64> = line
         .split_whitespace()
@@ -115,7 +123,7 @@ pub(crate) fn parse_cpu(stat: &str) -> Option<(u64, u64)> {
     }
     // guest/guest_nice (indices 8, 9) are already counted inside user/nice.
     let total = v.iter().take(8).try_fold(0u64, |a, &x| a.checked_add(x))?;
-    Some((v[3].checked_add(v[4])?, total))
+    Some((v[3], v[4], total))
 }
 
 /// -> (total_kib, available_kib)
@@ -212,7 +220,7 @@ mod tests {
 
     #[test]
     fn parsers() {
-        assert_eq!(parse_cpu(STAT1), Some((800, 1000)));
+        assert_eq!(parse_cpu(STAT1), Some((800, 0, 1000)));
         assert_eq!(parse_meminfo(MEM), Some((16_384_000, 4_096_000)));
         assert_eq!(
             parse_load("0.50 1.25 2.00 1/100 123\n"),
@@ -245,10 +253,22 @@ mod tests {
     }
 
     #[test]
+    fn iowait_going_backwards_is_not_a_reset() {
+        let (d, s) = fixture(&[("stat", "cpu  100 0 100 800 50 0 0 0 0 0\n")]);
+        let set = |c: &str| std::fs::write(d.path().join("stat"), c).unwrap();
+        // idle +100, iowait -10 (counted as 0), total +190 -> 1 - 100/190
+        set("cpu  150 0 150 900 40 0 0 0 0 0\n");
+        let v = s.fetch("system.cpu", &Map::new()).unwrap()["usage_pct"]
+            .as_f64()
+            .unwrap();
+        assert!((v - 47.4).abs() < 0.1, "{v}");
+    }
+
+    #[test]
     fn guest_columns_are_not_double_counted() {
         assert_eq!(
             parse_cpu("cpu  100 0 100 800 0 0 0 0 50 50\n"),
-            Some((800, 1000))
+            Some((800, 0, 1000))
         );
     }
 

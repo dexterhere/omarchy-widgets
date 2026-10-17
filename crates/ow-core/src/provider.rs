@@ -3,6 +3,8 @@
 use serde_json::{Map, Value};
 use std::time::Duration;
 
+const MAX_PARAMS_BYTES: usize = 256;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Sensitivity {
@@ -20,6 +22,9 @@ pub struct TopicSpec {
     pub sensitivity: Sensitivity,
     pub interval: Duration,
     pub fields: &'static [&'static str],
+    /// Request parameter names this topic accepts. Anything else is rejected; the default is
+    /// none, so a topic that takes no parameters cannot be given any.
+    pub params: &'static [&'static str],
 }
 
 impl TopicSpec {
@@ -35,7 +40,28 @@ impl TopicSpec {
             sensitivity,
             interval,
             fields,
+            params: &[],
         }
+    }
+
+    pub const fn with_params(mut self, params: &'static [&'static str]) -> Self {
+        self.params = params;
+        self
+    }
+
+    /// Reject undeclared parameter names, non-scalar values and oversized input, so client
+    /// input cannot mint unbounded cache keys.
+    pub fn check_params(&self, params: &Map<String, Value>) -> Result<(), ProviderError> {
+        let scalar = |v: &Value| matches!(v, Value::String(_) | Value::Number(_) | Value::Bool(_));
+        let size = serde_json::to_string(params).map_or(usize::MAX, |s| s.len());
+        if size > MAX_PARAMS_BYTES
+            || params
+                .iter()
+                .any(|(k, v)| !self.params.contains(&k.as_str()) || !scalar(v))
+        {
+            return Err(ProviderError::BadParams);
+        }
+        Ok(())
     }
 
     /// Keep only declared fields. This is what makes field-level grants meaningful.
@@ -55,6 +81,8 @@ pub enum ProviderError {
     Format,
     #[error("unknown topic")]
     UnknownTopic,
+    #[error("parameters not accepted by this topic")]
+    BadParams,
 }
 
 /// Synchronous on purpose: the hub runs `fetch` on its own worker threads, so a blocking

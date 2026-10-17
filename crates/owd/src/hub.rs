@@ -15,6 +15,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub(crate) const MAX_SUBS_PER_CONN: usize = 32;
 const MAX_SUBS: usize = 256;
+const MAX_SUBS_PER_WIDGET: usize = 16;
 const MAX_CACHE_KEYS: usize = 256;
 /// Backoff multiplier cap: interval * 2^4 after repeated failures.
 const MAX_BACKOFF_SHIFT: u32 = 4;
@@ -99,10 +100,6 @@ impl Hub {
             .find_map(|p| p.topics().iter().find(|t| t.name == topic).map(|t| (p, t)))
     }
 
-    pub(crate) fn knows(&self, topic: &str) -> bool {
-        self.find(topic).is_some()
-    }
-
     /// Fetch from the provider (no lock held), update the cache, return the best data we have.
     /// A panicking provider counts as unavailable instead of killing the scheduler.
     fn refresh(&self, key: &Key, params: &Params) -> Option<Snap> {
@@ -113,7 +110,16 @@ impl Hub {
         let now = Instant::now();
         let mut st = lock(&self.state);
         if !st.cache.contains_key(key) && st.cache.len() >= MAX_CACHE_KEYS {
-            return None;
+            // Evict the least recently used entry nobody is subscribed to, so a flood of
+            // distinct keys cannot lock other widgets out of the cache.
+            let subscribed: HashSet<&Key> = st.subs.values().map(|s| &s.key).collect();
+            let victim = st
+                .cache
+                .iter()
+                .filter(|(k, _)| !subscribed.contains(k))
+                .min_by_key(|(_, e)| e.last_touch)
+                .map(|(k, _)| k.clone());
+            st.cache.remove(&victim?);
         }
         let e = st.cache.entry(key.clone()).or_insert(Entry {
             data: None,
@@ -139,9 +145,8 @@ impl Hub {
 
     /// Cached while fresh, otherwise fetched now.
     pub(crate) fn snapshot(&self, topic: &str, params: &Params) -> Result<Snap, ProviderError> {
-        if !self.knows(topic) {
-            return Err(ProviderError::UnknownTopic);
-        }
+        let (_, spec) = self.find(topic).ok_or(ProviderError::UnknownTopic)?;
+        spec.check_params(params)?;
         let key = Key::new(topic, params);
         {
             let mut st = lock(&self.state);
@@ -170,12 +175,18 @@ impl Hub {
         tx: SyncSender<String>,
     ) -> Result<u64, ow_proto::ErrorCode> {
         use ow_proto::ErrorCode;
-        if !self.knows(topic) {
+        let Some((_, spec)) = self.find(topic) else {
             return Err(ErrorCode::UnknownTopic);
-        }
+        };
+        spec.check_params(&params)
+            .map_err(|_| ErrorCode::BadRequest)?;
         let mut st = lock(&self.state);
         let mine = st.subs.values().filter(|s| s.conn == conn).count();
-        if mine >= MAX_SUBS_PER_CONN || st.subs.len() >= MAX_SUBS {
+        let widget_subs = st.subs.values().filter(|s| s.widget == widget).count();
+        if mine >= MAX_SUBS_PER_CONN
+            || widget_subs >= MAX_SUBS_PER_WIDGET
+            || st.subs.len() >= MAX_SUBS
+        {
             return Err(ErrorCode::RateLimited);
         }
         st.next_sub += 1;
@@ -283,4 +294,106 @@ fn push_to_subscribers(shared: &Shared, key: &Key, snap: &Snap) {
         }
     }
     shared.hub.drop_subs(&dead);
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use ow_core::Sensitivity;
+    use ow_proto::ErrorCode;
+    use std::sync::mpsc::sync_channel;
+
+    struct P;
+
+    static TOPICS: [TopicSpec; 1] =
+        [
+            TopicSpec::new("t.one", Sensitivity::Low, Duration::from_secs(1), &["v"])
+                .with_params(&["id"]),
+        ];
+
+    impl Provider for P {
+        fn id(&self) -> &'static str {
+            "p"
+        }
+        fn topics(&self) -> &'static [TopicSpec] {
+            &TOPICS
+        }
+        fn fetch(&self, _t: &str, p: &Params) -> Result<Params, ProviderError> {
+            Ok(serde_json::json!({ "v": p.len() })
+                .as_object()
+                .cloned()
+                .unwrap())
+        }
+    }
+
+    fn hub() -> Hub {
+        Hub::new(vec![Arc::new(P)])
+    }
+
+    fn params(id: usize) -> Params {
+        serde_json::json!({ "id": id })
+            .as_object()
+            .cloned()
+            .unwrap()
+    }
+
+    #[test]
+    fn one_widget_cannot_exceed_its_subscription_cap() {
+        let h = hub();
+        let (tx, _rx) = sync_channel(1);
+        for i in 0..MAX_SUBS_PER_WIDGET {
+            // distinct connections so the per-connection cap is not what trips
+            h.subscribe(i as u64, "w", "t.one", params(i), tx.clone())
+                .unwrap();
+        }
+        let e = h
+            .subscribe(99, "w", "t.one", params(99), tx.clone())
+            .unwrap_err();
+        assert_eq!(e, ErrorCode::RateLimited);
+        // another widget is unaffected
+        h.subscribe(100, "other", "t.one", params(1), tx).unwrap();
+    }
+
+    #[test]
+    fn cache_flood_evicts_idle_entries_but_never_subscribed_ones() {
+        let h = hub();
+        let (tx, _rx) = sync_channel(1);
+        h.subscribe(1, "w", "t.one", params(0), tx).unwrap();
+        let keep = Key::new("t.one", &params(0));
+        h.refresh(&keep, &params(0)).unwrap();
+        for i in 1..(MAX_CACHE_KEYS * 2) {
+            // each distinct key is accepted by evicting an idle one
+            assert!(
+                h.refresh(&Key::new("t.one", &params(i)), &params(i))
+                    .is_some(),
+                "key {i}"
+            );
+        }
+        let st = lock(&h.state);
+        assert!(st.cache.len() <= MAX_CACHE_KEYS);
+        assert!(st.cache.contains_key(&keep), "subscribed entry was evicted");
+    }
+
+    #[test]
+    fn params_are_validated_before_any_fetch() {
+        let h = hub();
+        let bad = serde_json::json!({ "nope": 1 })
+            .as_object()
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            h.snapshot("t.one", &bad).err(),
+            Some(ProviderError::BadParams)
+        );
+        let nested = serde_json::json!({ "id": { "a": 1 } })
+            .as_object()
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            h.snapshot("t.one", &nested).err(),
+            Some(ProviderError::BadParams)
+        );
+        assert!(h.snapshot("t.one", &params(1)).is_ok());
+    }
 }

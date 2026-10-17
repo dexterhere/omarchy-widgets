@@ -64,6 +64,7 @@ impl Ctx {
 fn code_for(e: ProviderError) -> ErrorCode {
     match e {
         ProviderError::UnknownTopic => ErrorCode::UnknownTopic,
+        ProviderError::BadParams => ErrorCode::BadRequest,
         _ => ErrorCode::ProviderError,
     }
 }

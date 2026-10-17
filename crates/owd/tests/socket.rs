@@ -593,3 +593,29 @@ fn subscriptions_per_connection_are_capped() {
     }
     assert!(capped, "no cap on subscriptions per connection");
 }
+
+#[test]
+fn undeclared_params_are_rejected_and_cannot_mint_cache_keys() {
+    let fake = Arc::new(Fake::default());
+    let h = harness_with(&fake, SUB_GRANTS);
+    let mut s = h.connect();
+    let mut r = BufReader::new(s.try_clone().unwrap());
+    let big = format!(r#"{{"big":"{}"}}"#, "z".repeat(400));
+    for (i, params) in [r#"{"x":1}"#, r#"{"a":[1]}"#, big.as_str()]
+        .iter()
+        .enumerate()
+    {
+        let l = format!(
+            "{{\"v\":0,\"id\":{},\"op\":\"subscribe\",\"widget\":\"w1\",\"topic\":\"github.prs\",\"params\":{params}}}\n",
+            i + 1
+        );
+        s.write_all(l.as_bytes()).unwrap();
+        let m = read_json(&mut r);
+        assert_eq!(m["error"]["code"], "bad_request", "{m}");
+    }
+    assert_eq!(
+        fake.fetches.load(Ordering::Relaxed),
+        0,
+        "rejected params must not reach the provider"
+    );
+}

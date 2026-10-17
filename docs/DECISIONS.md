@@ -17,3 +17,9 @@ Append newest at the bottom. Format: date, ID, decision, reason, evidence, what 
 - D-5 Shared bridge singleton vs per-widget client.
 - D-6 Monorepo + mirror repos vs single-commit fetch for monorepo widgets.
 - D-7 Default Center shortcut chord.
+
+## Log
+
+- 2026-10-17 ENV Test machine is the daily-driver laptop, bare metal (no VM), Omarchy 4.0.4-1, Quickshell 0.3.1-1, Hyprland 0.56.2-2, TPM2 present (/dev/tpmrm0), Wayland. Evidence: `pacman -Q`, `systemd-detect-virt` = none. Consequence: daemon work runs on throwaway XDG dirs only; any spike touching the real shell or keyring needs explicit approval (CLAUDE.md). Would change if a VM is provisioned.
+- 2026-10-17 REPO Branch model main (production) / staging (review) / develop (integration); protected, PR + green `rust` check required, approvals 0 while single maintainer. Secret scanning + push protection on. Would change when a second maintainer joins (raise approvals to 1, enforce_admins).
+- 2026-10-17 DEP ow-proto uses `serde`, `serde_json`, `thiserror` (ubiquitous, actively maintained, no unsafe in our use). Recheck with `cargo audit` in CI.

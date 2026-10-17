@@ -33,20 +33,6 @@ pub struct Server {
     shared: Arc<Shared>,
 }
 
-/// Disable core dumps and ptrace/proc-mem access to this process.
-pub fn harden_process() -> io::Result<()> {
-    use rustix::process::{Resource, Rlimit, setrlimit};
-    rustix::process::set_dumpable_behavior(rustix::process::DumpableBehavior::NotDumpable)?;
-    setrlimit(
-        Resource::Core,
-        Rlimit {
-            current: Some(0),
-            maximum: Some(0),
-        },
-    )?;
-    Ok(())
-}
-
 fn check_dir(dir: &std::path::Path) -> io::Result<()> {
     let md = std::fs::symlink_metadata(dir)?;
     let euid = rustix::process::geteuid().as_raw();

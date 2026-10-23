@@ -27,7 +27,7 @@ const RAW_HOST: &str = "raw.githubusercontent.com";
 /// The index grows with the catalog (about 13 KB per widget today); files stay at 256 KB.
 const INDEX_CAP: usize = 2 * 1024 * 1024;
 
-pub const USAGE: &str = "usage:\n  ow install <id> [--registry https://<host>] [--allow-planned] [--dry-run] [--yes --accept-access <hash>]\n  ow list\n  ow remove <id>";
+pub const USAGE: &str = "usage:\n  ow install <id> [--registry https://<host>] [--allow-planned] [--dry-run] [--yes --accept-access <hash>]\n  ow list\n  ow remove <id> [--yes]";
 
 /// Where bytes come from. Production has one implementation (`NetSource`, on `ow-egress`);
 /// tests implement it over a map. Nothing else in this module touches the network.
@@ -99,6 +99,12 @@ impl Ui for TtyUi {
 
     fn ask(&mut self, prompt: &str) -> Result<String, String> {
         use std::io::{BufRead, Read};
+        // Anything already typed (a pasted multi-line snippet) must not answer this prompt: it was
+        // typed before the summary was read. Discard the input queue right before asking.
+        let _ = rustix::termios::tcflush(
+            rustix::stdio::stdin(),
+            rustix::termios::QueueSelector::IFlush,
+        );
         eprint!("{prompt}");
         let _ = std::io::stderr().flush();
         let mut line = Vec::new();
@@ -127,7 +133,9 @@ pub struct InstallArgs {
     pub accept: Option<String>,
 }
 
-/// `https://<lowercase dns name>` and nothing else. `ow-egress` checks the name again.
+/// `https://<lowercase name made of a-z, 0-9, '.', '-'>` and nothing else. This is only a shape
+/// check: `ow-egress` is what refuses IP literals, `localhost`-style names and everything else that
+/// is not a plain public DNS name (a test pins that `https://127.0.0.1` never sends a request).
 pub fn parse_registry(origin: &str) -> Result<String, String> {
     let host = origin
         .strip_prefix("https://")
@@ -144,7 +152,7 @@ pub fn parse_registry(origin: &str) -> Result<String, String> {
     if ok {
         Ok(host.to_owned())
     } else {
-        Err("--registry must be a bare lowercase host name: no port, path, query, userinfo, IP address or trailing slash".into())
+        Err("--registry must be a bare lowercase host name: no port, path, query, userinfo or trailing slash".into())
     }
 }
 
@@ -208,6 +216,14 @@ pub fn parse_install_args(args: &[String]) -> Result<InstallArgs, String> {
         (true, Some(h)) if !text::sha256_hex(h) => return Err("--accept-access takes the 64-character access hash".into()),
         _ => {}
     }
+    if a.yes
+        && a.registry
+            .as_deref()
+            .and_then(|r| parse_registry(r).ok())
+            .is_some_and(|h| h != DEFAULT_REGISTRY)
+    {
+        return Err("--yes is not accepted together with a non-default --registry: that moves the trust root, so read the summary and type yes yourself".into());
+    }
     if a.yes && a.dry_run {
         return Err(
             "--dry-run asks nothing and writes nothing; do not combine it with --yes".into(),
@@ -258,12 +274,28 @@ fn fetch_and_check(src: &dyn Source, id: &str, allow_planned: bool) -> Result<Fe
     })
 }
 
-fn reload_message(paths: &Paths) -> String {
-    match daemon::reload_grants(paths) {
-        Ok(true) => "The running daemon reloaded the grants.".into(),
-        Ok(false) => "The daemon is not running; the grants apply when it starts.".into(),
-        Err(e) => format!("WARNING: {e}"),
+/// Ask the running daemon to reload and say plainly what happened. A rate-limited answer is
+/// retried once after `retry_after`; if it is still not applied, the message says so (a revoked
+/// grant stays active in the daemon until the next reload or restart).
+pub fn reload_message_with(paths: &Paths, retry_after: std::time::Duration) -> String {
+    use daemon::Reload;
+    let mut r = daemon::reload_grants(paths);
+    if matches!(r, Ok(Reload::RateLimited)) {
+        std::thread::sleep(retry_after);
+        r = daemon::reload_grants(paths);
     }
+    match r {
+        Ok(Reload::Applied) => "The running daemon reloaded the grants.".into(),
+        Ok(Reload::NotRunning) => "The daemon is not running; the grants apply when it starts.".into(),
+        Ok(Reload::RateLimited) => "WARNING: grants file updated; the running daemon has NOT applied it yet (rate limited); revocation takes effect at the next reload or restart.".into(),
+        Ok(Reload::LoadFailed) => "WARNING: the daemon could not load the grants file and now denies every widget until it is fixed.".into(),
+        Ok(Reload::Other(c)) => format!("WARNING: grants file updated, but the daemon's answer ({}) did not confirm that it applied it; it may still be using the old grants until the next reload or restart.", text::show_value(&c)),
+        Err(e) => format!("WARNING: grants file updated, but the daemon could not be asked ({e}); it may still be using the old grants until the next reload or restart."),
+    }
+}
+
+fn reload_message(paths: &Paths) -> String {
+    reload_message_with(paths, std::time::Duration::from_secs(1))
 }
 
 /// `ow install`. `make_source` builds the byte source for the chosen registry host.
@@ -293,7 +325,23 @@ pub fn install(
     let dir = store::widget_dir(paths, &a.id).ok_or("not a valid widget id")?;
     let previous = store::read_installed(paths, &a.id).unwrap_or_default();
     let ents = summary::entries(&f.validated);
-    let hash = summary::access_hash(&f.listing.id, &f.listing.commit, &ents);
+    let hash = summary::access_hash(
+        &f.listing.id,
+        &f.listing.commit,
+        &host,
+        &f.listing.repo.url(),
+        &f.validated.hashes,
+        &ents,
+    );
+    let existing: Vec<ow_core::Grant> = Grants::parse(&precheck)
+        .map(|g| {
+            g.entries()
+                .iter()
+                .filter(|e| e.widget == a.id)
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
     let grants_path = paths.grants();
     let text = summary::summary(&summary::Facts {
         listing: &f.listing,
@@ -301,6 +349,7 @@ pub fn install(
         catalog: &f.catalog,
         planned_override: f.planned_override,
         previous: previous.as_ref(),
+        existing_grants: &existing,
         hashes_verified: f.listing.sha256.is_some(),
         registry_host: &host,
         default_registry: host == DEFAULT_REGISTRY,
@@ -312,6 +361,7 @@ pub fn install(
         return writeln!(out, "\nDry run: nothing was written, nothing was asked.").map_err(w);
     }
     if a.yes {
+        writeln!(out, "\nNOTE: --yes skips reading the summary above: the access hash you passed stands in for your consent.").map_err(w)?;
         if a.accept.as_deref() != Some(hash.as_str()) {
             return Err("the access hash you accepted is not the access this widget asks for now; nothing was installed".into());
         }
@@ -429,10 +479,23 @@ pub fn list(paths: &Paths, out: &mut dyn Write) -> Result<(), String> {
     Ok(())
 }
 
-/// `ow remove <id>`: grants first, then files. Safe to repeat.
-pub fn remove(paths: &Paths, args: &[String], out: &mut dyn Write) -> Result<(), String> {
-    let [id] = args else {
-        return Err(format!("remove takes exactly one widget id\n{USAGE}"));
+/// `ow remove <id> [--yes]`: grants first, then files. Safe to repeat. Entries in grants.toml
+/// that `ow install` did not write are announced, and removing them needs a typed `yes`
+/// (or `--yes` when there is no terminal).
+pub fn remove(
+    paths: &Paths,
+    args: &[String],
+    out: &mut dyn Write,
+    ui: &mut dyn Ui,
+) -> Result<(), String> {
+    let (id, yes) = match args {
+        [id] => (id, false),
+        [id, f] if f == "--yes" => (id, true),
+        _ => {
+            return Err(format!(
+                "remove takes one widget id and optionally --yes\n{USAGE}"
+            ));
+        }
     };
     if !text::store_id(id) {
         return Err("not a valid widget id".into());
@@ -442,12 +505,32 @@ pub fn remove(paths: &Paths, args: &[String], out: &mut dyn Write) -> Result<(),
     let old = Grants::read_text(&grants_path)
         .map_err(grants_err)?
         .unwrap_or_default();
-    let count = Grants::parse(&old)
+    let existing: Vec<ow_core::Grant> = Grants::parse(&old)
         .map_err(grants_err)?
         .entries()
         .iter()
         .filter(|g| g.widget == *id)
-        .count();
+        .cloned()
+        .collect();
+    let count = existing.len();
+    let recorded = store::read_installed(paths, id).unwrap_or_default();
+    if summary::hand_written(&existing, recorded.as_ref()) {
+        writeln!(
+            out,
+            "NOTE: grants.toml has {count} entr{} for {id} that ow did not write (or that differ from its install record), topics {}. Removing the widget deletes them; comments attached to them will be dropped.",
+            if count == 1 { "y" } else { "ies" },
+            summary::topics_of(&existing)
+        )
+        .map_err(w)?;
+        if !yes {
+            if !ui.interactive() {
+                return Err("these grant entries were not written by ow install: run `ow remove` in a terminal, or pass --yes".into());
+            }
+            if ui.ask("Type yes to remove them: ")? != "yes" {
+                return writeln!(out, "Not removed.").map_err(w);
+            }
+        }
+    }
     if count > 0 {
         store::write_grants(
             &grants_path,

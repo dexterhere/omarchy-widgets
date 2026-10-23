@@ -957,3 +957,253 @@ fn the_summary_says_where_the_credential_goes_and_what_the_widget_never_gets() {
             .contains("NOT the default registry")
     );
 }
+
+fn dry_hash(src: &Fake, extra: &[&str]) -> String {
+    let (_d, paths) = tree();
+    let mut a = vec![CLOCK, "--dry-run"];
+    a.extend_from_slice(extra);
+    hash_from(&install(&paths, src, &a, &mut Script::no_terminal()).out)
+}
+
+/// The audit's one-liner: a scripted install from an attacker's registry with a hash taken from
+/// public data. It must now fail before any request, and write nothing.
+#[test]
+fn yes_with_a_non_default_registry_is_refused_before_any_request() {
+    let (d, paths) = tree();
+    let h = dry_hash(&alpha_clock(), &[]);
+    let src = alpha_clock();
+    let before = snapshot(d.path());
+    let r = install(
+        &paths,
+        &src,
+        &[
+            CLOCK,
+            "--yes",
+            "--accept-access",
+            &h,
+            "--registry",
+            "https://evil.example.org",
+        ],
+        &mut Script::no_terminal(),
+    );
+    assert!(r.result.unwrap_err().contains("non-default --registry"));
+    assert!(src.log().is_empty(), "a request was made");
+    assert_eq!(before, snapshot(d.path()));
+    // Naming the default registry explicitly is not a change of trust root.
+    let ok = install(
+        &paths,
+        &src,
+        &[
+            CLOCK,
+            "--yes",
+            "--accept-access",
+            &h,
+            "--registry",
+            "https://omarchy-widgets-web.vercel.app",
+        ],
+        &mut Script::no_terminal(),
+    );
+    ok.result.unwrap();
+    assert!(
+        ok.out.contains("--yes skips reading the summary"),
+        "{}",
+        ok.out
+    );
+}
+
+#[test]
+fn the_access_hash_commits_to_the_registry_the_repo_and_the_exact_file_bytes() {
+    let base = dry_hash(&alpha_clock(), &[]);
+    assert_eq!(base, dry_hash(&alpha_clock(), &[]), "stable");
+    assert_ne!(
+        base,
+        dry_hash(
+            &alpha_clock(),
+            &["--registry", "https://registry.example.org"]
+        )
+    );
+    // Same commit, same grants, but a different (still valid) widget.json byte stream.
+    let mut w: serde_json::Value =
+        serde_json::from_slice(&fixture("clock", "widget.json")).unwrap();
+    w["variants"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!("extra"));
+    let changed = with_file(
+        &alpha_clock(),
+        "clock",
+        SHA_A,
+        "widget.json",
+        serde_json::to_vec(&w).unwrap(),
+    );
+    assert_ne!(base, dry_hash(&changed, &[]));
+    // A different repo for the same id and commit.
+    let other_repo = world("clock", SHA_A, "alpha", "community", |e| {
+        e["repo"] = serde_json::json!("https://github.com/DexterHere/other-name");
+    });
+    let other_repo = Fake(Arc::new(Inner {
+        index: other_repo.0.index.clone(),
+        files: alpha_clock()
+            .0
+            .files
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.replace("dexterhere/omarchy-widget-clock", "DexterHere/other-name"),
+                    v.clone(),
+                )
+            })
+            .collect(),
+        log: Default::default(),
+    }));
+    assert_ne!(base, dry_hash(&other_repo, &[]));
+    // The hash printed for the changed bytes is refused for the original, and vice versa.
+    let (_d, paths) = tree();
+    let e = install(
+        &paths,
+        &changed,
+        &[CLOCK, "--yes", "--accept-access", &base],
+        &mut Script::no_terminal(),
+    )
+    .result
+    .unwrap_err();
+    assert!(e.contains("access hash"), "{e}");
+    assert!(!paths.data.exists());
+    // The summary lists the file hashes it computed and says where they came from.
+    let out = install(
+        &paths,
+        &alpha_clock(),
+        &[CLOCK, "--dry-run"],
+        &mut Script::no_terminal(),
+    )
+    .out;
+    assert!(
+        out.contains("file widget.json sha256")
+            && out.contains("computed from the files just fetched"),
+        "{out}"
+    );
+}
+
+#[test]
+fn hand_written_grant_entries_are_announced_before_they_are_replaced_or_removed() {
+    let (_d, paths) = tree();
+    write_grants(
+        &paths,
+        &format!(
+            "# mine\n[[grant]]\nwidget = \"{CLOCK}\"\ntopics = [\"system.cpu\"]\nfields = [\"usage_pct\"]\n"
+        ),
+        0o600,
+    );
+    let r = install(
+        &paths,
+        &alpha_clock(),
+        &[CLOCK, "--dry-run"],
+        &mut Script::no_terminal(),
+    );
+    assert!(
+        r.out
+            .contains("already has 1 entry for this id that ow did not write")
+            && r.out.contains("will be replaced: topics system.cpu")
+            && r.out.contains("Comments attached to them will be dropped"),
+        "{}",
+        r.out
+    );
+    // Remove: refused without a terminal and without --yes; nothing changes.
+    let before = std::fs::read(paths.grants()).unwrap();
+    let e = remove(&paths, &[CLOCK]).result.unwrap_err();
+    assert!(e.contains("--yes"), "{e}");
+    assert_eq!(before, std::fs::read(paths.grants()).unwrap());
+    // A terminal "no" keeps them; "yes" removes them.
+    let r = remove_with(&paths, &[CLOCK], &mut Script::says(&["no"]));
+    assert!(
+        r.out.contains("NOTE: grants.toml has 1 entry") && r.out.contains("Not removed."),
+        "{}",
+        r.out
+    );
+    assert_eq!(before, std::fs::read(paths.grants()).unwrap());
+    remove_with(&paths, &[CLOCK], &mut Script::says(&["yes"]))
+        .result
+        .unwrap();
+    assert!(
+        !std::fs::read_to_string(paths.grants())
+            .unwrap()
+            .contains(CLOCK)
+    );
+    // --yes works without a terminal.
+    write_grants(
+        &paths,
+        &format!("[[grant]]\nwidget = \"{CLOCK}\"\ntopics = [\"system.cpu\"]\n"),
+        0o600,
+    );
+    remove(&paths, &[CLOCK, "--yes"]).result.unwrap();
+    assert!(
+        !std::fs::read_to_string(paths.grants())
+            .unwrap()
+            .contains(CLOCK)
+    );
+    // Entries that ow itself wrote are removed without any question.
+    install(
+        &paths,
+        &alpha_clock(),
+        &[CLOCK],
+        &mut Script::says(&["yes"]),
+    )
+    .result
+    .unwrap();
+    let r = remove(&paths, &[CLOCK]);
+    r.result.unwrap();
+    assert!(!r.out.contains("NOTE"));
+    // Editing the entry by hand afterwards makes it hand-written again.
+    install(
+        &paths,
+        &alpha_clock(),
+        &[CLOCK],
+        &mut Script::says(&["yes"]),
+    )
+    .result
+    .unwrap();
+    let g = std::fs::read_to_string(paths.grants())
+        .unwrap()
+        .replace("\"tz\"", "\"tz\", \"extra\"");
+    std::fs::write(paths.grants(), g).unwrap();
+    assert!(remove(&paths, &[CLOCK]).result.is_err());
+}
+
+#[test]
+fn terminal_escapes_in_the_install_record_are_never_printed() {
+    let (_d, paths) = tree();
+    install(
+        &paths,
+        &alpha_clock(),
+        &[CLOCK],
+        &mut Script::says(&["yes"]),
+    )
+    .result
+    .unwrap();
+    let rec = paths.widgets().join(CLOCK).join("installed.json");
+    let t = std::fs::read_to_string(&rec)
+        .unwrap()
+        .replace(SHA_A, "\u{1b}[31mFAKE\u{1b}[0m");
+    std::fs::write(&rec, t.replace('\u{1b}', "\\u001b")).unwrap();
+    assert!(
+        ow::install::store::read_installed(&paths, CLOCK).is_err(),
+        "a non-SHA commit must not load"
+    );
+    let r = install(
+        &paths,
+        &alpha_clock(),
+        &[CLOCK, "--dry-run"],
+        &mut Script::no_terminal(),
+    );
+    assert!(!r.out.contains('\u{1b}') && !list(&paths).contains('\u{1b}'));
+    // The printing path itself filters, even for a record that did load.
+    assert_eq!(ow::install::text::show("\u{1b}[31mx"), "(unprintable text)");
+}
+
+#[test]
+fn an_ip_registry_never_sends_a_request() {
+    for host in ["127.0.0.1", "10.0.0.1", "169.254.169.254", "1.1.1.1"] {
+        let e = ow::install::Source::index(&ow::install::NetSource::new(host)).unwrap_err();
+        assert!(e.contains("blocked by egress rules"), "{host}: {e}");
+    }
+}

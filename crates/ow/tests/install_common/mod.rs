@@ -179,8 +179,12 @@ pub fn install(paths: &Paths, src: &Fake, a: &[&str], ui: &mut Script) -> Run {
 }
 
 pub fn remove(paths: &Paths, a: &[&str]) -> Run {
+    remove_with(paths, a, &mut Script::no_terminal())
+}
+
+pub fn remove_with(paths: &Paths, a: &[&str], ui: &mut Script) -> Run {
     let mut out = Vec::new();
-    let result = ow::install::remove(paths, &args(a), &mut out);
+    let result = ow::install::remove(paths, &args(a), &mut out, ui);
     Run {
         result,
         out: String::from_utf8(out).unwrap(),

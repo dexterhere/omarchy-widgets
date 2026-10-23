@@ -84,10 +84,14 @@ impl Installed {
                 fields: strs(&g["fields"]),
             })
             .collect();
+        let commit = s("commit")?;
+        if !super::text::full_sha(&commit) {
+            return Err("install record: commit is not a 40-character SHA".into());
+        }
         Ok(Installed {
             id: s("id")?,
             repo: s("repo")?,
-            commit: s("commit")?,
+            commit,
             version: s("version")?,
             status: s("status")?,
             tier: s("tier")?,

@@ -35,7 +35,12 @@ fn run() -> Result<(), String> {
             &mut install::TtyUi,
         ),
         Some("list") if args.len() == 1 => install::list(&paths, &mut std::io::stdout()),
-        Some("remove") => install::remove(&paths, &args[1..], &mut std::io::stdout()),
+        Some("remove") => install::remove(
+            &paths,
+            &args[1..],
+            &mut std::io::stdout(),
+            &mut install::TtyUi,
+        ),
         _ => Err(format!(
             "usage: ow [--config-dir DIR] status | vault ... | install | list | remove\n{}",
             install::USAGE

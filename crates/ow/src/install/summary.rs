@@ -7,7 +7,8 @@ use super::index::Listing;
 use super::store::Installed;
 use super::text::show;
 use super::validate::Validated;
-use std::collections::BTreeSet;
+use ow_core::Grant;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// One grants entry per provider the widget uses, topics and fields sorted.
 pub fn entries(v: &Validated) -> Vec<Entry> {
@@ -29,8 +30,21 @@ pub fn entries(v: &Validated) -> Vec<Entry> {
 /// sha256 over a canonical text of the id, the commit and the exact grants. Printed by the
 /// summary and accepted by `--accept-access`, so a scripted install can only ever grant what a
 /// person read.
-pub fn access_hash(id: &str, commit: &str, entries: &[Entry]) -> String {
-    let mut t = format!("ow-access-v1\nid={id}\ncommit={commit}\n");
+pub fn access_hash(
+    id: &str,
+    commit: &str,
+    registry_host: &str,
+    repo_url: &str,
+    files: &BTreeMap<String, String>,
+    entries: &[Entry],
+) -> String {
+    let mut t = format!(
+        "ow-access-v2\nid={id}\ncommit={commit}\nregistry={registry_host}\nrepo={repo_url}\n"
+    );
+    // BTreeMap order: manifest.json, layout.json, widget.json, the same every time.
+    for (name, h) in files {
+        t.push_str(&format!("file {name} sha256={h}\n"));
+    }
     for e in entries {
         t.push_str(&format!(
             "grant topics={} fields={}\n",
@@ -64,12 +78,49 @@ pub fn not_served(v: &Validated, cat: &Catalog) -> Vec<String> {
     out.into_iter().collect()
 }
 
+/// Grant entries for the id that `ow` did not write, or that differ from its install record.
+pub fn hand_written(existing: &[Grant], recorded: Option<&Installed>) -> bool {
+    if existing.is_empty() {
+        return false;
+    }
+    let Some(r) = recorded else { return true };
+    let key = |t: &[String], f: &[String]| {
+        let (mut t, mut f) = (t.to_vec(), f.to_vec());
+        t.sort();
+        f.sort();
+        (t, f)
+    };
+    let mut have: Vec<_> = existing
+        .iter()
+        .map(|g| key(&g.topics, g.fields.as_deref().unwrap_or(&[])))
+        .collect();
+    let mut want: Vec<_> = r
+        .granted
+        .iter()
+        .map(|e| key(&e.topics, &e.fields))
+        .collect();
+    have.sort();
+    want.sort();
+    have != want
+}
+
+/// The topics of the entries, for the replace/remove notices.
+pub fn topics_of(existing: &[Grant]) -> String {
+    let t: BTreeSet<&str> = existing
+        .iter()
+        .flat_map(|g| g.topics.iter().map(String::as_str))
+        .collect();
+    t.into_iter().map(show).collect::<Vec<_>>().join(", ")
+}
+
 pub struct Facts<'a> {
     pub listing: &'a Listing,
     pub validated: &'a Validated,
     pub catalog: &'a Catalog,
     pub planned_override: bool,
     pub previous: Option<&'a Installed>,
+    /// Entries already in grants.toml for this widget id.
+    pub existing_grants: &'a [Grant],
     pub hashes_verified: bool,
     pub registry_host: &'a str,
     pub default_registry: bool,
@@ -110,12 +161,13 @@ pub fn summary(f: &Facts<'_>) -> String {
         if p.commit == l.commit {
             line(format!(
                 "  REINSTALL of the commit that is already installed ({})",
-                p.commit
+                show(&p.commit)
             ));
         } else {
             line(format!(
                 "  UPDATE of an existing install: commit {} -> {}",
-                p.commit, l.commit
+                show(&p.commit),
+                l.commit
             ));
             let old: BTreeSet<&str> = p
                 .granted
@@ -143,6 +195,18 @@ pub fn summary(f: &Facts<'_>) -> String {
                 ));
             }
         }
+    }
+    if hand_written(f.existing_grants, f.previous) {
+        line(format!(
+            "  NOTE: grants.toml already has {} entr{} for this id that ow did not write (or that differ from its install record). They will be replaced: topics {}. Comments attached to them will be dropped.",
+            f.existing_grants.len(),
+            if f.existing_grants.len() == 1 {
+                "y"
+            } else {
+                "ies"
+            },
+            topics_of(f.existing_grants)
+        ));
     }
     if f.planned_override {
         line("  NOTE: this widget is only planned. It will not show data until the needed provider exists.".into());
@@ -234,9 +298,27 @@ pub fn summary(f: &Facts<'_>) -> String {
             e.fields.join(", ")
         ));
     }
+    for (name, h) in &v.hashes {
+        line(format!("  file {name} sha256 {h}"));
+    }
+    line(format!(
+        "  (the access hash covers these file hashes, the registry host, the repo, the commit and the grants; {})",
+        if f.hashes_verified {
+            "the registry index gave the file hashes and they matched"
+        } else {
+            "the index gave no file hashes, so they were computed from the files just fetched"
+        }
+    ));
     line(format!(
         "Access hash (for --accept-access): {}",
-        access_hash(&l.id, &l.commit, &ents)
+        access_hash(
+            &l.id,
+            &l.commit,
+            f.registry_host,
+            &l.repo.url(),
+            &v.hashes,
+            &ents
+        )
     ));
     s
 }

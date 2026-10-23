@@ -69,21 +69,38 @@ pub fn call_ok(paths: &Paths, request: &str) -> Result<Value, String> {
     }
 }
 
-/// Tell a running daemon to re-read `grants.toml`. `Ok(true)` = it did, `Ok(false)` = no daemon
-/// is running (the grants apply at its next start). Errors: a daemon we do not trust, or one that
-/// answered with an error (it then denies everything until the file is fixed).
-pub fn reload_grants(paths: &Paths) -> Result<bool, String> {
-    match call(paths, "{\"v\":0,\"id\":1,\"op\":\"grants.reload\"}\n") {
-        Err(e) if e.starts_with(UNREACHABLE) => Ok(false),
-        Err(e) => Err(e),
-        Ok(line) => {
-            let v: Value =
-                serde_json::from_str(&line).map_err(|_| "unreadable reply".to_string())?;
-            if v["ok"] == true {
-                Ok(true)
-            } else {
-                Err("the daemon could not load the grants file and now denies every widget until it is fixed".into())
-            }
-        }
+/// How a `grants.reload` request ended.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Reload {
+    /// The daemon re-read the file.
+    Applied,
+    /// No daemon is listening: the grants apply at its next start.
+    NotRunning,
+    /// The daemon refused for now (its small admin rate limit): the file is NOT applied yet.
+    RateLimited,
+    /// The daemon tried and could not load the file, so it now denies every widget.
+    LoadFailed,
+    /// Any other answer (its error code, or "unreadable").
+    Other(String),
+}
+
+/// Tell a running daemon to re-read `grants.toml`. `Err` only for a socket we do not trust.
+pub fn reload_grants(paths: &Paths) -> Result<Reload, String> {
+    let line = match call(paths, "{\"v\":0,\"id\":1,\"op\":\"grants.reload\"}\n") {
+        Err(e) if e.starts_with(UNREACHABLE) => return Ok(Reload::NotRunning),
+        Err(e) => return Err(e),
+        Ok(line) => line,
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&line) else {
+        return Ok(Reload::Other("unreadable reply".into()));
+    };
+    if v["ok"] == true {
+        return Ok(Reload::Applied);
     }
+    Ok(match v["error"]["code"].as_str() {
+        Some("rate_limited") => Reload::RateLimited,
+        Some("internal") => Reload::LoadFailed,
+        Some(c) => Reload::Other(c.chars().take(24).collect()),
+        None => Reload::Other("no result".into()),
+    })
 }

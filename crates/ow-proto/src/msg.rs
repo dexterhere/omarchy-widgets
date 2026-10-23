@@ -1,7 +1,84 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::fmt;
+use zeroize::Zeroizing;
 
 pub const PROTOCOL: u32 = 0;
+
+/// Longest passphrase `vault.unlock` accepts, in bytes (the same bound `ow` applies to input).
+/// Hex-encoded on the wire it is 40 KiB, inside the 64 KiB frame limit.
+pub const MAX_PASSPHRASE: usize = 20 * 1024;
+
+/// A passphrase in transit. Zeroized on drop; `Debug` is redacted; there is no `Display`,
+/// `Serialize` or `Deserialize`, so it cannot be logged or echoed by accident.
+pub struct Passphrase(Zeroizing<Vec<u8>>);
+
+impl Passphrase {
+    /// The bytes, exactly as the user typed them (not necessarily UTF-8).
+    pub fn expose(&self) -> &[u8] {
+        &self.0
+    }
+
+    fn from_hex(hex: &str) -> Option<Passphrase> {
+        let h = hex.as_bytes();
+        if h.is_empty() || !h.len().is_multiple_of(2) || h.len() > 2 * MAX_PASSPHRASE {
+            return None;
+        }
+        let nib = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
+        let mut out = Zeroizing::new(Vec::with_capacity(h.len() / 2));
+        // The length is even (checked above), so there is no remainder to ignore.
+        let (pairs, _) = h.as_chunks::<2>();
+        for [hi, lo] in pairs {
+            out.push(nib(*hi)? << 4 | nib(*lo)?);
+        }
+        Some(Passphrase(out))
+    }
+}
+
+impl fmt::Debug for Passphrase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Passphrase(<redacted>)")
+    }
+}
+
+impl Clone for Passphrase {
+    fn clone(&self) -> Self {
+        Passphrase(Zeroizing::new(self.0.to_vec()))
+    }
+}
+
+/// Compares without an early exit. Only for tests; never use it to make a decision.
+impl PartialEq for Passphrase {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.len() == other.0.len()
+            && self
+                .0
+                .iter()
+                .zip(other.0.iter())
+                .fold(0, |a, (x, y)| a | (x ^ y))
+                == 0
+    }
+}
+
+/// Build the `vault.unlock` request line (newline included). The hex encoding keeps the
+/// passphrase free of JSON escapes (so no parser scratch buffer ever holds it) and lets it be
+/// arbitrary bytes. `None` if the passphrase is empty or longer than `MAX_PASSPHRASE`.
+pub fn unlock_request(id: u64, passphrase: &[u8]) -> Option<Zeroizing<String>> {
+    if passphrase.is_empty() || passphrase.len() > MAX_PASSPHRASE {
+        return None;
+    }
+    let mut s = Zeroizing::new(String::with_capacity(80 + 2 * passphrase.len()));
+    s.push_str(&format!(
+        "{{\"v\":{PROTOCOL},\"id\":{id},\"op\":\"vault.unlock\",\"passphrase\":\""
+    ));
+    for b in passphrase {
+        for n in [b >> 4, b & 15] {
+            s.push(char::from_digit(u32::from(n), 16)?);
+        }
+    }
+    s.push_str("\"}\n");
+    Some(s)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -46,8 +123,34 @@ pub enum Op {
         sub: u64,
     },
     Status,
+    /// Admin ops (same uid only; see docs/DAEMON_SPEC.md section 5). `VaultUnlock` is never
+    /// built by serde: `Request::parse` decodes it separately so the passphrase never passes
+    /// through serde's buffering of tagged/flattened content.
+    #[serde(skip_deserializing)]
+    VaultUnlock {
+        passphrase: Passphrase,
+    },
+    #[serde(rename = "vault.lock")]
+    VaultLock,
+    #[serde(rename = "vault.status")]
+    VaultStatus,
     #[serde(other)]
     Unknown,
+}
+
+/// Wire names of the admin ops; widget-facing ops are never in this list.
+const ADMIN_OPS: [&str; 3] = ["vault.unlock", "vault.lock", "vault.status"];
+
+impl Op {
+    /// Audit/log name for admin ops, `None` for everything else.
+    pub fn admin_name(&self) -> Option<&'static str> {
+        match self {
+            Op::VaultUnlock { .. } => Some(ADMIN_OPS[0]),
+            Op::VaultLock => Some(ADMIN_OPS[1]),
+            Op::VaultStatus => Some(ADMIN_OPS[2]),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -64,29 +167,90 @@ pub struct Request {
 pub struct ParseError {
     pub id: Option<u64>,
     pub code: ErrorCode,
+    /// Set when an admin op was refused because it claimed a widget identity.
+    pub admin_op: Option<&'static str>,
 }
 
+/// First pass: only what is needed to route the frame. Unknown fields (including a
+/// passphrase) are skipped without being copied.
 #[derive(Deserialize)]
 struct Probe {
     v: u32,
     id: u64,
+    #[serde(default)]
+    op: Option<Value>,
+    /// True when the key is present, whatever its value (null included).
+    #[serde(default, deserialize_with = "present")]
+    widget: bool,
+}
+
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    serde::de::IgnoredAny::deserialize(d).map(|_| true)
+}
+
+#[derive(Deserialize)]
+struct UnlockBody {
+    passphrase: Zeroizing<String>,
 }
 
 impl Request {
     /// Parse one line. The version is checked before the typed parse so a newer
     /// protocol gets `unsupported_version` rather than `bad_request`.
     pub fn parse(line: &str) -> Result<Request, ParseError> {
-        let fail = |id, code| ParseError { id, code };
+        let fail = |id, code| ParseError {
+            id,
+            code,
+            admin_op: None,
+        };
         let probe: Probe =
             serde_json::from_str(line).map_err(|_| fail(None, ErrorCode::BadRequest))?;
         if probe.v != PROTOCOL {
             return Err(fail(Some(probe.id), ErrorCode::UnsupportedVersion));
+        }
+        let admin = probe
+            .op
+            .as_ref()
+            .and_then(Value::as_str)
+            .and_then(|o| ADMIN_OPS.iter().copied().find(|a| *a == o));
+        if let Some(name) = admin {
+            // Widget requests carry a widget id; admin requests never do. A frame mixing the
+            // two is refused so a widget-shaped request can never reach an admin handler.
+            if probe.widget {
+                return Err(ParseError {
+                    admin_op: Some(name),
+                    ..fail(Some(probe.id), ErrorCode::Denied)
+                });
+            }
+            if name == "vault.unlock" {
+                return parse_unlock(line, probe.id);
+            }
         }
         match serde_json::from_str::<Request>(line) {
             Ok(r) if r.op != Op::Unknown => Ok(r),
             _ => Err(fail(Some(probe.id), ErrorCode::BadRequest)),
         }
     }
+}
+
+/// `vault.unlock`: the passphrase is deserialized straight into a zeroizing string (no tagged
+/// or flattened serde buffering), then decoded into zeroizing bytes. Errors carry no content.
+fn parse_unlock(line: &str, id: u64) -> Result<Request, ParseError> {
+    let bad = || ParseError {
+        id: Some(id),
+        code: ErrorCode::BadRequest,
+        admin_op: None,
+    };
+    // Hex has no escapes; refusing backslashes keeps serde's escape scratch buffer out of play.
+    if line.contains('\\') {
+        return Err(bad());
+    }
+    let body: UnlockBody = serde_json::from_str(line).map_err(|_| bad())?;
+    let passphrase = Passphrase::from_hex(&body.passphrase).ok_or_else(bad)?;
+    Ok(Request {
+        v: PROTOCOL,
+        id,
+        op: Op::VaultUnlock { passphrase },
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -223,5 +387,138 @@ mod tests {
         let e =
             Request::parse(r#"{"v":0,"id":9,"op":"snapshot","widget":"SECRET-xyz"}"#).unwrap_err();
         assert!(!Reply::err(9, e.code, None).to_line().contains("SECRET"));
+    }
+
+    const PW: &str = "FAKE-passphrase-Zk3!";
+
+    fn hex(s: &str) -> String {
+        s.bytes().map(|b| format!("{b:02x}")).collect()
+    }
+
+    fn unlock_line(id: u64, pass_field: &str) -> String {
+        format!(r#"{{"v":0,"id":{id},"op":"vault.unlock","passphrase":"{pass_field}"}}"#)
+    }
+
+    #[test]
+    fn unlock_roundtrips_arbitrary_bytes() {
+        let raw: &[u8] = b"p\xff\x00\"\\ \xe2\x82\xac";
+        let line = unlock_request(7, raw).unwrap();
+        assert!(line.ends_with('\n') && !line[..line.len() - 1].contains('\n'));
+        match Request::parse(line.trim_end()).unwrap() {
+            Request {
+                id: 7,
+                op: Op::VaultUnlock { passphrase },
+                ..
+            } => assert_eq!(passphrase.expose(), raw),
+            other => panic!("{other:?}"),
+        }
+        assert!(unlock_request(1, b"").is_none());
+        assert!(unlock_request(1, &vec![b'x'; MAX_PASSPHRASE + 1]).is_none());
+        assert!(unlock_request(1, &vec![b'x'; MAX_PASSPHRASE]).is_some());
+    }
+
+    #[test]
+    fn lock_and_status_parse() {
+        for (op, want) in [
+            ("vault.lock", Op::VaultLock),
+            ("vault.status", Op::VaultStatus),
+        ] {
+            let r = Request::parse(&format!(r#"{{"v":0,"id":2,"op":"{op}"}}"#)).unwrap();
+            assert_eq!(r.op, want);
+        }
+    }
+
+    /// Nothing that formats a request or a parse failure may show the passphrase, in either
+    /// form (plain or hex).
+    #[test]
+    fn debug_and_parse_errors_never_echo_the_passphrase() {
+        let ok = Request::parse(&unlock_line(3, &hex(PW))).unwrap();
+        let shown = format!("{ok:?} {:?}", ok.op.clone());
+        assert!(shown.contains("redacted"));
+        for needle in [PW, &hex(PW)] {
+            assert!(!shown.contains(needle), "{shown}");
+        }
+        let bad_lines = [
+            unlock_line(3, &format!("{}zz", hex(PW))),        // not hex
+            unlock_line(3, &format!("{}0", hex(PW))),         // odd length
+            unlock_line(3, ""),                               // empty
+            unlock_line(3, &"ab".repeat(MAX_PASSPHRASE + 1)), // too long
+            unlock_line(3, &format!("{}\\u0041", hex(PW))),   // escape
+            format!(r#"{{"v":0,"id":3,"op":"vault.unlock","passphrase":5,"x":"{PW}"}}"#),
+            format!(r#"{{"v":0,"id":3,"op":"vault.unlock","pass":"{PW}"}}"#),
+            format!(r#"{{"v":1,"id":3,"op":"vault.unlock","passphrase":"{PW}"}}"#),
+            format!(r#"{{"v":0,"id":3,"op":"vault.unlock","widget":"w","passphrase":"{PW}"}}"#),
+            format!(
+                r#"{{"v":0,"id":3,"op":"snapshot","widget":"w","topic":"t","passphrase":"{PW}"}}"#
+            ),
+        ];
+        for l in &bad_lines {
+            let shown = match Request::parse(l) {
+                Ok(r) => format!("{r:?}"),
+                Err(e) => format!(
+                    "{e:?} {}",
+                    Reply::err(e.id.unwrap_or(0), e.code.clone(), None).to_line()
+                ),
+            };
+            for needle in [PW, &hex(PW)] {
+                assert!(!shown.contains(needle), "{l} -> {shown}");
+            }
+        }
+        // The specific categories.
+        assert_eq!(code(&bad_lines[0]), (Some(3), ErrorCode::BadRequest));
+        assert_eq!(code(&bad_lines[4]), (Some(3), ErrorCode::BadRequest));
+        assert_eq!(
+            code(&bad_lines[7]),
+            (Some(3), ErrorCode::UnsupportedVersion)
+        );
+    }
+
+    /// `"widget":null` is still a widget claim: the key's presence is what counts.
+    #[test]
+    fn null_or_odd_widget_values_still_count_as_a_claim() {
+        for w in ["null", "\"\"", "0", "[]", "{}", "false"] {
+            for op in ["vault.unlock", "vault.lock", "vault.status"] {
+                let l = format!(
+                    r#"{{"v":0,"id":4,"op":"{op}","widget":{w},"passphrase":"{}"}}"#,
+                    hex(PW)
+                );
+                let e = Request::parse(&l).unwrap_err();
+                assert_eq!((e.code, e.admin_op), (ErrorCode::Denied, Some(op)), "{l}");
+            }
+        }
+    }
+
+    #[test]
+    fn admin_ops_claiming_a_widget_are_denied_and_named() {
+        for op in ["vault.unlock", "vault.lock", "vault.status"] {
+            let e = Request::parse(&format!(
+                r#"{{"v":0,"id":4,"op":"{op}","widget":"evil","passphrase":"{}"}}"#,
+                hex(PW)
+            ))
+            .unwrap_err();
+            assert_eq!(
+                (e.id, e.code, e.admin_op),
+                (Some(4), ErrorCode::Denied, Some(op))
+            );
+        }
+        // A data op that merely carries a passphrase field parses as the data op it is.
+        let r = Request::parse(&format!(
+            r#"{{"v":0,"id":5,"op":"snapshot","widget":"w","topic":"vault.unlock","passphrase":"{PW}"}}"#
+        ))
+        .unwrap();
+        assert!(matches!(r.op, Op::Snapshot { .. }) && r.op.admin_name().is_none());
+    }
+
+    /// Admin names reachable only through the explicit parse paths: the serde-derived path
+    /// must not be able to build an unlock (it would bypass the zeroizing decode).
+    #[test]
+    fn serde_path_cannot_build_unlock() {
+        assert!(
+            serde_json::from_str::<Op>(&format!(
+                r#"{{"op":"vault.unlock","passphrase":"{}"}}"#,
+                hex(PW)
+            ))
+            .is_ok_and(|o| o == Op::Unknown)
+        );
     }
 }

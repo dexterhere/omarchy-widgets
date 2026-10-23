@@ -6,12 +6,51 @@ yanked = "deny"
 
 [licenses]
 confidence-threshold = 0.9
-allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-3-Clause", "ISC", "Unicode-3.0", "NCSA"]
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-3-Clause", "ISC", "Unicode-3.0", "NCSA", "CDLA-Permissive-2.0"]
 
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
 allow-wildcard-paths = true
+# Only `ow-egress` may reach the network (DECISIONS AUTH-EGRESS, AUTH-HTTP). A crate with
+# `wrappers` may be depended on only by the listed crates; the others are banned outright.
+# Kept equal to BANNED_CRATES in crates/ow-egress/tests/only_egress_touches_the_network.rs (a
+# test compares them). rustix and nix are not banned: owd uses rustix for local files and
+# Unix-socket peer credentials, which the same test audits file by file.
+# Not verified locally (cargo-deny is not installed here); CI is the first real run.
+deny = [
+    { crate = "ureq", wrappers = ["ow-egress"] },
+    { crate = "ureq-proto", wrappers = ["ureq"] },
+    { crate = "rustls", wrappers = ["ow-egress", "ureq"] },
+    { crate = "rustls-webpki", wrappers = ["rustls"] },
+    { crate = "webpki-roots", wrappers = ["ureq"] },
+    { crate = "httparse", wrappers = ["ureq", "ureq-proto"] },
+    { crate = "rustls-native-certs" },
+    { crate = "rustls-platform-verifier" },
+    { crate = "tokio-rustls" },
+    { crate = "hyper-rustls" },
+    { crate = "native-tls" },
+    { crate = "tokio-native-tls" },
+    { crate = "openssl" },
+    { crate = "openssl-sys" },
+    { crate = "hyper" },
+    { crate = "hyper-util" },
+    { crate = "reqwest" },
+    { crate = "isahc" },
+    { crate = "curl" },
+    { crate = "curl-sys" },
+    { crate = "attohttpc" },
+    { crate = "minreq" },
+    { crate = "surf" },
+    { crate = "h2" },
+    { crate = "socket2" },
+    { crate = "mio" },
+    { crate = "aws-lc-rs" },
+    { crate = "aws-lc-sys" },
+    { crate = "tokio" },
+    { crate = "async-std" },
+    { crate = "smol" },
+]
 
 [sources]
 unknown-registry = "deny"

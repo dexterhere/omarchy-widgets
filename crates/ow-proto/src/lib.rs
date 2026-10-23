@@ -8,4 +8,7 @@ mod codec;
 mod msg;
 
 pub use codec::{FrameError, LineDecoder, MAX_LINE};
-pub use msg::{ErrorBody, ErrorCode, Op, PROTOCOL, Reply, Request};
+pub use msg::{
+    ErrorBody, ErrorCode, MAX_PASSPHRASE, Op, PROTOCOL, ParseError, Passphrase, Reply, Request,
+    unlock_request,
+};

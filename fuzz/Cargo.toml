@@ -13,6 +13,7 @@ libfuzzer-sys = "0.4"
 ow-proto = { path = "../crates/ow-proto" }
 ow-core = { path = "../crates/ow-core" }
 ow-vault = { path = "../crates/ow-vault" }
+serde_json = "1"
 
 # Not part of the main workspace: needs nightly and is built by its own CI job.
 [workspace]
@@ -44,5 +45,11 @@ doc = false
 [[bin]]
 name = "vault_open"
 path = "fuzz_targets/vault_open.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "admin_parse"
+path = "fuzz_targets/admin_parse.rs"
 test = false
 doc = false

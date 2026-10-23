@@ -55,7 +55,7 @@ cargo deny check && cargo audit
 # daemon against a throwaway dir; keep the path short (Unix socket paths max 108 bytes) and absolute
 D=$(mktemp -d -p /tmp owd.XXXX); cargo run -p owd -- --config-dir "$D"
 cargo run -p ow -- --config-dir "$D" status
-(cd fuzz && cargo +nightly fuzz run <target>)          # frame_decoder request_parse grants_parse vault_payload vault_open
+(cd fuzz && cargo +nightly fuzz run <target>)          # frame_decoder request_parse admin_parse grants_parse vault_payload vault_open
 # qmllint: not set up yet (no QML in the repo)
 ```
 
@@ -69,4 +69,4 @@ cargo run -p ow -- --config-dir "$D" status
 
 ## Current phase
 
-Phase 1, epic 1 (daemon core: socket, vault, grants, audit, provider hub, `ow status` and `ow vault`) is done. Phase 0 spikes S1 to S13 have not been run. Not built yet: network providers, hardening verification, bridge/QML/canvas/Widget Center, `ow new|check|install|publish`, `spec/`. See `docs/BUILD_PLAN.md`. Update this line when the phase changes.
+Phase 1, epic 1 (daemon core: socket, vault, grants, audit, provider hub, `ow status` and `ow vault`) is done, and the daemon can now be unlocked with the vault passphrase (`ow vault unlock|lock|status`; AUTH-UNLOCK in `docs/DECISIONS.md`). Keyring auto-unlock, the egress crate and network providers, and grants admin ops are not built. Phase 0 spikes S1 to S13 have not been run. Not built yet: keyring auto-unlock, network providers, hardening verification, bridge/QML/canvas/Widget Center, `ow new|check|install|publish`, `spec/`. See `docs/BUILD_PLAN.md`. Update this line when the phase changes.

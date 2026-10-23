@@ -1,6 +1,6 @@
 # Provider daemon (`owd`) specification, draft v0
 
-> **Status (checked against `crates/` on 2026-10-23).** This is a design document; the code is the source of truth. Each section below ends with an **Implemented / Not implemented** note. Summary: the Unix socket server, protocol ops `hello`/`snapshot`/`subscribe`/`unsubscribe`/`status`, grants, audit log, rate limiting, process hardening, the passphrase-mode vault (library plus `ow vault`) and the `system` provider are implemented. Not implemented: `config.toml`, admin ops over the socket, vault use by the daemon, vault keyring/TPM modes, every provider except `system`, any network access or egress allow-list, `tracing`. The design text is kept as intent; where it differs from the code, the status note says so. The unit in `packaging/owd.service` has been verified only offline and as a transient unit, not as an installed unit. Nothing here makes code widgets sandboxed: they run as the user.
+> **Status (checked against `crates/` on 2026-10-23).** This is a design document; the code is the source of truth. Each section below ends with an **Implemented / Not implemented** note. Summary: the Unix socket server, protocol ops `hello`/`snapshot`/`subscribe`/`unsubscribe`/`status`, grants, audit log, rate limiting, process hardening, the passphrase-mode vault (library plus `ow vault`) and the `system` provider are implemented. Admin ops `vault.unlock`, `vault.lock` and `vault.status` (passphrase mode) are implemented. Not implemented: `config.toml`, the other admin ops, vault keyring/TPM modes and keyring auto-unlock, every provider except `system`, any network access or egress allow-list, `tracing`. The design text is kept as intent; where it differs from the code, the status note says so. The unit in `packaging/owd.service` has been verified only offline and as a transient unit, not as an installed unit. Nothing here makes code widgets sandboxed: they run as the user.
 
 Audience: the agent that builds it. This is a proposal derived from the project plan; where it says **verify** or **decide**, record the outcome in `docs/DECISIONS.md`. Visual explanations are in `design/` (artboards "What the provider daemon is", "One request, step by step", "How to build it").
 
@@ -94,7 +94,25 @@ Client -> daemon:
 {"v":0,"id":5,"op":"status"}
 ```
 
-Admin ops (design only, not in `ow-proto::Op`; used by `ow` and the Widget Center, on the same socket in v0; see decision D-1): `grants.list`, `grants.set`, `audit.tail`, `vault.status`, `vault.set` (name, value from stdin only), `vault.remove`, `vault.wipe`.
+Admin ops, on the same socket in v0 (decision D-1 still open): implemented `vault.unlock`, `vault.lock`, `vault.status`; design only `grants.list`, `grants.set`, `audit.tail`, `vault.set`, `vault.remove`, `vault.wipe`.
+
+Implemented admin frames (same uid only, via `SO_PEERCRED`; they carry no `widget` field, and one that does is refused with `denied` and audited by op name):
+
+```
+{"v":0,"id":N,"op":"vault.unlock","passphrase":"<hex of the passphrase bytes>"}
+  ok:    {"v":0,"id":N,"ok":true,"state":"unlocked"}
+  wrong passphrase, missing or unreadable vault (one answer): error "denied", no topic
+  lockout in force, or another attempt running: error "rate_limited"
+  bad hex, empty, over 20480 bytes, JSON escapes, missing field: error "bad_request"
+{"v":0,"id":N,"op":"vault.lock"}      ok: {"state":"locked"}
+{"v":0,"id":N,"op":"vault.status"}
+  locked:   {"ok":true,"state":"locked"}  plus "lockoutSecsLeft" while attempts are blocked
+  unlocked: {"ok":true,"state":"unlocked","count":N,"names":[...],"idleSecsLeft":S}
+```
+
+The passphrase is hex so it is arbitrary bytes and has no JSON escapes. It is decoded outside serde's tagged/flattened buffering into zeroizing memory, the frame buffers are wiped after use, `Debug` is redacted, and parse errors carry a code only. `vault.status` never returns values and does not count as use (it does not extend the idle timer). Policy constants (`crates/owd/src/unlock.rs`): 5 free failures, then a lockout of 30 s that doubles per further consecutive failure up to 15 min; one unlock attempt at a time; idle auto-lock after 15 min without a secret being resolved (a visible widget that polls keeps the vault open). Counters live in memory and reset on daemon restart. A secret-backed topic answers `locked` (to snapshot and subscribe) while the vault is locked; lock, idle lock and every fresh unlock purge the cache entries of secret-backed providers, and a result fetched across a lock is discarded. Review follow-ups, now in the code: the idle timer and lockout deadline run on CLOCK_BOOTTIME, so time spent suspended counts as idle. Any `widget` key on an admin op, including `null`, makes it a widget claim and it is refused. Cache entries carry the vault key epoch; the lock and the cache purge happen together under the hub state lock, and snapshot, cached, initial and scheduled pushes compare the epoch under that lock (a reply already past its last check can still be in flight on another connection when a lock lands). Fetch workers are counted separately from cache entries. An unlock whose audit line cannot be written is rolled back and answers `internal`. Refused widget-shaped admin frames, and data requests whose topic starts with `vault.`, share one small rate-limit bucket checked before the grant lookup; over the limit they are refused with no audit line. `ow vault set|remove|rotate|wipe` send `vault.lock` to the daemon afterwards (best effort), because the daemon's decrypted copy would otherwise go stale. Providers get secrets through `FetchCtx::with_secret` (closure) or a `SecretHandle` that borrows the context.
+
+Audit entries for admin events have widget `admin`, topic `vault` and op `unlock`, `lock`, `autolock`, `lockout` or the refused op's name; no payload exists in the entry type.
 
 Daemon -> client:
 
@@ -113,7 +131,7 @@ Subscriptions are reference-counted per `(topic, params)`; the scheduler polls o
 
 Design decision D-1 (decide in Phase 0): who may call admin ops? Same-uid processes cannot be told apart by `SO_PEERCRED`. Options: (a) same socket, accept that it is a guardrail; (b) second admin socket; (c) require an interactive confirmation (polkit-style prompt or a one-time code shown in the Widget Center) for `grants.set` and `vault.*`. Recommended start: (a) with the honest note, evaluate (c) before 1.0.
 
-**Status:** Implemented ops: `hello`, `snapshot`, `subscribe`, `unsubscribe`, `status`. `hello` and `status` both reply `{"v":0,"id":N,"ok":true,"daemonVersion":..,"protocol":0}`. `PROTOCOL` is 0; `MAX_LINE` is 64 KiB. A snapshot reply carries `{topic,ts,stale,data}`; a push is `{v,sub,topic,ts,stale,data}`. All eight error codes are defined, but `locked` is never emitted today because the daemon has no vault. Admin ops (`grants.list`, `grants.set`, `audit.tail`, `vault.*`) are not implemented: they are not in `ow-proto::Op` and return `bad_request`; design decision D-1 is still pending. Unsupported protocol versions return `unsupported_version`.
+**Status:** Implemented ops: `hello`, `snapshot`, `subscribe`, `unsubscribe`, `status`. `hello` and `status` both reply `{"v":0,"id":N,"ok":true,"daemonVersion":..,"protocol":0}`. `PROTOCOL` is 0; `MAX_LINE` is 64 KiB. A snapshot reply carries `{topic,ts,stale,data}`; a push is `{v,sub,topic,ts,stale,data}`. `locked` is emitted for secret-backed topics while the vault is locked (no secret-backed provider ships yet; a test-only provider proves the path). Admin ops `grants.*`, `audit.tail`, `vault.set|remove|wipe` are not implemented and return `bad_request`; D-1 is still pending. Unsupported protocol versions return `unsupported_version`.
 
 ## 6. Grants and audit
 
@@ -155,7 +173,7 @@ Crypto: XChaCha20-Poly1305 for records and key wrap, Argon2id for passphrase mod
 
 Master key by mode:
 - **Keyring (default)**: random master key stored in Secret Service under a fixed attribute set. Verify on Omarchy 4 how the keyring behaves with automatic login after disk unlock; document the result in the UI text for this mode.
-- **Passphrase**: Argon2id from a typed passphrase; derived key held in the kernel keyring (`keyctl`) with a timeout; `ow vault unlock` re-prompts after expiry; daemon reports `locked` meanwhile.
+- **Passphrase**: Argon2id from a typed passphrase; the design sketched the derived key in the kernel keyring (`keyctl`); what is built instead: `ow vault unlock` sends the passphrase once over the 0600 socket, `owd` derives the key and holds it in zeroizing memory, and it locks on idle or `ow vault lock`; the daemon reports `locked` meanwhile.
 - **TPM-bound**: key sealed via `systemd-creds` where a TPM2 exists. Spike only in Phase 0; ship if it round-trips cleanly.
 
 Memory handling: keys in `secrecy`/`zeroize` types, `mlock` where permitted, `PR_SET_DUMPABLE=0`, `RLIMIT_CORE=0`, never in argv/env, never logged, never `Debug`-printed.
@@ -166,7 +184,8 @@ Lifecycle: `ow vault init|status|set <name>|remove <name>|rotate|wipe|change-mod
 
 **Status:**
 - Implemented: `ow-vault` seals ONE payload under a wrapped data key (see `docs/VAULT_FORMAT.md`), not per-record nonces as sketched above. Passphrase mode only (mode byte 2), Argon2id, XChaCha20-Poly1305. `ow vault init|status|list|set|remove|rotate|wipe` exist (`wipe` requires `--yes`). Keys use `zeroize`; the daemon process sets non-dumpable and `RLIMIT_CORE=0` (`ow-core/src/harden.rs`).
-- Not implemented: keyring and TPM modes, `ow vault unlock`, `ow vault change-mode`, the kernel-keyring timeout, `mlock`. The `secrecy` crate is deliberately not used (zeroize only). The daemon does not open the vault: `owd` does not depend on `ow-vault`, so no secret reaches a provider and `locked` is never returned.
+- Also implemented: `ow vault unlock|lock|status` (daemon side, see section 5) and the daemon holding the unlocked vault. `ow vault set` takes the passphrase from `/dev/tty` and the value from stdin when stdin is redirected; with no terminal it fails unless `--passphrase-stdin` is given.
+- Not implemented: keyring and TPM modes and keyring auto-unlock, `ow vault change-mode`, the kernel-keyring timeout, `mlock`, reloading the daemon's copy when `ow vault set|remove` changes the file (a fresh `vault.unlock` re-reads it and purges caches; an automatic remove-then-reload flow is open). The `secrecy` crate is deliberately not used (zeroize only).
 
 ## 8. Providers
 
@@ -228,7 +247,7 @@ The unit lives in `packaging/owd.service`; read that file rather than a copy her
 6. **Network providers**: `github` (device flow), egress allow-list, ETag polling. Done when the token appears in no log and no widget message.
 7. **Harden and ship**: systemd sandbox, `cargo-deny`/`audit`, fuzz in CI, PKGBUILD, threat-model doc, security policy. Done when `systemd-analyze security` is green and an outside review of vault and protocol passes.
 
-**Status:** Steps 1, 2, 3 and 5 are done (step 5 for the `system` provider only, and step 2's "second uid cannot connect" check is untested as noted in section 11). Step 4 is partial: passphrase mode only, and the daemon does not use the vault. Steps 6 and 7 are open.
+**Status:** Steps 1, 2, 3 and 5 are done (step 5 for the `system` provider only, and step 2's "second uid cannot connect" check is untested as noted in section 11). Step 4 is partial: passphrase mode only; the daemon unlocks and holds the vault, keyring auto-unlock is not built. Steps 6 and 7 are open.
 
 ## 13. Open design questions for this component
 

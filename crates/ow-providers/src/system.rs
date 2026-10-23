@@ -1,5 +1,5 @@
 //! `system`: CPU, memory and load from /proc. No secrets, no network.
-use ow_core::{Provider, ProviderError, Sensitivity, TopicSpec};
+use ow_core::{FetchCtx, Provider, ProviderError, Sensitivity, TopicSpec};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -170,6 +170,7 @@ impl Provider for System {
         &self,
         topic: &str,
         _params: &Map<String, Value>,
+        _ctx: &FetchCtx<'_>,
     ) -> Result<Map<String, Value>, ProviderError> {
         let spec = TOPICS
             .iter()
@@ -239,17 +240,32 @@ mod tests {
         let p = Map::new();
         let set = |c: &str| std::fs::write(d.path().join("stat"), c).unwrap();
         // no tick since the baseline and no previous value: unavailable, not a fake 0
-        assert_eq!(s.fetch("system.cpu", &p), Err(ProviderError::Unavailable));
+        assert_eq!(
+            s.fetch("system.cpu", &p, &FetchCtx::none()),
+            Err(ProviderError::Unavailable)
+        );
         set(STAT2); // total +200, idle +100
-        assert_eq!(s.fetch("system.cpu", &p).unwrap()["usage_pct"], 50.0);
+        assert_eq!(
+            s.fetch("system.cpu", &p, &FetchCtx::none()).unwrap()["usage_pct"],
+            50.0
+        );
         // unchanged counters: last value, no division by zero
-        assert_eq!(s.fetch("system.cpu", &p).unwrap()["usage_pct"], 50.0);
+        assert_eq!(
+            s.fetch("system.cpu", &p, &FetchCtx::none()).unwrap()["usage_pct"],
+            50.0
+        );
         // idle regresses while total advances: re-baseline, never 100%
         set("cpu  150 0 150 800 0 0 0 0 0 0\n");
-        assert_eq!(s.fetch("system.cpu", &p), Err(ProviderError::Unavailable));
+        assert_eq!(
+            s.fetch("system.cpu", &p, &FetchCtx::none()),
+            Err(ProviderError::Unavailable)
+        );
         // total regresses (reset): same
         set("cpu  1 0 1 8 0 0 0 0 0 0\n");
-        assert_eq!(s.fetch("system.cpu", &p), Err(ProviderError::Unavailable));
+        assert_eq!(
+            s.fetch("system.cpu", &p, &FetchCtx::none()),
+            Err(ProviderError::Unavailable)
+        );
     }
 
     #[test]
@@ -258,7 +274,9 @@ mod tests {
         let set = |c: &str| std::fs::write(d.path().join("stat"), c).unwrap();
         // idle +100, iowait -10 (counted as 0), total +190 -> 1 - 100/190
         set("cpu  150 0 150 900 40 0 0 0 0 0\n");
-        let v = s.fetch("system.cpu", &Map::new()).unwrap()["usage_pct"]
+        let v = s
+            .fetch("system.cpu", &Map::new(), &FetchCtx::none())
+            .unwrap()["usage_pct"]
             .as_f64()
             .unwrap();
         assert!((v - 47.4).abs() < 0.1, "{v}");
@@ -291,10 +309,14 @@ mod tests {
     #[test]
     fn memory_and_load() {
         let (_d, s) = fixture(&[("meminfo", MEM), ("loadavg", "0.10 0.20 0.30 1/2 3\n")]);
-        let m = s.fetch("system.memory", &Map::new()).unwrap();
+        let m = s
+            .fetch("system.memory", &Map::new(), &FetchCtx::none())
+            .unwrap();
         assert_eq!(m["total_mib"], 16_000);
         assert_eq!(m["used_pct"], 75.0);
-        let l = s.fetch("system.load", &Map::new()).unwrap();
+        let l = s
+            .fetch("system.load", &Map::new(), &FetchCtx::none())
+            .unwrap();
         assert_eq!(l["load5"], 0.2);
     }
 
@@ -307,7 +329,7 @@ mod tests {
         ] {
             let (_d, s) = fixture(&[("meminfo", body)]);
             assert_eq!(
-                s.fetch("system.memory", &Map::new()),
+                s.fetch("system.memory", &Map::new(), &FetchCtx::none()),
                 Err(ProviderError::Format),
                 "{body}"
             );
@@ -318,15 +340,15 @@ mod tests {
     fn errors_are_categories_only() {
         let (_d, s) = fixture(&[("meminfo", "MemTotal: 1 kB\nMemAvailable: 2 kB\n")]);
         assert_eq!(
-            s.fetch("system.memory", &Map::new()),
+            s.fetch("system.memory", &Map::new(), &FetchCtx::none()),
             Err(ProviderError::Format)
         );
         assert_eq!(
-            s.fetch("system.load", &Map::new()),
+            s.fetch("system.load", &Map::new(), &FetchCtx::none()),
             Err(ProviderError::Unavailable)
         );
         assert_eq!(
-            s.fetch("nope", &Map::new()),
+            s.fetch("nope", &Map::new(), &FetchCtx::none()),
             Err(ProviderError::UnknownTopic)
         );
     }
@@ -336,12 +358,16 @@ mod tests {
         let s = System::new();
         let p = Map::new();
         let pct = |v: &Map<String, Value>, k: &str| v[k].as_f64().unwrap();
-        let m = s.fetch("system.memory", &p).unwrap();
+        let m = s.fetch("system.memory", &p, &FetchCtx::none()).unwrap();
         assert!((0.0..=100.0).contains(&pct(&m, "used_pct")));
         assert!(pct(&m, "total_mib") > 0.0);
-        assert!(!s.fetch("system.load", &p).unwrap().is_empty());
+        assert!(
+            !s.fetch("system.load", &p, &FetchCtx::none())
+                .unwrap()
+                .is_empty()
+        );
         std::thread::sleep(Duration::from_millis(60));
-        if let Ok(c) = s.fetch("system.cpu", &p) {
+        if let Ok(c) = s.fetch("system.cpu", &p, &FetchCtx::none()) {
             assert!((0.0..=100.0).contains(&pct(&c, "usage_pct")));
         }
     }

@@ -53,6 +53,28 @@ pub fn panic_notice(location: Option<(&str, u32)>) -> String {
     }
 }
 
+/// Require `dir` to be a real directory (not a symlink) owned by the current user with no
+/// group/other access. Used by the daemon for its own directories and by clients before they
+/// send a secret to the socket inside one.
+pub fn check_private_dir(dir: &std::path::Path) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let md = std::fs::symlink_metadata(dir)?;
+    if !md.is_dir() {
+        return Err(io::Error::other(
+            "socket dir is not a directory (or is a symlink)",
+        ));
+    }
+    if md.uid() != rustix::process::geteuid().as_raw() {
+        return Err(io::Error::other(
+            "socket dir is not owned by the current user",
+        ));
+    }
+    if md.mode() & 0o077 != 0 {
+        return Err(io::Error::other("socket dir is accessible by group/others"));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::panic_notice;

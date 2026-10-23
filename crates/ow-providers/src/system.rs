@@ -1,13 +1,13 @@
 //! `system`: CPU, memory and load from /proc, temperature from /sys, local time. No secrets, no
 //! network.
-use crate::temp;
+use crate::{clock, temp};
 use ow_core::{FetchCtx, Provider, ProviderError, Sensitivity, TopicSpec};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
-static TOPICS: [TopicSpec; 4] = [
+static TOPICS: [TopicSpec; 5] = [
     TopicSpec::new(
         "system.cpu",
         Sensitivity::Low,
@@ -25,6 +25,12 @@ static TOPICS: [TopicSpec; 4] = [
         Sensitivity::Low,
         Duration::from_secs(5),
         &["load1", "load5", "load15"],
+    ),
+    TopicSpec::new(
+        "system.time",
+        Sensitivity::Low,
+        Duration::from_secs(1),
+        &["hm", "hms", "date", "tz"],
     ),
     TopicSpec::new(
         "system.temp",
@@ -210,6 +216,7 @@ impl Provider for System {
                 let [a, b, c] = parse_load(&self.read("loadavg")?).ok_or(ProviderError::Format)?;
                 json!({ "load1": a, "load5": b, "load15": c })
             }
+            "system.time" => return Ok(spec.sanitize(clock::fields(&jiff::Zoned::now()))),
             "system.temp" => json!({ "celsius": temp::celsius(&self.sys_root)? }),
             _ => return Err(ProviderError::UnknownTopic),
         };

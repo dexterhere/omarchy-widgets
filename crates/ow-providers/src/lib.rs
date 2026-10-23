@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod battery;
+mod clock;
 mod system;
 mod temp;
 

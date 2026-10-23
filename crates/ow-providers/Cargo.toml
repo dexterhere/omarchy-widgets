@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 ow-core = { version = "0.0.0", path = "../ow-core" }
 serde_json = "1.0.154"
+jiff = { version = "0.2.38", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

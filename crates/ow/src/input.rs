@@ -121,6 +121,36 @@ pub fn secret(prompt: &str) -> Result<Zeroizing<Vec<u8>>, String> {
     }
 }
 
+/// Prompt on the controlling terminal without echo, whatever stdin and stdout are. This is how
+/// a passphrase is read while stdin carries the value (`some-command | ow vault set NAME`).
+/// Fails, with a message saying what to do, when the process has no controlling terminal.
+pub fn tty_secret(prompt: &str) -> Result<Zeroizing<Vec<u8>>, String> {
+    use std::os::fd::AsFd;
+    use std::os::unix::fs::OpenOptionsExt;
+    let no_tty = || {
+        "no terminal available for the passphrase prompt. Run this in a terminal, or add \
+         --passphrase-stdin to read the passphrase from the first line of stdin instead."
+            .to_string()
+    };
+    let tty = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(rustix::fs::OFlags::NOCTTY.bits() as i32)
+        .open("/dev/tty")
+        .map_err(|_| no_tty())?;
+    if !isatty(tty.as_fd()) {
+        return Err(no_tty());
+    }
+    let guard = PromptMode::new(tty.as_fd())?;
+    let mut w = &tty;
+    let _ = write!(w, "{prompt}: ");
+    let _ = w.flush();
+    let line = read_line_from(true, |b| rustix::io::read(&tty, b));
+    drop(guard);
+    let _ = writeln!(w);
+    line
+}
+
 /// Ask twice on a terminal and require a match; from a pipe read once.
 pub fn secret_confirmed(prompt: &str) -> Result<Zeroizing<Vec<u8>>, String> {
     let first = secret(prompt)?;

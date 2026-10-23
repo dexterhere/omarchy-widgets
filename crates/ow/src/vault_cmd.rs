@@ -1,7 +1,7 @@
 //! `ow vault ...`: offline operations on the vault file. Secrets come only from
 //! `input` (terminal prompt or stdin), never from arguments.
 use crate::daemon;
-use crate::input::{secret, secret_confirmed};
+use crate::input::{secret, secret_confirmed, tty_secret};
 use ow_core::Paths;
 use ow_vault::{Profile, Vault, VaultError};
 use std::path::Path;
@@ -76,8 +76,18 @@ pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Resu
             }
             Ok(())
         }
-        ["set", name] => {
-            let mut v = Vault::open(&path, &secret("Vault passphrase")?).map_err(err)?;
+        ["set", name] | ["set", name, "--passphrase-stdin"] => {
+            // On a terminal both come from the prompt. With stdin redirected, the passphrase
+            // comes from /dev/tty and stdin carries the value, so a token can be piped without
+            // a shell variable. No terminal: fail, unless --passphrase-stdin says the first
+            // stdin line is the passphrase.
+            let pass = if args.len() == 3 || rustix::termios::isatty(rustix::stdio::stdin()) {
+                secret("Vault passphrase")?
+            } else {
+                tty_secret("Vault passphrase")?
+            };
+            let mut v = Vault::open(&path, &pass).map_err(err)?;
+            drop(pass);
             let value = secret_confirmed(&format!("Value for {name}"))?;
             v.set(name, utf8(&value)?).map_err(err)?;
             writeln!(out, "stored {name}").map_err(w)
@@ -104,8 +114,9 @@ pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Resu
                 .map_err(w)
         }
         _ => Err(
-            "usage: ow vault init|status|unlock|lock|list|set <name>|remove <name>|rotate|wipe --yes\n\
-                  secrets are read from the terminal (no echo) or stdin, never from arguments"
+            "usage: ow vault init|status|unlock|lock|list|set <name> [--passphrase-stdin]|remove <name>|rotate|wipe --yes\n\
+                  secrets are read from the terminal (no echo) or stdin, never from arguments.\n\
+                  set: the passphrase comes from the terminal; a piped stdin line is the value (it must end with a newline)"
                 .into(),
         ),
     }

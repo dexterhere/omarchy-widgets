@@ -208,10 +208,9 @@ impl Egress {
             .get("content-length")
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.parse::<u64>().ok())
+            && len > max as u64
         {
-            if len > max as u64 {
-                return Err(EgressError::TooLarge);
-            }
+            return Err(EgressError::TooLarge);
         }
         let mut body = Vec::new();
         resp.body_mut()
@@ -320,10 +319,10 @@ fn pick_headers(resp: &http::Response<ureq::Body>, extra: Option<&str>) -> Vec<(
         if !(SAFE_RESPONSE_HEADERS.contains(&n) || extra == Some(n)) {
             continue;
         }
-        if let Ok(v) = value.to_str() {
-            if valid_header_value(v) {
-                out.push((n.to_owned(), v.to_owned()));
-            }
+        if let Ok(v) = value.to_str()
+            && valid_header_value(v)
+        {
+            out.push((n.to_owned(), v.to_owned()));
         }
     }
     out

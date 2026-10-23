@@ -10,6 +10,9 @@ const MAX_REPLY: u64 = 64 * 1024;
 /// Generous: an unlock runs Argon2 on the daemon side.
 const TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Prefix of the error `call` returns when nothing is listening; `reload_grants` keys on it.
+const UNREACHABLE: &str = "daemon not reachable";
+
 /// Send one request line (newline included) and return the raw reply line.
 pub fn call(paths: &Paths, request: &str) -> Result<String, String> {
     // Nothing is written until both checks pass, so a squatter on the socket path gets no bytes.
@@ -25,7 +28,7 @@ pub fn call(paths: &Paths, request: &str) -> Result<String, String> {
             );
         }
     }
-    let mut s = UnixStream::connect(&sock).map_err(|e| format!("daemon not reachable: {e}"))?;
+    let mut s = UnixStream::connect(&sock).map_err(|e| format!("{UNREACHABLE}: {e}"))?;
     if !ow_core::peer_is_self(&s) {
         return Err("refusing to use the daemon socket: it is not served by your user".into());
     }
@@ -63,5 +66,24 @@ pub fn call_ok(paths: &Paths, request: &str) -> Result<Value, String> {
         ),
         Some("bad_request") => Err("the daemon refused the request as malformed".into()),
         Some(_) => Err("the daemon reported an error".into()),
+    }
+}
+
+/// Tell a running daemon to re-read `grants.toml`. `Ok(true)` = it did, `Ok(false)` = no daemon
+/// is running (the grants apply at its next start). Errors: a daemon we do not trust, or one that
+/// answered with an error (it then denies everything until the file is fixed).
+pub fn reload_grants(paths: &Paths) -> Result<bool, String> {
+    match call(paths, "{\"v\":0,\"id\":1,\"op\":\"grants.reload\"}\n") {
+        Err(e) if e.starts_with(UNREACHABLE) => Ok(false),
+        Err(e) => Err(e),
+        Ok(line) => {
+            let v: Value =
+                serde_json::from_str(&line).map_err(|_| "unreadable reply".to_string())?;
+            if v["ok"] == true {
+                Ok(true)
+            } else {
+                Err("the daemon could not load the grants file and now denies every widget until it is fixed".into())
+            }
+        }
     }
 }

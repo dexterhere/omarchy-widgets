@@ -486,6 +486,44 @@ mod tests {
         }
     }
 
+    /// A duplicated key must not let a frame be read one way by the router and another way by
+    /// the handler: whatever the order, a frame that carries a `widget` key never becomes an
+    /// admin request, and a duplicated `op` is refused outright.
+    #[test]
+    fn duplicate_keys_cannot_smuggle_an_admin_op_past_the_widget_rule() {
+        for op in ["vault.unlock", "vault.lock", "vault.status"] {
+            let pw = hex(PW);
+            let lines = [
+                format!(
+                    r#"{{"v":0,"id":4,"op":"{op}","widget":"w","widget":null,"passphrase":"{pw}"}}"#
+                ),
+                format!(
+                    r#"{{"v":0,"id":4,"op":"{op}","widget":null,"widget":"w","passphrase":"{pw}"}}"#
+                ),
+                format!(
+                    r#"{{"v":0,"id":4,"op":"{op}","op":"snapshot","widget":"w","topic":"t","passphrase":"{pw}"}}"#
+                ),
+                format!(
+                    r#"{{"v":0,"id":4,"op":"snapshot","op":"{op}","widget":"w","topic":"t","passphrase":"{pw}"}}"#
+                ),
+                format!(r#"{{"v":0,"id":4,"op":"{op}","op":"status","passphrase":"{pw}"}}"#),
+                format!(r#"{{"v":0,"id":4,"op":"status","op":"{op}","passphrase":"{pw}"}}"#),
+                format!(r#"{{"v":0,"v":1,"id":4,"op":"{op}","passphrase":"{pw}"}}"#),
+                format!(r#"{{"v":0,"id":4,"id":5,"op":"{op}","passphrase":"{pw}"}}"#),
+            ];
+            for l in lines {
+                match Request::parse(&l) {
+                    Ok(r) => assert!(
+                        r.op.admin_name().is_none() && !l.contains("widget"),
+                        "{l} parsed as {:?}",
+                        r.op.admin_name()
+                    ),
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+
     #[test]
     fn admin_ops_claiming_a_widget_are_denied_and_named() {
         for op in ["vault.unlock", "vault.lock", "vault.status"] {

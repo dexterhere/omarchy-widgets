@@ -15,7 +15,7 @@ use std::time::Duration;
 const PASS: &str = "FAKE-passphrase-correct-horse";
 const WRONG: &str = "FAKE-passphrase-wrong-horse!";
 const TOKEN: &str = "FAKE-TOKEN-VALUE-77c1e";
-const GRANTS: &str = "[[grant]]\nwidget=\"w1\"\ntopics=[\"fake.slow\",\"fake.secret\",\"fake.plain\",\"fake.undeclared\"]\nfields=[\"len\",\"n\"]\n";
+const GRANTS: &str = "[[grant]]\nwidget=\"w1\"\ntopics=[\"fake.seq\",\"fake.slow\",\"fake.secret\",\"fake.plain\",\"fake.undeclared\"]\nfields=[\"len\",\"n\"]\n";
 
 /// A secret-backed provider: one topic that uses its secret and one that asks for a secret it
 /// did not declare. Secrets are declared per provider, so a topic that needs none lives in
@@ -23,6 +23,42 @@ const GRANTS: &str = "[[grant]]\nwidget=\"w1\"\ntopics=[\"fake.slow\",\"fake.sec
 struct SecretProvider;
 
 struct PlainProvider;
+
+/// The first fetch is slow and returns 1; later fetches return their call number. The value
+/// identifies which fetch (and so which key epoch) produced a result.
+struct SeqProvider(std::sync::atomic::AtomicU64);
+
+static SEQ: [TopicSpec; 1] = [TopicSpec::new(
+    "fake.seq",
+    Sensitivity::High,
+    Duration::from_secs(60),
+    &["len"],
+)];
+
+impl Provider for SeqProvider {
+    fn id(&self) -> &'static str {
+        "seq"
+    }
+    fn topics(&self) -> &'static [TopicSpec] {
+        &SEQ
+    }
+    fn secrets(&self) -> &'static [&'static str] {
+        &["fake-token"]
+    }
+    fn fetch(
+        &self,
+        _t: &str,
+        _p: &Map<String, Value>,
+        ctx: &FetchCtx<'_>,
+    ) -> Result<Map<String, Value>, ProviderError> {
+        let n = self.0.fetch_add(1, Ordering::SeqCst) + 1;
+        ctx.secret("fake-token")?;
+        if n == 1 {
+            std::thread::sleep(Duration::from_millis(800));
+        }
+        Ok(json!({"len": n}).as_object().cloned().unwrap())
+    }
+}
 
 /// Resolves the secret, then takes a while: lets a test lock the vault mid-fetch.
 struct SlowProvider;
@@ -160,6 +196,7 @@ fn start(idle: Duration) -> H {
             Arc::new(SecretProvider),
             Arc::new(PlainProvider),
             Arc::new(SlowProvider),
+            Arc::new(SeqProvider(0.into())),
         ],
         policy,
     )
@@ -472,4 +509,34 @@ fn lock_during_a_slow_fetch_leaks_nothing() {
     );
     // Nothing was cached: still locked, and a new request is refused rather than served.
     assert_eq!(code(&h.snap("fake.slow")), "locked");
+}
+
+/// Lock AND unlock while a fetch is in flight: the vault is unlocked again when the fetch
+/// ends, so only the key epoch tells the stale result apart. It must be dropped, not returned
+/// and not cached. (Fails if the epoch comparison in the hub is removed.)
+#[test]
+fn lock_then_unlock_during_a_fetch_discards_the_old_result() {
+    let h = start(Duration::from_secs(900));
+    h.unlock(PASS);
+    let path = h.paths.socket();
+    let first = std::thread::spawn(move || {
+        let mut s = UnixStream::connect(path).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        s.write_all(
+            b"{\"v\":0,\"id\":3,\"op\":\"snapshot\",\"widget\":\"w1\",\"topic\":\"fake.seq\"}\n",
+        )
+        .unwrap();
+        let mut out = String::new();
+        BufReader::new(s).read_line(&mut out).unwrap();
+        out
+    });
+    std::thread::sleep(Duration::from_millis(200)); // fetch #1 is sleeping
+    h.ask("{\"v\":0,\"id\":5,\"op\":\"vault.lock\"}\n");
+    assert_eq!(h.unlock(PASS)["state"], "unlocked");
+    let r = first.join().unwrap();
+    assert!(!r.contains("\"len\""), "stale result returned: {r}");
+    // Nothing from fetch #1 was cached: the next snapshot is a fresh fetch (#2 or later).
+    let again = h.snap("fake.seq");
+    let n = again["data"]["len"].as_u64().unwrap_or(0);
+    assert!(n >= 2, "stale cache entry served: {again}");
 }

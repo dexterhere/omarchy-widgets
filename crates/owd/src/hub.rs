@@ -704,4 +704,94 @@ mod tests {
         );
         assert!(h.snapshot("t.one", &params(1)).is_ok());
     }
+
+    // ---- secret-backed cache hygiene ----
+
+    struct S;
+
+    static STOPICS: [TopicSpec; 1] =
+        [
+            TopicSpec::new("s.one", Sensitivity::High, Duration::from_secs(1), &["v"])
+                .with_params(&["id"]),
+        ];
+
+    impl Provider for S {
+        fn id(&self) -> &'static str {
+            "s"
+        }
+        fn topics(&self) -> &'static [TopicSpec] {
+            &STOPICS
+        }
+        fn secrets(&self) -> &'static [&'static str] {
+            &["tok"]
+        }
+        fn fetch(&self, _t: &str, _p: &Params, c: &FetchCtx<'_>) -> Result<Params, ProviderError> {
+            let n = c.secret("tok")?.expose().len();
+            Ok(serde_json::json!({ "v": n }).as_object().cloned().unwrap())
+        }
+    }
+
+    /// Hub with one secret-backed and one plain provider and an unlocked fake vault.
+    fn secret_hub() -> (tempfile::TempDir, Hub) {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("v.owv");
+        let mut v = ow_vault::Vault::create(
+            &path,
+            b"FAKE correct horse battery",
+            ow_vault::Profile::Standard,
+        )
+        .unwrap();
+        v.set("tok", "FAKE-secret-value").unwrap();
+        drop(v);
+        let vault = Arc::new(VaultState::new(path, crate::unlock::VaultPolicy::default()));
+        vault.unlock(b"FAKE correct horse battery").unwrap();
+        (d, Hub::new(vec![Arc::new(S), Arc::new(P)], vault))
+    }
+
+    #[test]
+    fn lock_vault_leaves_no_secret_derived_entry_in_the_cache() {
+        let (_d, h) = secret_hub();
+        let (sk, pk) = (
+            Key::new("s.one", &Params::new()),
+            Key::new("t.one", &Params::new()),
+        );
+        assert!(h.fetch_now(&sk, &Params::new()).is_some());
+        assert!(h.fetch_now(&pk, &Params::new()).is_some());
+        h.lock_vault();
+        let st = lock(&h.state);
+        assert!(
+            !st.cache.contains_key(&sk),
+            "secret-derived entry survived the lock"
+        );
+        assert!(
+            st.cache.contains_key(&pk),
+            "plain entries are not secret-derived"
+        );
+    }
+
+    #[test]
+    fn data_from_an_older_key_epoch_is_invisible_even_before_the_purge() {
+        let (_d, h) = secret_hub();
+        let k = Key::new("s.one", &Params::new());
+        h.fetch_now(&k, &Params::new()).unwrap();
+        assert!(h.cached("s.one", &Params::new()).is_some());
+        // Lock and unlock again without purging: only the epoch tells old data apart.
+        h.vault.lock();
+        h.vault.unlock(b"FAKE correct horse battery").unwrap();
+        assert!(h.cached("s.one", &Params::new()).is_none());
+    }
+
+    #[test]
+    fn purging_a_running_fetch_does_not_free_a_worker_slot() {
+        let (_d, h) = secret_hub();
+        for i in 0..MAX_IN_FLIGHT {
+            let mut p = Params::new();
+            p.insert("id".into(), i.into());
+            assert!(h.begin(&Key::new("s.one", &p)), "claim {i}");
+        }
+        h.lock_vault(); // removes every entry, workers are still "running"
+        let mut p = Params::new();
+        p.insert("id".into(), 99.into());
+        assert!(!h.begin(&Key::new("s.one", &p)), "cap exceeded after purge");
+    }
 }

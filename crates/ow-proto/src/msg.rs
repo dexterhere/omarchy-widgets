@@ -489,6 +489,33 @@ mod tests {
     /// A duplicated key must not let a frame be read one way by the router and another way by
     /// the handler: whatever the order, a frame that carries a `widget` key never becomes an
     /// admin request, and a duplicated `op` is refused outright.
+    /// True when `$t` implements `$tr` (a probe that compiles either way).
+    macro_rules! implements {
+        ($t:ty, $tr:path) => {{
+            #[allow(dead_code)]
+            trait No {
+                const V: bool = false;
+            }
+            struct W<T: ?Sized>(std::marker::PhantomData<T>);
+            impl<T: ?Sized> No for W<T> {}
+            impl<T: ?Sized + $tr> W<T> {
+                #[allow(dead_code)] // unused when the bound does not hold: that is the probe
+                const V: bool = true;
+            }
+            <W<$t>>::V
+        }};
+    }
+
+    /// The type's doc says a passphrase cannot be displayed, serialized or deserialized.
+    #[test]
+    fn passphrase_cannot_be_displayed_serialized_or_deserialized() {
+        assert!(implements!(String, std::fmt::Display), "probe is broken");
+        assert!(!implements!(Passphrase, std::fmt::Display));
+        assert!(!implements!(Passphrase, serde::Serialize));
+        assert!(!implements!(Passphrase, serde::de::DeserializeOwned));
+        assert!(!implements!(Passphrase, Copy));
+    }
+
     #[test]
     fn duplicate_keys_cannot_smuggle_an_admin_op_past_the_widget_rule() {
         for op in ["vault.unlock", "vault.lock", "vault.status"] {

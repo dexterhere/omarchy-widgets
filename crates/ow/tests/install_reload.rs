@@ -21,12 +21,25 @@ fn serve(
 ) -> (std::thread::JoinHandle<Vec<String>>, Arc<AtomicUsize>) {
     ow_core::private_dir(&paths.runtime).unwrap();
     let l = UnixListener::bind(paths.socket()).unwrap();
+    l.set_nonblocking(true).unwrap();
     let n = Arc::new(AtomicUsize::new(0));
     let n2 = Arc::clone(&n);
     let h = std::thread::spawn(move || {
         let mut seen = Vec::new();
         for reply in script {
-            let (s, _): (UnixStream, _) = l.accept().unwrap();
+            // A client that never comes (a mutation that stops retrying) ends the server after
+            // a few seconds instead of hanging the test run.
+            let t = std::time::Instant::now();
+            let (s, _): (UnixStream, _) = loop {
+                match l.accept() {
+                    Ok(x) => break x,
+                    Err(_) if t.elapsed() < Duration::from_secs(4) => {
+                        std::thread::sleep(Duration::from_millis(10))
+                    }
+                    Err(_) => return seen,
+                }
+            };
+            s.set_nonblocking(false).unwrap();
             n2.fetch_add(1, Ordering::SeqCst);
             let mut line = String::new();
             BufReader::new(&s).read_line(&mut line).unwrap();

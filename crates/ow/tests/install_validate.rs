@@ -180,7 +180,7 @@ fn providers_must_exist_in_the_catalog_with_matching_auth() {
 
 #[test]
 fn repeated_topics_or_providers_are_refused_because_they_would_break_the_grants_file() {
-    refused(1, "more than once", |w| {
+    refused(1, "declared more than once", |w| {
         let p = w["providers"][0].clone();
         w["providers"] = json!([p.clone(), p]);
     });
@@ -626,4 +626,35 @@ fn bound_nodes_need_sample_data_of_the_right_shape() {
         l2.layout = None;
         assert_eq!(run(&l2, &f).is_ok(), ok);
     }
+}
+
+/// Two different providers offering the same topic would give the widget two grant entries for
+/// one (widget, topic) pair, which the daemon rejects for the whole file. The shipped catalog has
+/// no such overlap, so the check is tested with a catalog that does.
+#[test]
+fn a_topic_claimed_by_two_providers_is_refused_with_its_own_message() {
+    let cat = catalog::parse(
+        br#"{"schemaVersion":0,"providers":{
+        "a":{"class":"local-system","auth":"none","egress":[],"topics":{"x.y":["f"]}},
+        "b":{"class":"local-system","auth":"none","egress":[],"topics":{"x.y":["f"]}}}}"#,
+    )
+    .unwrap();
+    let mut w: Value = serde_json::from_slice(&fixture("clock", "widget.json")).unwrap();
+    w["providers"] = json!([
+        {"name": "a", "topics": ["x.y"], "fields": ["f"]},
+        {"name": "b", "topics": ["x.y"], "fields": ["f"]}
+    ]);
+    let e = ow::install::validate::widget(&serde_json::to_vec(&w).unwrap(), &id_of("clock"), &cat)
+        .unwrap_err();
+    assert!(
+        e.contains("is declared more than once") && !e.contains("listed"),
+        "{e}"
+    );
+    // Control: one provider each is fine.
+    w["providers"][1]["topics"] = json!([]);
+    w["providers"] = json!([w["providers"][0].clone()]);
+    assert!(
+        ow::install::validate::widget(&serde_json::to_vec(&w).unwrap(), &id_of("clock"), &cat)
+            .is_ok()
+    );
 }

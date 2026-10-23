@@ -184,7 +184,10 @@ fn handle(line: &str, shared: &Shared, ctx: &Ctx) -> (bool, bool) {
             };
             (r, None)
         }
-        Op::Unknown => (Reply::err(req.id, ErrorCode::BadRequest, None), None),
+        // Admin ops are wired in a later change; until then they are refused like unknown ops.
+        Op::VaultUnlock { .. } | Op::VaultLock | Op::VaultStatus | Op::Unknown => {
+            (Reply::err(req.id, ErrorCode::BadRequest, None), None)
+        }
     };
     let mut alive = ctx.send(reply.to_line());
     if let Some(sub) = new_sub {

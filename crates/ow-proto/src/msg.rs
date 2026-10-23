@@ -26,8 +26,10 @@ impl Passphrase {
         }
         let nib = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
         let mut out = Zeroizing::new(Vec::with_capacity(h.len() / 2));
-        for pair in h.chunks_exact(2) {
-            out.push(nib(pair[0])? << 4 | nib(pair[1])?);
+        // The length is even (checked above), so there is no remainder to ignore.
+        let (pairs, _) = h.as_chunks::<2>();
+        for [hi, lo] in pairs {
+            out.push(nib(*hi)? << 4 | nib(*lo)?);
         }
         Some(Passphrase(out))
     }

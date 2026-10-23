@@ -12,8 +12,24 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Send one request line (newline included) and return the raw reply line.
 pub fn call(paths: &Paths, request: &str) -> Result<String, String> {
-    let mut s =
-        UnixStream::connect(paths.socket()).map_err(|e| format!("daemon not reachable: {e}"))?;
+    // Nothing is written until both checks pass, so a squatter on the socket path gets no bytes.
+    let sock = paths.socket();
+    match sock.parent().map(ow_core::check_private_dir) {
+        Some(Ok(())) => {}
+        // No directory means no daemon; connect below reports that.
+        Some(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {}
+        _ => {
+            return Err(
+                "refusing to use the daemon socket: its directory is not private and owned by you"
+                    .into(),
+            );
+        }
+    }
+    let mut s = UnixStream::connect(&sock).map_err(|e| format!("daemon not reachable: {e}"))?;
+    if !rustix::net::sockopt::socket_peercred(&s).is_ok_and(|c| c.uid == rustix::process::geteuid())
+    {
+        return Err("refusing to use the daemon socket: it is not served by your user".into());
+    }
     s.set_read_timeout(Some(TIMEOUT))
         .map_err(|e| e.to_string())?;
     s.set_write_timeout(Some(TIMEOUT))

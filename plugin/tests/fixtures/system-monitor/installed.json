@@ -1,0 +1,29 @@
+{
+  "id": "io.github.dexterhere.system-monitor",
+  "repo": "https://github.com/dexterhere/system-monitor",
+  "commit": "0000000000000000000000000000000000000001",
+  "installedAt": "2026-10-23T12:00:00Z",
+  "status": "alpha",
+  "tier": "spec",
+  "files": {},
+  "granted": [
+    {
+      "topics": [
+        "system.cpu",
+        "system.memory",
+        "system.load",
+        "system.temp"
+      ],
+      "fields": [
+        "usage_pct",
+        "used_pct",
+        "used_mib",
+        "total_mib",
+        "load1",
+        "load5",
+        "load15",
+        "celsius"
+      ]
+    }
+  ]
+}

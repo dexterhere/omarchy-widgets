@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 0,
+  "id": "io.github.dexterhere.system-monitor",
+  "tier": "spec",
+  "category": "system",
+  "surfaces": [
+    "desktop",
+    "bar"
+  ],
+  "sizeClasses": [
+    {
+      "name": "chip",
+      "min": [
+        120,
+        24
+      ],
+      "max": [
+        240,
+        48
+      ],
+      "aspectLock": null
+    },
+    {
+      "name": "compact",
+      "min": [
+        140,
+        100
+      ],
+      "max": [
+        240,
+        180
+      ],
+      "aspectLock": null
+    },
+    {
+      "name": "wide",
+      "min": [
+        260,
+        120
+      ],
+      "max": [
+        480,
+        220
+      ],
+      "aspectLock": null
+    }
+  ],
+  "variants": [
+    "cpu-ring",
+    "cpu-bar",
+    "memory-ring",
+    "cpu-memory",
+    "full",
+    "minimal",
+    "chip",
+    "cpu-temp"
+  ],
+  "providers": [
+    {
+      "name": "system",
+      "topics": [
+        "system.cpu",
+        "system.memory",
+        "system.load",
+        "system.temp"
+      ],
+      "fields": [
+        "usage_pct",
+        "used_pct",
+        "used_mib",
+        "total_mib",
+        "load1",
+        "load5",
+        "load15",
+        "celsius"
+      ],
+      "auth": "none"
+    }
+  ],
+  "capabilities": {
+    "network": [],
+    "files": [],
+    "spawn": []
+  },
+  "interactiveRegions": [],
+  "settings": [],
+  "compat": {
+    "omarchy": ">=4.0",
+    "widgetsKit": "^1"
+  },
+  "sampleData": {
+    "system.cpu": {
+      "usage_pct": 34
+    },
+    "system.memory": {
+      "used_pct": 58,
+      "used_mib": 9200,
+      "total_mib": 16000
+    },
+    "system.load": {
+      "load1": 1.2,
+      "load5": 0.9,
+      "load15": 0.7
+    },
+    "system.temp": {
+      "celsius": 54
+    }
+  }
+}

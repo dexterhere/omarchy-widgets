@@ -17,6 +17,7 @@ fn paths_from_args() -> Result<Paths, String> {
 }
 
 fn run() -> Result<(), String> {
+    owd::check_tz(std::env::var_os("TZ").as_deref())?;
     let paths = paths_from_args()?;
     ow_core::harden_process().map_err(|e| format!("hardening failed: {e}"))?;
     let server = Server::bind(
@@ -42,7 +43,7 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("owd: {e}");
-            ExitCode::FAILURE
+            ExitCode::from(if e.starts_with("TZ ") { 2 } else { 1 })
         }
     }
 }

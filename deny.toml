@@ -14,6 +14,9 @@ wildcards = "deny"
 allow-wildcard-paths = true
 # Only `ow-egress` may reach the network (DECISIONS AUTH-EGRESS, AUTH-HTTP). A crate with
 # `wrappers` may be depended on only by the listed crates; the others are banned outright.
+# Kept equal to BANNED_CRATES in crates/ow-egress/tests/only_egress_touches_the_network.rs (a
+# test compares them). rustix and nix are not banned: owd uses rustix for local files and
+# Unix-socket peer credentials, which the same test audits file by file.
 # Not verified locally (cargo-deny is not installed here); CI is the first real run.
 deny = [
     { crate = "ureq", wrappers = ["ow-egress"] },
@@ -42,6 +45,11 @@ deny = [
     { crate = "h2" },
     { crate = "socket2" },
     { crate = "mio" },
+    { crate = "aws-lc-rs" },
+    { crate = "aws-lc-sys" },
+    { crate = "tokio" },
+    { crate = "async-std" },
+    { crate = "smol" },
 ]
 
 [sources]

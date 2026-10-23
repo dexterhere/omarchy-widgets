@@ -338,3 +338,21 @@ fn scanner_flags_files_hidden_in_lookalike_directories() {
     );
     assert_eq!(manifests_with_banned_crates(&root).len(), 1);
 }
+
+#[test]
+fn deny_toml_bans_exactly_the_crates_this_scanner_bans() {
+    let deny: toml::Table = fs::read_to_string(root().join("deny.toml"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    let mut in_deny: Vec<&str> = deny["bans"]["deny"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["crate"].as_str().unwrap())
+        .collect();
+    let mut in_scan = BANNED_CRATES.to_vec();
+    in_deny.sort_unstable();
+    in_scan.sort_unstable();
+    assert_eq!(in_deny, in_scan);
+}

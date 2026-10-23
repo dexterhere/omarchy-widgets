@@ -10,7 +10,7 @@ use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const PASS: &str = "FAKE-passphrase-correct-horse";
 const WRONG: &str = "FAKE-passphrase-wrong-horse!";
@@ -121,7 +121,7 @@ impl Provider for SecretProvider {
     }
 }
 
-struct Clock(Arc<Mutex<Instant>>);
+struct Clock(Arc<Mutex<Duration>>);
 
 impl Clock {
     fn advance(&self, secs: u64) {
@@ -148,7 +148,7 @@ fn start(idle: Duration) -> H {
     v.set("fake-token", TOKEN).unwrap();
     v.set("other", "FAKE-other-value").unwrap();
     drop(v);
-    let now = Arc::new(Mutex::new(Instant::now()));
+    let now = Arc::new(Mutex::new(Duration::from_secs(1000)));
     let n2 = Arc::clone(&now);
     let policy = VaultPolicy {
         idle,

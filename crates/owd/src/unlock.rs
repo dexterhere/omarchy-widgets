@@ -10,7 +10,7 @@ use ow_vault::Vault;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Locks itself when no secret has been resolved for this long. A visible widget whose
 /// provider polls keeps the vault open, by design: idle means "nothing is using it".
@@ -22,7 +22,18 @@ pub const LOCKOUT_BASE: Duration = Duration::from_secs(30);
 /// Longest lockout.
 pub const LOCKOUT_MAX: Duration = Duration::from_secs(15 * 60);
 
-pub type Clock = Arc<dyn Fn() -> Instant + Send + Sync>;
+/// Time since an arbitrary fixed point, as a `Duration`. The production clock is
+/// CLOCK_BOOTTIME, which keeps counting while the machine is suspended (CLOCK_MONOTONIC, behind
+/// `Instant`, does not), so a long suspend counts as idle time.
+pub type Clock = Arc<dyn Fn() -> Duration + Send + Sync>;
+
+pub(crate) fn boottime() -> Duration {
+    let t = rustix::time::clock_gettime(rustix::time::ClockId::Boottime);
+    Duration::new(
+        t.tv_sec.max(0) as u64,
+        t.tv_nsec.clamp(0, 999_999_999) as u32,
+    )
+}
 
 /// Tunables, with the clock injectable for tests.
 #[derive(Clone)]
@@ -35,7 +46,7 @@ impl Default for VaultPolicy {
     fn default() -> Self {
         VaultPolicy {
             idle: IDLE_TIMEOUT,
-            clock: Arc::new(Instant::now),
+            clock: Arc::new(boottime),
         }
     }
 }
@@ -60,9 +71,9 @@ pub(crate) struct Status {
 
 struct Inner {
     vault: Option<Vault>,
-    last_use: Instant,
+    last_use: Duration,
     fails: u32,
-    lockout_until: Option<Instant>,
+    lockout_until: Option<Duration>,
     /// Set when the idle timer locked the vault, so the next scheduler tick purges and audits.
     purge_due: bool,
 }
@@ -99,13 +110,13 @@ impl VaultState {
         }
     }
 
-    fn now(&self) -> Instant {
+    fn now(&self) -> Duration {
         (self.policy.clock)()
     }
 
     /// Lock if idle for too long. Caller holds `inner`.
-    fn expire(&self, g: &mut Inner, now: Instant) {
-        if g.vault.is_some() && now.saturating_duration_since(g.last_use) >= self.policy.idle {
+    fn expire(&self, g: &mut Inner, now: Duration) {
+        if g.vault.is_some() && now.saturating_sub(g.last_use) >= self.policy.idle {
             self.epoch.fetch_add(1, Ordering::SeqCst);
             g.vault = None; // drop wipes keys and records
             g.purge_due = true;
@@ -190,11 +201,11 @@ impl VaultState {
             idle_left: g.vault.as_ref().map(|_| {
                 self.policy
                     .idle
-                    .saturating_sub(now.saturating_duration_since(g.last_use))
+                    .saturating_sub(now.saturating_sub(g.last_use))
             }),
             lockout_left: g
                 .lockout_until
-                .map(|t| t.saturating_duration_since(now))
+                .map(|t| t.saturating_sub(now))
                 .filter(|d| !d.is_zero()),
         }
     }
@@ -226,7 +237,7 @@ mod tests {
 
     struct Fixture {
         _d: tempfile::TempDir,
-        now: Arc<Mutex<Instant>>,
+        now: Arc<Mutex<Duration>>,
         st: VaultState,
     }
 
@@ -237,7 +248,7 @@ mod tests {
             let mut v = Vault::create(&path, PW, Profile::Standard).unwrap();
             v.set("tok", "FAKE-secret-value").unwrap();
             drop(v);
-            let now = Arc::new(Mutex::new(Instant::now()));
+            let now = Arc::new(Mutex::new(Duration::from_secs(1000)));
             let n2 = Arc::clone(&now);
             let st = VaultState::new(
                 path,
@@ -252,6 +263,22 @@ mod tests {
         fn advance(&self, secs: u64) {
             *self.now.lock().unwrap() += Duration::from_secs(secs);
         }
+    }
+
+    /// The production clock must be the boottime source: it advances, and agrees with
+    /// /proc/uptime (which counts suspend), unlike a monotonic Instant.
+    #[test]
+    fn production_clock_is_boottime() {
+        let up: f64 = std::fs::read_to_string("/proc/uptime")
+            .unwrap()
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let now = boottime().as_secs_f64();
+        assert!((now - up).abs() < 5.0, "{now} vs uptime {up}");
+        assert!(boottime() >= Duration::from_secs_f64(now));
     }
 
     #[test]

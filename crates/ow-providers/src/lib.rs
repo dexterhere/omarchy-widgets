@@ -3,6 +3,7 @@
 
 mod battery;
 mod system;
+mod temp;
 
 pub use battery::Battery;
 pub use system::System;

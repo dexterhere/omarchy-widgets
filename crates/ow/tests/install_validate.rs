@@ -486,6 +486,18 @@ fn hostile_text_in_names_is_never_printable() {
 
 #[test]
 fn names_use_a_printable_allow_list_and_legitimate_non_latin_names_pass() {
+    // The index entry carries no name here, so only the manifest's own checks can refuse.
+    let refuse_name = |bad: &str| {
+        let mut f = files("clock");
+        let mut m: Value = serde_json::from_slice(&f.0).unwrap();
+        m["name"] = json!(bad);
+        f.0 = serde_json::to_vec(&m).unwrap();
+        let e = run(&listing("clock", |e| drop_key(e, "name")), &f).unwrap_err();
+        assert!(
+            e.contains("manifest.json name must be plain text"),
+            "{bad:?}: {e}"
+        );
+    };
     // The audit's example: Cf characters, an unassigned code point, a phonetic letter.
     for bad in [
         "Clock\u{0600}\u{06DD}\u{0378}\u{1D17}3x",
@@ -493,15 +505,16 @@ fn names_use_a_printable_allow_list_and_legitimate_non_latin_names_pass() {
         "Clock \u{1F600}",
         "Clock\u{200D}",
         "Cl\u{070F}ock",
+        "Cl\u{1D17}\u{0378}",
     ] {
-        refused(0, "name", |m| m["name"] = json!(bad));
+        refuse_name(bad);
     }
     refused(0, "description", |m| {
         m["description"] = json!("nice \u{1F600}")
     });
     refused(0, "license", |m| m["license"] = json!("MIT\u{2060}"));
     // Length is counted in UTF-16 units like the website: 41 astral characters are 82 units.
-    refused(0, "name", |m| m["name"] = json!("\u{1D400}".repeat(41)));
+    refuse_name(&"\u{1D400}".repeat(41));
     for ok in [
         "\u{6642}\u{8a08}\u{30a6}\u{30a3}\u{30b8}\u{30a7}\u{30c3}\u{30c8}",
         "\u{0918}\u{0921}\u{0940} \u{0935}\u{093f}\u{091c}\u{0947}\u{091f} \u{0915}\u{094d}\u{0932}\u{0915}",

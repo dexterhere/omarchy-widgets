@@ -32,6 +32,7 @@
 mod credential;
 mod error;
 mod request;
+mod target;
 
 pub use credential::Credential;
 pub use error::{EgressError, StatusClass};

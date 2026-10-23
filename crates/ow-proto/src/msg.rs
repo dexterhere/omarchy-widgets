@@ -21,7 +21,7 @@ impl Passphrase {
 
     fn from_hex(hex: &str) -> Option<Passphrase> {
         let h = hex.as_bytes();
-        if h.is_empty() || h.len() % 2 != 0 || h.len() > 2 * MAX_PASSPHRASE {
+        if h.is_empty() || !h.len().is_multiple_of(2) || h.len() > 2 * MAX_PASSPHRASE {
             return None;
         }
         let nib = |c: u8| (c as char).to_digit(16).map(|d| d as u8);

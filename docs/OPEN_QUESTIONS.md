@@ -2,18 +2,18 @@
 
 Each entry: question, why it matters, proposed experiment, status, answer.
 
-1. Does `omarchy plugin validate` accept extra top-level manifest keys? (S5) Status: open, unverified.
-2. Can one plugin depend on or import another? (S6) Status: open, unverified.
-3. Can a service plugin create a Bottom-layer surface with free-form input regions without stealing focus or affecting lock behavior? (S1, S2) Status: open, unverified.
-4. Which theme singletons and components can third-party QML import, and are they stable? (S8) Status: open, unverified.
-5. How far does the manifest settings form go? (S9) Status: open, unverified.
-6. What do `omarchy.monitor` and `omarchy.agents` already expose? (S10) Status: open, unverified.
-7. Does `omarchy plugin add` accept a SHA or subdirectory? (S7) Status: open, unverified.
+1. Does `omarchy plugin validate` accept extra top-level manifest keys? (S5) Status: answered yes (S5, docs/SPIKES.md).
+2. Can one plugin depend on or import another? (S6) Status: answered: possible but unsupported (S6).
+3. Can a service plugin create a Bottom-layer surface with free-form input regions without stealing focus or affecting lock behavior? (S1, S2) Status: partly answered (S1, S2): layer, focus and mask measured; click pass-through and lock open, see 18, 19.
+4. Which theme singletons and components can third-party QML import, and are they stable? (S8) Status: answered (S8).
+5. How far does the manifest settings form go? (S9) Status: answered: schema declared, no renderer shipped (S9).
+6. What do `omarchy.monitor` and `omarchy.agents` already expose? (S10) Status: answered (S10).
+7. Does `omarchy plugin add` accept a SHA or subdirectory? (S7) Status: answered: no (S7).
 8. Can the shell run headless in CI to render previews? (S11) Status: open, unverified.
-9. What does the live marketplace contain, and where are the gaps? (S12) Status: open, unverified.
+9. What does the live marketplace contain, and where are the gaps? (S12) Status: not measurable offline (S12), see 21.
 10. Is the name acceptable to the Omarchy maintainers? (human task) Status: open, unverified.
 11. Keyring behavior under Omarchy 4 autologin: what can another same-uid process read? (S4) Status: open, unverified.
-12. Persistent Unix socket from Quickshell, and reconnect across `rescanPlugins`? (S3) Status: open, unverified.
+12. Persistent Unix socket from Quickshell, and reconnect across `rescanPlugins`? (S3) Status: answered for Socket, reload and reconnect (S3); real rescanPlugins open, see 20.
 13. Is refusal of a different-uid socket peer enforced? Not integration-tested yet: it needs a second uid (try `unshare` or a container). Status: open.
 14. Audit-flood residual: a same-uid client can flood denied requests and push real entries out of the audit log after five rotations (about 6 MiB). Status: open.
 15. Does the systemd user unit behave as intended when installed? It is analysed offline (exposure 2.5) and as a transient unit, not as an installed unit under `systemctl --user`. Status: open.

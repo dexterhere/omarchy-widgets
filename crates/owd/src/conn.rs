@@ -1,4 +1,5 @@
 use crate::hub::{self, Hub};
+use crate::unlock::{UnlockError, VaultState};
 use ow_core::ProviderError;
 use ow_core::{AuditLog, Grant, Grants, RateLimiter};
 use ow_proto::{ErrorCode, FrameError, LineDecoder, MAX_LINE, Op, Reply, Request};
@@ -7,8 +8,9 @@ use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::mpsc::{SyncSender, sync_channel};
-use std::sync::{Mutex, MutexGuard, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 use std::time::{Duration, Instant};
+use zeroize::{Zeroize, Zeroizing};
 
 /// True only for the daemon's own uid.
 fn peer_is_self(stream: &UnixStream) -> bool {
@@ -28,6 +30,7 @@ pub(crate) struct Shared {
     pub audit: Mutex<AuditLog>,
     pub limiter: Mutex<RateLimiter>,
     pub hub: Hub,
+    pub vault: Arc<VaultState>,
 }
 
 /// Lock, recovering from poison: a panicked handler must not disable auditing.
@@ -46,6 +49,73 @@ impl Shared {
         *self.grants.write().unwrap_or_else(PoisonError::into_inner) = new;
         result.map(drop)
     }
+
+    /// Audit an admin event. Fixed vocabulary, no payload: who is always "admin", the topic is
+    /// "vault" and the op is one of unlock, lock, autolock, lockout, or the name of
+    /// an admin op that was refused.
+    fn audit_admin(&self, op: &str, allow: bool) {
+        lock(&self.audit).record("admin", "vault", op, allow, 0);
+    }
+
+    /// Drop the key and everything derived from it.
+    pub(crate) fn lock_vault(&self) {
+        self.vault.lock();
+        self.hub.purge_secret_entries();
+    }
+
+    /// Idle check, run by the scheduler: purge and audit once when the timer locked the vault.
+    pub(crate) fn vault_tick(&self) {
+        if self.vault.tick() {
+            self.hub.purge_secret_entries();
+            self.audit_admin("autolock", true);
+        }
+    }
+
+    fn admin_unlock(&self, id: u64, pass: &ow_proto::Passphrase) -> Reply {
+        match self.vault.unlock(pass.expose()) {
+            Ok(()) => {
+                // A fresh unlock re-reads the vault, so anything cached from older secrets goes.
+                self.hub.purge_secret_entries();
+                self.audit_admin("unlock", true);
+                Reply::ok(id, state_body("unlocked"))
+            }
+            Err(UnlockError::Denied { locked_out }) => {
+                self.audit_admin("unlock", false);
+                if locked_out {
+                    self.audit_admin("lockout", false);
+                }
+                Reply::err(id, ErrorCode::Denied, None)
+            }
+            // Rejected without trying: audited once per lockout (above), not per attempt, so
+            // a flood of attempts cannot flush the audit log.
+            Err(UnlockError::LockedOut | UnlockError::Busy) => {
+                Reply::err(id, ErrorCode::RateLimited, None)
+            }
+        }
+    }
+
+    fn admin_status(&self, id: u64) -> Reply {
+        let s = self.vault.status();
+        let mut body = state_body(if s.unlocked { "unlocked" } else { "locked" });
+        if s.unlocked {
+            body.insert("count".into(), s.names.len().into());
+            body.insert("names".into(), json!(s.names));
+        }
+        if let Some(d) = s.idle_left {
+            body.insert("idleSecsLeft".into(), d.as_secs().into());
+        }
+        if let Some(d) = s.lockout_left {
+            body.insert("lockoutSecsLeft".into(), d.as_secs().max(1).into());
+        }
+        Reply::ok(id, body)
+    }
+}
+
+fn state_body(state: &str) -> Map<String, Value> {
+    json!({ "state": state })
+        .as_object()
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// Everything a request handler needs to answer on this connection.
@@ -65,6 +135,7 @@ fn code_for(e: ProviderError) -> ErrorCode {
     match e {
         ProviderError::UnknownTopic => ErrorCode::UnknownTopic,
         ProviderError::BadParams => ErrorCode::BadRequest,
+        ProviderError::Locked => ErrorCode::Locked,
         _ => ErrorCode::ProviderError,
     }
 }
@@ -103,6 +174,10 @@ fn data_op(
         return deny(ErrorCode::RateLimited);
     }
     let fail = |code| (Reply::err(id, code, Some(topic.clone())), None);
+    // A secret-backed topic cannot be served (or subscribed) while the vault is locked.
+    if shared.hub.needs_secret(&topic) && !shared.vault.is_unlocked() {
+        return deny(ErrorCode::Locked);
+    }
     if op == "subscribe" {
         // Validate and register first, so the audit line only says "allow" for what happened.
         // The subscription stays inactive until its reply is queued.
@@ -159,6 +234,10 @@ fn data_op(
 fn handle(line: &str, shared: &Shared, ctx: &Ctx) -> (bool, bool) {
     let req = match Request::parse(line) {
         Err(e) => {
+            if let Some(op) = e.admin_op {
+                // Admin op dressed as a widget request: refused and audited, no payload.
+                shared.audit_admin(op, false);
+            }
             return (
                 true,
                 ctx.send(Reply::err(e.id.unwrap_or(0), e.code, None).to_line()),
@@ -184,10 +263,14 @@ fn handle(line: &str, shared: &Shared, ctx: &Ctx) -> (bool, bool) {
             };
             (r, None)
         }
-        // Admin ops are wired in a later change; until then they are refused like unknown ops.
-        Op::VaultUnlock { .. } | Op::VaultLock | Op::VaultStatus | Op::Unknown => {
-            (Reply::err(req.id, ErrorCode::BadRequest, None), None)
+        Op::VaultUnlock { passphrase } => (shared.admin_unlock(req.id, &passphrase), None),
+        Op::VaultLock => {
+            shared.lock_vault();
+            shared.audit_admin("lock", true);
+            (Reply::ok(req.id, state_body("locked")), None)
         }
+        Op::VaultStatus => (shared.admin_status(req.id), None),
+        Op::Unknown => (Reply::err(req.id, ErrorCode::BadRequest, None), None),
     };
     let mut alive = ctx.send(reply.to_line());
     if let Some(sub) = new_sub {
@@ -266,14 +349,17 @@ pub(crate) fn serve(stream: UnixStream, shared: &Shared, conn_id: u64) {
 fn read_loop(mut stream: UnixStream, shared: &Shared, ctx: &Ctx) {
     let mut bad = 0u32;
     let mut dec = LineDecoder::new();
-    let mut chunk = vec![0u8; MAX_LINE + 1];
+    // Reads may carry a passphrase: wipe the chunk after every use.
+    let mut chunk = Zeroizing::new(vec![0u8; MAX_LINE + 1]);
     let bad_reply = || Reply::err(0, ErrorCode::BadRequest, None).to_line();
     loop {
         let n = match stream.read(&mut chunk) {
             Ok(0) | Err(_) => return,
             Ok(n) => n,
         };
-        if dec.feed(&chunk[..n]).is_err() {
+        let fed = dec.feed(&chunk[..n]);
+        chunk[..n].zeroize();
+        if fed.is_err() {
             let _ = ctx.send(bad_reply());
             return;
         }

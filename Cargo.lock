@@ -357,11 +357,13 @@ dependencies = [
  "ow-core",
  "ow-proto",
  "ow-providers",
+ "ow-vault",
  "rustix",
  "sd-notify",
  "serde_json",
  "signal-hook",
  "tempfile",
+ "zeroize",
 ]
 
 [[package]]

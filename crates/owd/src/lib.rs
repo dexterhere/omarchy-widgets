@@ -8,5 +8,7 @@
 mod conn;
 mod hub;
 mod server;
+mod unlock;
 
 pub use server::Server;
+pub use unlock::{FREE_FAILURES, IDLE_TIMEOUT, LOCKOUT_BASE, LOCKOUT_MAX, VaultPolicy};

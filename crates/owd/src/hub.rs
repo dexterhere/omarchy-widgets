@@ -7,6 +7,7 @@
 //! Fetches run on short-lived worker threads (at most `MAX_IN_FLIGHT`), at most one per key,
 //! so a slow provider delays only its own topic and never the scheduler or shutdown.
 use crate::conn::{Shared, lock};
+use crate::unlock::VaultState;
 use ow_core::{FetchCtx, Provider, ProviderError, TopicSpec};
 use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
@@ -27,6 +28,9 @@ const MAX_OUTPUT_BYTES: usize = 48 * 1024;
 const MAX_BACKOFF_SHIFT: u32 = 4;
 /// Unsubscribed cache entries idle longer than this are dropped.
 const CACHE_IDLE: Duration = Duration::from_secs(60);
+/// While the vault is locked, a secret-backed key is retried this often (not backed off: a
+/// locked vault is not a failing source).
+const LOCKED_RETRY: Duration = Duration::from_secs(2);
 
 type Params = Map<String, Value>;
 
@@ -90,6 +94,7 @@ pub(crate) struct Snap {
 pub(crate) struct Hub {
     providers: Vec<Arc<dyn Provider>>,
     state: Mutex<State>,
+    vault: Arc<VaultState>,
 }
 
 fn now_unix() -> u64 {
@@ -107,11 +112,26 @@ pub(crate) fn push_line(sub: u64, topic: &str, snap: &Snap, data: &Params) -> St
 }
 
 impl Hub {
-    pub(crate) fn new(providers: Vec<Arc<dyn Provider>>) -> Hub {
+    pub(crate) fn new(providers: Vec<Arc<dyn Provider>>, vault: Arc<VaultState>) -> Hub {
         Hub {
             providers,
             state: Mutex::new(State::default()),
+            vault,
         }
+    }
+
+    /// Does serving this topic need a secret from the vault?
+    pub(crate) fn needs_secret(&self, topic: &str) -> bool {
+        self.find(topic)
+            .is_some_and(|(p, _)| !p.secrets().is_empty())
+    }
+
+    /// Drop every cache entry derived from a secret-backed provider (vault locked, unlocked
+    /// afresh, or a secret removed). Subscriptions stay; they just stop receiving data until
+    /// the vault is unlocked again.
+    pub(crate) fn purge_secret_entries(&self) {
+        let mut st = lock(&self.state);
+        st.cache.retain(|k, _| !self.needs_secret(&k.topic));
     }
 
     fn find(&self, topic: &str) -> Option<(&Arc<dyn Provider>, &'static TopicSpec)> {
@@ -169,8 +189,10 @@ impl Hub {
     /// oversized output counts as a bad format.
     fn complete(&self, key: &Key, params: &Params) -> Option<Snap> {
         let (provider, spec) = self.find(&key.topic)?;
+        let secret_backed = !provider.secrets().is_empty();
+        let ctx = FetchCtx::new(provider.secrets(), &*self.vault);
         let res = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            provider.fetch(&key.topic, params, &FetchCtx::none())
+            provider.fetch(&key.topic, params, &ctx)
         }))
         .unwrap_or(Err(ProviderError::Unavailable))
         .map(|d| spec.sanitize(d))
@@ -178,6 +200,9 @@ impl Hub {
             let size = serde_json::to_string(&d).map_or(usize::MAX, |s| s.len());
             if size > MAX_OUTPUT_BYTES {
                 Err(ProviderError::Format)
+            } else if secret_backed && !self.vault.is_unlocked() {
+                // A lock that landed while the fetch ran must not let its result in.
+                Err(ProviderError::Locked)
             } else {
                 Ok(d)
             }
@@ -199,6 +224,10 @@ impl Hub {
                 e.data = Some((d, now_unix()));
                 e.fails = 0;
                 e.next_due = now + spec.interval;
+            }
+            Err(ProviderError::Locked) => {
+                e.data = None;
+                e.next_due = now + LOCKED_RETRY;
             }
             Err(_) => {
                 e.fails = (e.fails + 1).min(MAX_BACKOFF_SHIFT);
@@ -323,6 +352,7 @@ impl Hub {
 /// One scheduler pass: for every subscribed key that is due, claim it and fetch on a worker
 /// thread, then push to its subscribers. Never blocks on a provider.
 pub(crate) fn poll_once(shared: &Arc<Shared>) {
+    shared.vault_tick();
     let hub = &shared.hub;
     let now = Instant::now();
     let due: Vec<(Key, Params)> = {
@@ -408,6 +438,13 @@ mod tests {
     use ow_proto::ErrorCode;
     use std::sync::mpsc::sync_channel;
 
+    fn test_vault() -> Arc<VaultState> {
+        Arc::new(VaultState::new(
+            "/nonexistent/v.owv".into(),
+            crate::unlock::VaultPolicy::default(),
+        ))
+    }
+
     struct P;
 
     static TOPICS: [TopicSpec; 1] =
@@ -442,7 +479,7 @@ mod tests {
     }
 
     fn hub() -> Hub {
-        Hub::new(vec![Arc::new(P)])
+        Hub::new(vec![Arc::new(P)], test_vault())
     }
 
     fn params(id: usize) -> Params {
@@ -519,7 +556,7 @@ mod tests {
             delay,
             fail: false.into(),
         });
-        (Arc::clone(&c), Hub::new(vec![c]))
+        (Arc::clone(&c), Hub::new(vec![c], test_vault()))
     }
 
     #[test]

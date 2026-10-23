@@ -732,6 +732,7 @@ fn every_error_variant_prints_without_secrets() {
 // ---- no logging, no forbidden dependencies --------------------------------------------------
 
 #[test]
+/// Also run in release by CI (`cargo test --release -p ow-egress`): the release feature matters there.
 fn log_macros_are_compiled_out() {
     assert_eq!(log::STATIC_MAX_LEVEL, log::LevelFilter::Off);
 }

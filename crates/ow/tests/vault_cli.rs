@@ -430,6 +430,19 @@ fn set_takes_the_passphrase_from_the_tty_and_the_value_from_stdin() {
             )
         }));
     }
+    // Ctrl-U is refused with a message and the prompt comes back; nothing is submitted.
+    writer.write_all(b"abc\x15").unwrap();
+    while String::from_utf8_lossy(&seen)
+        .matches("Vault passphrase: ")
+        .count()
+        < 2
+    {
+        seen.extend(
+            rx.recv_timeout(wait)
+                .unwrap_or_else(|_| panic!("no re-prompt: {:?}", String::from_utf8_lossy(&seen))),
+        );
+    }
+    assert!(String::from_utf8_lossy(&seen).contains("Try again"));
     writer.write_all(format!("{PASS}\n").as_bytes()).unwrap();
     let o = child.wait_with_output().unwrap();
     while let Ok(more) = rx.recv_timeout(std::time::Duration::from_millis(300)) {

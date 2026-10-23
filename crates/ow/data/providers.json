@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 0,
+  "providers": {
+    "system": {
+      "class": "local-system",
+      "auth": "none",
+      "egress": [],
+      "topics": {
+        "system.time": ["hm", "hms", "date", "tz"],
+        "system.cpu": ["load", "usage_pct"],
+        "system.load": ["load1", "load5", "load15"],
+        "system.memory": ["used", "total", "used_pct", "used_mib", "total_mib"],
+        "system.temp": ["celsius"]
+      },
+      "serving": [
+        "system.cpu.usage_pct",
+        "system.load.load1",
+        "system.load.load5",
+        "system.load.load15",
+        "system.memory.total_mib",
+        "system.memory.used_mib",
+        "system.memory.used_pct"
+      ]
+    },
+    "battery": {
+      "class": "local-system",
+      "auth": "none",
+      "egress": [],
+      "topics": {
+        "battery.status": ["percent", "state", "timeLeft"]
+      }
+    },
+    "github": {
+      "class": "personal",
+      "auth": "vault",
+      "egress": ["api.github.com"],
+      "topics": {
+        "github.prs": ["open", "review"]
+      }
+    },
+    "docker": {
+      "class": "host-control",
+      "auth": "none",
+      "egress": [],
+      "topics": {
+        "docker.containers": ["running", "stopped", "unhealthy", "names"]
+      }
+    },
+    "ai-usage": {
+      "class": "private-content",
+      "auth": "none",
+      "egress": [],
+      "topics": {
+        "ai-usage.sessions": ["sessions", "requests", "activeMinutes"]
+      }
+    },
+    "tasks": {
+      "class": "personal",
+      "auth": "none",
+      "egress": [],
+      "topics": {
+        "tasks.list": ["open", "dueToday", "titles"]
+      }
+    }
+  }
+}

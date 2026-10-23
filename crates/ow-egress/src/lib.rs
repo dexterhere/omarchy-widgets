@@ -35,6 +35,11 @@ mod error;
 mod request;
 mod target;
 
+#[cfg(test)]
+mod testkit;
+#[cfg(test)]
+mod tests;
+
 pub use client::{Egress, Limits};
 pub use credential::Credential;
 pub use error::{EgressError, StatusClass};

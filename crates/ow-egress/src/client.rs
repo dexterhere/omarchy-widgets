@@ -331,6 +331,9 @@ fn classify(e: ureq::Error) -> EgressError {
         E::Timeout(_) => EgressError::Timeout,
         E::HostNotFound | E::ConnectionFailed => EgressError::Offline,
         E::Io(io) if matches!(io.kind(), TimedOut | WouldBlock) => EgressError::Timeout,
+        // The TLS layer reports certificate and handshake failures as io errors that wrap a
+        // rustls error.
+        E::Io(io) if io.get_ref().is_some_and(|i| i.is::<rustls::Error>()) => EgressError::Tls,
         E::Io(_) => EgressError::Offline,
         E::Tls(_) | E::Pem(_) | E::Rustls(_) => EgressError::Tls,
         E::BodyExceedsLimit(_) => EgressError::TooLarge,

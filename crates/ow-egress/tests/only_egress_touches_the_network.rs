@@ -85,6 +85,14 @@ const AUDITED: &[(&str, &[&str])] = &[
     // environment that tries to redirect the registry. It uses no network on any path it takes
     // (every case is refused before a request, or needs none), and no internet socket.
     ("crates/ow/tests/install_cli.rs", &["Command::new"]),
+    // Re-runs its own test binary as a child on a pseudo-terminal to test the consent prompt.
+    ("crates/ow/tests/install_pty.rs", &["Command::new"]),
+    // A fake daemon on a Unix-domain socket in a temp dir, to test what `ow install` reports about
+    // `grants.reload`. No internet socket.
+    (
+        "crates/ow/tests/install_reload.rs",
+        &["UnixListener", "UnixStream"],
+    ),
     // Tests of the unlock path: local Unix-domain sockets and fake listeners, and child processes
     // that run the freshly built binaries. No internet sockets.
     (

@@ -122,6 +122,47 @@ pub(crate) fn valid_header_value(value: &str) -> bool {
     value.len() <= MAX_HEADER_VALUE && value.bytes().all(|c| (0x20..=0x7e).contains(&c))
 }
 
+/// `%XX` decoding, applied by the caller up to twice, so an encoded copy of a secret is seen.
+pub(crate) fn percent_decode(input: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(input.len());
+    let mut i = 0;
+    while i < input.len() {
+        if input[i] == b'%' {
+            if let (Some(h), Some(l)) = (
+                input.get(i + 1).and_then(|c| hex(*c)),
+                input.get(i + 2).and_then(|c| hex(*c)),
+            ) {
+                out.push(h * 16 + l);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(input[i]);
+        i += 1;
+    }
+    out
+}
+
+/// True if `needle` occurs in `hay` as is, or after one or two rounds of percent-decoding.
+pub(crate) fn contains_decoded(hay: &[u8], needle: &[u8]) -> bool {
+    let once = percent_decode(hay);
+    contains(hay, needle) || contains(&once, needle) || contains(&percent_decode(&once), needle)
+}
+
+/// True if `needle` occurs in any string value or object key of `v`, unserialised (so JSON
+/// escaping of `"` or `\\` cannot hide it).
+pub(crate) fn json_contains(v: &serde_json::Value, needle: &[u8]) -> bool {
+    use serde_json::Value;
+    match v {
+        Value::String(s) => contains_decoded(s.as_bytes(), needle),
+        Value::Array(a) => a.iter().any(|x| json_contains(x, needle)),
+        Value::Object(m) => m
+            .iter()
+            .any(|(k, x)| contains_decoded(k.as_bytes(), needle) || json_contains(x, needle)),
+        _ => false,
+    }
+}
+
 pub(crate) fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
 }

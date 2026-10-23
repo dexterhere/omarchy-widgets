@@ -1,4 +1,7 @@
-use crate::target::{contains, valid_header_name, valid_header_value, valid_host, valid_path};
+use crate::target::{
+    contains, contains_decoded, json_contains, valid_header_name, valid_header_value, valid_host,
+    valid_path,
+};
 use crate::{Credential, EgressError, Method, Request, Response, StatusClass, USER_AGENT};
 use std::io::Read;
 use std::time::Duration;
@@ -259,9 +262,13 @@ impl Egress {
             Some(c) => {
                 let token = c.expose();
                 // The credential may only travel in the Authorization header. Refuse if the
-                // caller managed to put it anywhere else (best effort: literal match).
-                let leaks = contains(req.path.as_bytes(), token)
-                    || headers.iter().any(|(_, v)| contains(v.as_bytes(), token))
+                // caller managed to put it anywhere else (best effort: literal match, also after percent-decoding, and in
+                // unserialised JSON strings and keys).
+                let leaks = contains_decoded(req.path.as_bytes(), token)
+                    || headers
+                        .iter()
+                        .any(|(_, v)| contains_decoded(v.as_bytes(), token))
+                    || req.body.is_some_and(|v| json_contains(v, token))
                     || body.as_deref().is_some_and(|b| contains(b, token));
                 if leaks {
                     return Err(EgressError::Blocked);

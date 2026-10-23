@@ -496,6 +496,35 @@ fn credential_has_no_debug_display_clone_or_serialize() {
     assert!(!implements!(Credential, Copy));
 }
 
+#[test]
+fn encoded_or_escaped_copies_of_the_token_are_refused_too() {
+    let f = ok_fake();
+    let e = egress(&[A], Limits::default(), &[(A, &f)]);
+    // A token with characters that JSON escapes, so the serialised body would not contain it.
+    let odd = "ab\"cd\\ef/gh0123456789";
+    let c = Credential::from_bytes(odd.as_bytes().to_vec()).unwrap();
+    let enc: String = odd.bytes().map(|b| format!("%{b:02X}")).collect();
+    let enc2: String = enc.bytes().map(|b| format!("%{b:02x}")).collect();
+    let (p1, p2) = (format!("/q?x={enc}"), format!("/q?x={enc2}"));
+    let v1 = format!("a {enc}");
+    let nested = serde_json::json!({"a": [{"b": format!("pre{odd}post")}]});
+    let key = serde_json::json!({ odd: 1 });
+    let enc_in_body = serde_json::json!({"u": enc});
+    for r in [
+        Request::get(A, &p1).credential(&c),
+        Request::get(A, &p2).credential(&c),
+        Request::get(A, "/x").header("x-note", &v1).credential(&c),
+        Request::post(A, "/x", &nested).credential(&c),
+        Request::post(A, "/x", &key).credential(&c),
+        Request::post(A, "/x", &enc_in_body).credential(&c),
+    ] {
+        assert_eq!(e.send(&r).err(), Some(EgressError::Blocked));
+    }
+    assert_eq!(f.connection_count(), 0);
+    // A harmless request with the same credential still works.
+    assert!(e.send(&Request::get(A, "/q?x=1").credential(&c)).is_ok());
+}
+
 // ---- limits -------------------------------------------------------------------------------
 
 #[test]

@@ -514,3 +514,40 @@ var ICON_PATHS = {
   check: "M3 8l3 3 7-7"
 }
 function iconPath(name) { return oneOf(ICONS, name) ? ICON_PATHS[name] : "" }
+
+// ---------------------------------------------------------------- what a tile shows
+
+function entryKey(widget, topic) { return widget + " " + topic }
+
+// Combines the loaded record, the bridge's per-topic entries and the bridge state into
+// { values, label, dim }. `values` holds ONLY the topics this widget declared and was
+// granted (record.topics); `label` is a fixed string ("" when everything is live) that
+// the tile prints in its corner; `dim` greys the content when it is stale or offline.
+// entries: { "<widget> <topic>": { state: "pending"|"live"|"stale"|"denied"|"locked"|"unknown"|"limited"|"error", data } }
+function tileState(record, entries, bridgeState) {
+  var out = { values: {}, label: "", dim: false }
+  if (!record || record.ok !== true) return { values: {}, label: "widget unavailable", dim: false }
+  var topics = record.topics || [], have = 0, locked = false, denied = (record.ungranted && record.ungranted.length > 0)
+  var unknown = false, limited = false, stale = false
+  for (var i = 0; i < topics.length; i++) {
+    var e = J.isObj(entries) ? J.own(entries, entryKey(record.id, topics[i])) : undefined
+    if (!J.isObj(e)) continue
+    if (J.isObj(e.data) && (e.state === "live" || e.state === "stale")) { out.values[topics[i]] = e.data; have++ }
+    if (e.state === "stale") stale = true
+    else if (e.state === "locked") locked = true
+    else if (e.state === "denied") denied = true
+    else if (e.state === "unknown") unknown = true
+    else if (e.state === "limited" || e.state === "error") limited = true
+  }
+  var online = bridgeState === "connected"
+  if (!online) {
+    out.dim = have > 0
+    out.label = bridgeState === "denied" ? "daemon refused" : (bridgeState === "connecting" ? "connecting" : "daemon offline")
+  } else if (locked) out.label = "locked"
+  else if (denied) out.label = "no access"
+  else if (unknown) out.label = "not served"
+  else if (limited) out.label = "daemon error"
+  else if (stale) { out.label = "stale"; out.dim = true }
+  else if (topics.length > 0 && have < topics.length) out.label = "waiting for data"
+  return out
+}

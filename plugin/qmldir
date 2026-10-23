@@ -2,3 +2,4 @@ module qs.WidgetShell
 singleton Theme 1.0 Theme.qml
 LayoutNode 1.0 LayoutNode.qml
 Kids 1.0 Kids.qml
+Tile 1.0 Tile.qml

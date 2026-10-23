@@ -312,6 +312,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "toml",
+ "zeroize",
 ]
 
 [[package]]

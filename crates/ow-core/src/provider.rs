@@ -1,7 +1,10 @@
-//! Provider contract (docs/DAEMON_SPEC.md section 8). Network egress and secrets are added
-//! with the first network provider; local providers need neither.
+//! Provider contract (docs/DAEMON_SPEC.md section 8). Secrets reach a provider only through
+//! `FetchCtx` as `SecretHandle`s; network egress is added with the first network provider.
+//! Local providers need neither.
 use serde_json::{Map, Value};
+use std::fmt;
 use std::time::Duration;
+use zeroize::Zeroizing;
 
 const MAX_PARAMS_BYTES: usize = 256;
 
@@ -83,6 +86,72 @@ pub enum ProviderError {
     UnknownTopic,
     #[error("parameters not accepted by this topic")]
     BadParams,
+    /// The vault is locked. Not a failure of the source: the hub does not back off for it.
+    #[error("credentials locked")]
+    Locked,
+    /// The provider asked for a secret it did not declare in `secrets()`, or one that is not
+    /// in the vault.
+    #[error("credential not available")]
+    NoSecret,
+}
+
+/// A secret lent to one `fetch` call. Zeroized on drop. Deliberately no `Display`, `Clone`,
+/// `Serialize` or `PartialEq`, and `Debug` is redacted, so the value cannot reach a log,
+/// an error or a reply by formatting. `expose` is the only way to read it, and the future
+/// egress wrapper (docs/AUTH_PLAN.md section 3.2) is meant to be its only caller.
+pub struct SecretHandle(Zeroizing<String>);
+
+impl SecretHandle {
+    pub fn new(value: &str) -> Self {
+        SecretHandle(Zeroizing::new(value.to_owned()))
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SecretHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SecretHandle(<redacted>)")
+    }
+}
+
+/// Where handles come from (the unlocked vault inside `owd`). Returns `Locked` while the vault
+/// is locked and `NoSecret` for an unknown name.
+pub trait SecretSource: Send + Sync {
+    fn secret(&self, name: &str) -> Result<SecretHandle, ProviderError>;
+}
+
+/// What a provider gets for one fetch. Secrets are reachable only through here, and only by
+/// the names the provider declared in `Provider::secrets()`.
+pub struct FetchCtx<'a> {
+    allowed: &'static [&'static str],
+    source: Option<&'a dyn SecretSource>,
+}
+
+impl<'a> FetchCtx<'a> {
+    pub fn new(allowed: &'static [&'static str], source: &'a dyn SecretSource) -> Self {
+        FetchCtx {
+            allowed,
+            source: Some(source),
+        }
+    }
+
+    /// No secrets at all (local providers, tests).
+    pub fn none() -> FetchCtx<'static> {
+        FetchCtx {
+            allowed: &[],
+            source: None,
+        }
+    }
+
+    pub fn secret(&self, name: &str) -> Result<SecretHandle, ProviderError> {
+        if !self.allowed.contains(&name) {
+            return Err(ProviderError::NoSecret);
+        }
+        self.source.ok_or(ProviderError::NoSecret)?.secret(name)
+    }
 }
 
 /// Synchronous on purpose: the hub runs `fetch` on its own worker threads, so a blocking
@@ -102,5 +171,39 @@ pub trait Provider: Send + Sync {
         &self,
         topic: &str,
         params: &Map<String, Value>,
+        ctx: &FetchCtx<'_>,
     ) -> Result<Map<String, Value>, ProviderError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Src;
+    impl SecretSource for Src {
+        fn secret(&self, name: &str) -> Result<SecretHandle, ProviderError> {
+            match name {
+                "a" | "b" => Ok(SecretHandle::new("FAKE-value")),
+                _ => Err(ProviderError::NoSecret),
+            }
+        }
+    }
+
+    #[test]
+    fn only_declared_names_resolve() {
+        let ctx = FetchCtx::new(&["a"], &Src);
+        assert_eq!(ctx.secret("a").unwrap().expose(), "FAKE-value");
+        // "b" exists in the source but the provider did not declare it.
+        assert_eq!(ctx.secret("b").err(), Some(ProviderError::NoSecret));
+        assert_eq!(
+            FetchCtx::none().secret("a").err(),
+            Some(ProviderError::NoSecret)
+        );
+    }
+
+    #[test]
+    fn handle_debug_is_redacted() {
+        let h = SecretHandle::new("FAKE-value");
+        assert!(!format!("{h:?}").contains("FAKE"));
+    }
 }

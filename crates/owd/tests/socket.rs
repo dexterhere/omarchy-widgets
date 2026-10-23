@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)] // test code
 use ow_core::Paths;
-use ow_core::{Provider, ProviderError, Sensitivity, TopicSpec};
+use ow_core::{FetchCtx, Provider, ProviderError, Sensitivity, TopicSpec};
 use owd::Server;
 use serde_json::{Map, Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -237,6 +237,7 @@ impl Provider for Fake {
         &self,
         _topic: &str,
         _p: &Map<String, Value>,
+        _c: &FetchCtx<'_>,
     ) -> Result<Map<String, Value>, ProviderError> {
         let n = self.fetches.fetch_add(1, Ordering::Relaxed);
         assert!(!self.panic.load(Ordering::Relaxed), "provider bug");
@@ -644,6 +645,7 @@ impl Provider for Slow {
         &self,
         _t: &str,
         _p: &Map<String, Value>,
+        _c: &FetchCtx<'_>,
     ) -> Result<Map<String, Value>, ProviderError> {
         std::thread::sleep(self.0);
         Ok(json!({"v": 1}).as_object().cloned().unwrap())
@@ -756,6 +758,7 @@ fn oversized_provider_output_is_rejected() {
             &self,
             _t: &str,
             _p: &Map<String, Value>,
+            _c: &FetchCtx<'_>,
         ) -> Result<Map<String, Value>, ProviderError> {
             Ok(json!({"blob": "x".repeat(200_000)})
                 .as_object()

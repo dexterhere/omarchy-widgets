@@ -12,5 +12,7 @@ pub use audit::AuditLog;
 pub use grants::{Grant, Grants, GrantsError};
 pub use harden::{harden_process, private_dir};
 pub use paths::Paths;
-pub use provider::{Provider, ProviderError, Sensitivity, TopicSpec};
+pub use provider::{
+    FetchCtx, Provider, ProviderError, SecretHandle, SecretSource, Sensitivity, TopicSpec,
+};
 pub use ratelimit::RateLimiter;

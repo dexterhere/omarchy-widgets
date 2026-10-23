@@ -7,7 +7,7 @@
 //! Fetches run on short-lived worker threads (at most `MAX_IN_FLIGHT`), at most one per key,
 //! so a slow provider delays only its own topic and never the scheduler or shutdown.
 use crate::conn::{Shared, lock};
-use ow_core::{Provider, ProviderError, TopicSpec};
+use ow_core::{FetchCtx, Provider, ProviderError, TopicSpec};
 use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::panic::AssertUnwindSafe;
@@ -169,17 +169,19 @@ impl Hub {
     /// oversized output counts as a bad format.
     fn complete(&self, key: &Key, params: &Params) -> Option<Snap> {
         let (provider, spec) = self.find(&key.topic)?;
-        let res = std::panic::catch_unwind(AssertUnwindSafe(|| provider.fetch(&key.topic, params)))
-            .unwrap_or(Err(ProviderError::Unavailable))
-            .map(|d| spec.sanitize(d))
-            .and_then(|d| {
-                let size = serde_json::to_string(&d).map_or(usize::MAX, |s| s.len());
-                if size > MAX_OUTPUT_BYTES {
-                    Err(ProviderError::Format)
-                } else {
-                    Ok(d)
-                }
-            });
+        let res = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            provider.fetch(&key.topic, params, &FetchCtx::none())
+        }))
+        .unwrap_or(Err(ProviderError::Unavailable))
+        .map(|d| spec.sanitize(d))
+        .and_then(|d| {
+            let size = serde_json::to_string(&d).map_or(usize::MAX, |s| s.len());
+            if size > MAX_OUTPUT_BYTES {
+                Err(ProviderError::Format)
+            } else {
+                Ok(d)
+            }
+        });
         let now = Instant::now();
         let mut st = lock(&self.state);
         let Some(e) = st.cache.get_mut(key) else {
@@ -421,7 +423,7 @@ mod tests {
         fn topics(&self) -> &'static [TopicSpec] {
             &TOPICS
         }
-        fn fetch(&self, _t: &str, p: &Params) -> Result<Params, ProviderError> {
+        fn fetch(&self, _t: &str, p: &Params, _c: &FetchCtx<'_>) -> Result<Params, ProviderError> {
             Ok(serde_json::json!({ "v": p.len() })
                 .as_object()
                 .cloned()
@@ -500,7 +502,7 @@ mod tests {
         fn topics(&self) -> &'static [TopicSpec] {
             &TOPICS
         }
-        fn fetch(&self, _t: &str, _p: &Params) -> Result<Params, ProviderError> {
+        fn fetch(&self, _t: &str, _p: &Params, _c: &FetchCtx<'_>) -> Result<Params, ProviderError> {
             self.fetches
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             std::thread::sleep(self.delay);

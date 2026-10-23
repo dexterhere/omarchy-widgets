@@ -56,6 +56,8 @@ struct Entry {
     last_touch: Instant,
     /// A worker is fetching this key right now (request coalescing).
     fetching: bool,
+    /// Vault key epoch the data was fetched under (meaningful for secret-backed topics).
+    epoch: u64,
 }
 
 impl Entry {
@@ -64,6 +66,7 @@ impl Entry {
             data,
             ts,
             stale: self.fails > 0,
+            epoch: self.epoch,
         })
     }
 }
@@ -83,12 +86,17 @@ struct State {
     cache: HashMap<Key, Entry>,
     subs: HashMap<u64, Sub>,
     next_sub: u64,
+    /// Fetch workers running, counted separately from cache entries so purging an entry whose
+    /// fetch is still running cannot let lock/unlock cycles exceed `MAX_IN_FLIGHT`.
+    inflight: usize,
 }
 
 pub(crate) struct Snap {
     pub data: Params,
     pub ts: u64,
     pub stale: bool,
+    /// Vault key epoch the data belongs to.
+    pub epoch: u64,
 }
 
 pub(crate) struct Hub {
@@ -128,10 +136,53 @@ impl Hub {
 
     /// Drop every cache entry derived from a secret-backed provider (vault locked, unlocked
     /// afresh, or a secret removed). Subscriptions stay; they just stop receiving data until
-    /// the vault is unlocked again.
+    /// the vault is unlocked again. Readers also compare the entry's key epoch, so data from an
+    /// older key is invisible even before this runs.
     pub(crate) fn purge_secret_entries(&self) {
         let mut st = lock(&self.state);
         st.cache.retain(|k, _| !self.needs_secret(&k.topic));
+    }
+
+    /// Lock the vault and purge, as one step under the state lock: every reader and pusher
+    /// takes that lock, so none can send secret-derived data after this returns.
+    pub(crate) fn lock_vault(&self) {
+        let mut st = lock(&self.state);
+        self.vault.lock();
+        st.cache.retain(|k, _| !self.needs_secret(&k.topic));
+    }
+
+    /// May data fetched under `epoch` for `topic` still be released? Callers hold the state lock.
+    fn live(&self, topic: &str, epoch: u64) -> bool {
+        !self.needs_secret(topic) || (epoch == self.vault.generation() && self.vault.is_unlocked())
+    }
+
+    /// The entry's data, unless it is secret-derived and the key has changed or been dropped.
+    fn visible(&self, key: &Key, e: &Entry) -> Option<Snap> {
+        e.snap().filter(|s| self.live(&key.topic, s.epoch))
+    }
+
+    /// Final gate for a reply built from `snap`: false if the key changed since.
+    pub(crate) fn still_valid(&self, topic: &str, epoch: u64) -> bool {
+        let _st = lock(&self.state);
+        self.live(topic, epoch)
+    }
+
+    /// Queue `line` for `sub` without blocking, only if the data is still releasable. The check
+    /// and the queueing happen under the state lock, so a lock cannot slip in between.
+    /// Returns false when the connection is gone.
+    pub(crate) fn send_if_live(&self, sub: u64, topic: &str, epoch: u64, line: String) -> bool {
+        let mut st = lock(&self.state);
+        if !self.live(topic, epoch) {
+            return true;
+        }
+        match st.subs.get(&sub).map(|s| s.tx.try_send(line)) {
+            Some(Err(TrySendError::Disconnected(_))) => false,
+            Some(Err(TrySendError::Full(_))) => {
+                st.subs.remove(&sub); // slow consumer: drop, never buffer without bound
+                true
+            }
+            _ => true,
+        }
     }
 
     fn find(&self, topic: &str) -> Option<(&Arc<dyn Provider>, &'static TopicSpec)> {
@@ -146,7 +197,7 @@ impl Hub {
     fn begin(&self, key: &Key) -> bool {
         let now = Instant::now();
         let mut st = lock(&self.state);
-        if st.cache.values().filter(|e| e.fetching).count() >= MAX_IN_FLIGHT {
+        if st.inflight >= MAX_IN_FLIGHT {
             return false;
         }
         if !st.cache.contains_key(key) && st.cache.len() >= MAX_CACHE_KEYS {
@@ -168,18 +219,22 @@ impl Hub {
             next_due: now,
             last_touch: now,
             fetching: false,
+            epoch: 0,
         });
         e.last_touch = now;
         if e.fetching {
             return false;
         }
         e.fetching = true;
+        st.inflight += 1;
         true
     }
 
     /// Release a claim without fetching (worker thread could not be started).
     fn abort(&self, key: &Key) {
-        if let Some(e) = lock(&self.state).cache.get_mut(key) {
+        let mut st = lock(&self.state);
+        st.inflight = st.inflight.saturating_sub(1);
+        if let Some(e) = st.cache.get_mut(key) {
             e.fetching = false;
         }
     }
@@ -188,7 +243,10 @@ impl Hub {
     /// result and return the best data we have. A panicking provider counts as unavailable;
     /// oversized output counts as a bad format.
     fn complete(&self, key: &Key, params: &Params) -> Option<Snap> {
-        let (provider, spec) = self.find(&key.topic)?;
+        let Some((provider, spec)) = self.find(&key.topic) else {
+            self.abort(key);
+            return None;
+        };
         let secret_backed = !provider.secrets().is_empty();
         let ctx = FetchCtx::new(provider.secrets(), &*self.vault);
         // Key epoch before the fetch: any lock, idle lock or fresh unlock changes it.
@@ -208,6 +266,7 @@ impl Hub {
         });
         let now = Instant::now();
         let mut st = lock(&self.state);
+        st.inflight = st.inflight.saturating_sub(1);
         // Decided under the state lock: purge_secret_entries needs this lock and runs after
         // the epoch change, so a result that passes here is purged by any later lock, and one
         // that fails here never reaches the cache, a reply or a push.
@@ -224,6 +283,7 @@ impl Hub {
                 data,
                 ts: now_unix(),
                 stale: false,
+                epoch,
             });
         };
         e.fetching = false;
@@ -231,6 +291,7 @@ impl Hub {
         match res {
             Ok(d) => {
                 e.data = Some((d, now_unix()));
+                e.epoch = epoch;
                 e.fails = 0;
                 e.next_due = now + spec.interval;
             }
@@ -243,7 +304,8 @@ impl Hub {
                 e.next_due = now + spec.interval * (1 << e.fails);
             }
         }
-        e.snap()
+        let e = &*e;
+        self.visible(key, e)
     }
 
     /// Cached value while the entry is not due (marked stale during failure backoff, and no
@@ -257,7 +319,8 @@ impl Hub {
             if let Some(e) = st.cache.get_mut(&key) {
                 e.last_touch = Instant::now();
                 if e.next_due > e.last_touch || e.fetching {
-                    return e.snap().ok_or(ProviderError::Unavailable);
+                    let e = &*e;
+                    return self.visible(&key, e).ok_or(ProviderError::Unavailable);
                 }
             }
         }
@@ -268,7 +331,7 @@ impl Hub {
             lock(&self.state)
                 .cache
                 .get(&key)
-                .and_then(Entry::snap)
+                .and_then(|e| self.visible(&key, e))
                 .ok_or(ProviderError::Unavailable)
         }
     }
@@ -276,10 +339,11 @@ impl Hub {
     /// Whatever is cached right now for an existing subscription; never fetches, so the
     /// connection thread never waits on a provider here.
     pub(crate) fn cached(&self, topic: &str, params: &Params) -> Option<Snap> {
+        let key = Key::new(topic, params);
         lock(&self.state)
             .cache
-            .get(&Key::new(topic, params))
-            .and_then(Entry::snap)
+            .get(&key)
+            .and_then(|e| self.visible(&key, e))
     }
 
     pub(crate) fn subscribe(
@@ -428,7 +492,7 @@ fn push_to_subscribers(shared: &Shared, key: &Key, snap: &Snap) {
         let Some(sub) = st.subs.get(&id) else {
             continue;
         };
-        if shared.hub.needs_secret(&key.topic) && !shared.vault.is_unlocked() {
+        if !shared.hub.live(&key.topic, snap.epoch) {
             continue; // locked since the fetch: nothing derived from the secret goes out
         }
         if matches!(

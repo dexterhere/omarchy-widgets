@@ -59,8 +59,7 @@ impl Shared {
 
     /// Drop the key and everything derived from it.
     pub(crate) fn lock_vault(&self) {
-        self.vault.lock();
-        self.hub.purge_secret_entries();
+        self.hub.lock_vault();
     }
 
     /// Idle check, run by the scheduler: purge and audit once when the timer locked the vault.
@@ -214,10 +213,15 @@ fn data_op(
             let Some(grant) = grant_for(shared, widget, &topic) else {
                 return deny(ErrorCode::Denied);
             };
+            let epoch = snap.epoch;
             let data = grant.filter(snap.data);
             let bytes = serde_json::to_string(&data).map_or(0, |s| s.len());
             if !lock(&shared.audit).record(widget, &topic, op, true, bytes) {
                 return fail(ErrorCode::Internal);
+            }
+            // Last gate before the reply is built: the key may have changed during the fetch.
+            if !shared.hub.still_valid(&topic, epoch) {
+                return fail(ErrorCode::Locked);
             }
             let body = json!({"topic": topic, "ts": snap.ts, "stale": snap.stale, "data": data});
             (
@@ -302,7 +306,9 @@ fn initial_push(shared: &Shared, ctx: &Ctx, sub: u64) -> bool {
     if !lock(&shared.audit).record(&widget, &topic, "push", true, bytes) {
         return true;
     }
-    ctx.send(hub::push_line(sub, &topic, &snap, &data))
+    // Checked and queued under the hub state lock: a vault lock cannot slip in between.
+    let line = hub::push_line(sub, &topic, &snap, &data);
+    shared.hub.send_if_live(sub, &topic, snap.epoch, line)
 }
 
 /// Time a new connection has to send its first complete request.

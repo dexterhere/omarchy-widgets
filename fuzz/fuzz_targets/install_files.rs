@@ -6,6 +6,15 @@ use ow::install::{catalog, grants_edit, index, json, validate};
 // duplicate key, and an edited grants file always parses back to exactly the intended entries.
 fuzz_target!(|data: &[u8]| {
     let _ = json::strict(data, json::MAX_DEPTH);
+    if let Ok(v) = json::strict(data, json::MAX_DEPTH) {
+        let _ = validate::sample_data(&v);
+    }
+    if let Ok(t) = std::str::from_utf8(data) {
+        // The allow-list is never looser than the spoofing floor.
+        if ow::install::text::printable(t) {
+            assert!(ow::install::text::plain(t));
+        }
+    }
     let id = "io.github.dexterhere.clock";
     let _ = index::select_listing(data, id);
     let cat = catalog::snapshot().expect("shipped catalog");

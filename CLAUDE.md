@@ -22,7 +22,7 @@ A layer on top of Omarchy's existing plugin system, not a replacement. Parts: (1
 - The daemon denies by default: a widget gets only topics it has been granted, and a provider may call only its allow-listed hosts.
 - `#![forbid(unsafe_code)]` in every crate unless a module is explicitly audited and documented. Prefer safe crates (`rustix`, `nix`) for `prctl`/`mlock`.
 - Never claim more than we can deliver. Unsandboxed QML code widgets can read anything the user can. Docs, UI text and code comments must say so plainly. Do not write "sandboxed", "secure widget" or "safe" about code widgets.
-- Never invent cryptography. Use vetted crates (`chacha20poly1305`, `argon2`, `zeroize`, `secrecy`). Check maintenance status before adding any crypto or keyring dependency, and record the decision in `docs/DECISIONS.md`.
+- Never invent cryptography. Use vetted crates (`chacha20poly1305`, `argon2`, `zeroize`; `secrecy` is deliberately not used, see `docs/VAULT_FORMAT.md`). Check maintenance status before adding any crypto or keyring dependency, and record the decision in `docs/DECISIONS.md`.
 
 **Safety of the developer's machine**
 - All development and tests run against throwaway XDG directories (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR` pointed at a temp dir). Never read or write the real `~/.config/omarchy`, `~/.config/hypr` or the real keyring unless Dexter explicitly says so in the current conversation.
@@ -42,20 +42,21 @@ A layer on top of Omarchy's existing plugin system, not a replacement. Parts: (1
 ## Stack and layout
 
 - Rust (daemon, CLI, core libs), QML on Quickshell (host, bridge, kit, widgets), TypeScript + static site generator (website, playground, web renderer), JSON Schema as the single contract across all three.
-- Monorepo. Intended layout is in `docs/BUILD_PLAN.md` (section "Repository layout").
-- CI: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, `cargo deny check`, `cargo audit`, `qmllint` for QML, schema validation, fuzz targets built (and run on schedule).
+- Monorepo. Intended layout is in `docs/BUILD_PLAN.md` (section "Repository layout"). `registry/` and `site/` live in the sibling web repo (dexterhere/dexterhere-omarchy-widgets-web), not here.
+- CI: `ci.yml` runs `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, `cargo deny check`, `cargo audit`. `fuzz.yml` is path-filtered, runs weekly and on demand. There is NO `qmllint`, schema validation, SBOM or signing yet.
 
-## Commands (fill in as they come to exist)
+## Commands
 
 ```
+cargo fmt --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo deny check && cargo audit
 # daemon against a throwaway dir; keep the path short (Unix socket paths max 108 bytes) and absolute
 D=$(mktemp -d -p /tmp owd.XXXX); cargo run -p owd -- --config-dir "$D"
 cargo run -p ow -- --config-dir "$D" status
-(cd fuzz && cargo +nightly fuzz run <target>)          # frame_decoder request_parse grants_parse vault_open vault_payload
-qmllint path/to/*.qml
+(cd fuzz && cargo +nightly fuzz run <target>)          # frame_decoder request_parse grants_parse vault_payload vault_open
+# qmllint: not set up yet (no QML in the repo)
 ```
 
 ## How to work
@@ -68,4 +69,4 @@ qmllint path/to/*.qml
 
 ## Current phase
 
-Phase 0 (spikes and decisions). See `docs/BUILD_PLAN.md`. Update this line when the phase changes.
+Phase 1, epic 1 (daemon core: socket, vault, grants, audit, provider hub, `ow status` and `ow vault`) is done. Phase 0 spikes S1 to S13 have not been run. Not built yet: network providers, hardening verification, bridge/QML/canvas/Widget Center, `ow new|check|install|publish`, `spec/`. See `docs/BUILD_PLAN.md`. Update this line when the phase changes.

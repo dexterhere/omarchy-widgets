@@ -32,7 +32,7 @@ Credentials (tokens, app passwords), and data derived from them (mail, calendar,
 - Sensitive data stays in memory by default. Nothing is written to disk by providers today.
 - Removing a secret removes it from the vault file. Backups you made elsewhere are not touched.
 - No telemetry, no cloud relay.
-- The audit log records who asked for which topic and how many bytes, never values. It rotates at 1 MiB and keeps five files.
+- The audit log records which widget id claimed to ask for which topic and how many bytes, never values. The widget id is self-claimed and the file is not tamper-evident: a process running as you can truncate it or flood it with denied requests. It rotates at 1 MiB and keeps five files.
 
 ## Verification we run
 
@@ -40,4 +40,4 @@ Unit and integration tests for each rule above, a fake-secret leak test over std
 
 ## Not yet done
 
-External review of the vault and protocol (required before a public beta), keyring and TPM modes (spike S4), authenticating widgets to the daemon (D-1), systemd sandbox verification with `systemd-analyze security`, signed releases.
+External review of the vault and protocol (required before a public beta), keyring and TPM modes (spike S4), authenticating widgets to the daemon (D-1), installed-unit verification of the systemd sandbox (the unit is analysed offline with `systemd-analyze security`, exposure 2.5, and as a transient unit, not as an installed unit), signed releases.

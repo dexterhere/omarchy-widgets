@@ -2,9 +2,9 @@
 
 Written 2026-10-17 when work was stopped at the maintainer's request. The website repo has the detailed note (`omarchy-widgets-web/docs/HANDOFF.md`); this one covers the code repo.
 
-## Done (merged to `develop`, `staging` and `main`)
+## Done (merged to `develop` via PR #24; check promotion to `staging` and `main` on GitHub)
 
-- Cargo workspace with `#![forbid(unsafe_code)]`, strict lints, CI (fmt, clippy, tests, cargo-deny, cargo-audit, weekly fuzz), SHA-pinned actions after Dependabot bumps.
+- Cargo workspace with `#![forbid(unsafe_code)]`, strict lints, CI (fmt, clippy, tests, cargo-deny, cargo-audit, weekly fuzz). Actions are referenced by tag (e.g. `actions/checkout@v7`), not pinned to commit SHAs.
 - `ow-proto`: bounded line codec and protocol v0 types.
 - `owd`: private Unix socket (0700 dir, 0600 socket, same-user peers only, start lock, timeouts, connection caps), process hardening (private umask, no core dumps, non-dumpable, quiet panics), grants (deny by default, field filtering, SIGHUP reload that fails closed), rate limiting, redacted audit log (fails closed), provider hub (cache, subscriptions, push, stale data with backoff, worker threads, per-push grant re-check), `system` provider (CPU, memory, load).
 - `ow-vault`: passphrase-mode vault (Argon2id + XChaCha20-Poly1305, single sealed payload, atomic writes, rotation), format in `docs/VAULT_FORMAT.md` (design reviewed by Codex, implementation reviewed twice).

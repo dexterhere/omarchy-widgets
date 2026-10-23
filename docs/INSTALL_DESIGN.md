@@ -118,7 +118,7 @@ Order of commits: widget directory first, then grants. If the grants write fails
 
 ## 7. Failure and rollback
 
-Nothing is written before consent. After consent: stage, then swap, then grants; each failure path undoes the earlier steps (see section 5). A failed network step, a validation failure, a hash mismatch, a declined prompt or a refused flag leaves the data and config directories as they were (only the empty `widgets/` directory and its lock file may be created).
+Before the network is touched, `ow` reads `grants.toml` under the daemon's rules and refuses (changing nothing) if it is invalid, loose or a symlink. Nothing is written before consent. After consent: stage, then swap, then grants; each failure path undoes the earlier steps (see section 5). A failed network step, a validation failure, a hash mismatch, a declined prompt or a refused flag leaves the data and config directories as they were (only the empty `widgets/` directory and its lock file may be created).
 
 ## 8. Testing approach
 

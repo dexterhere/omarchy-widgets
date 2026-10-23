@@ -1,6 +1,6 @@
 # Provider daemon (`owd`) specification, draft v0
 
-> **Status (checked against `crates/` on 2026-10-23).** This is a design document; the code is the source of truth. Each section below ends with an **Implemented / Not implemented** note. Summary: the Unix socket server, protocol ops `hello`/`snapshot`/`subscribe`/`unsubscribe`/`status`, grants, audit log, rate limiting, process hardening, the passphrase-mode vault (library plus `ow vault`) and the `system` provider are implemented. Admin ops `vault.unlock`, `vault.lock` and `vault.status` (passphrase mode) are implemented. Not implemented: `config.toml`, the other admin ops, vault keyring/TPM modes and keyring auto-unlock, every provider except `system`, any network access or egress allow-list, `tracing`. The design text is kept as intent; where it differs from the code, the status note says so. The unit in `packaging/owd.service` has been verified only offline and as a transient unit, not as an installed unit. Nothing here makes code widgets sandboxed: they run as the user.
+> **Status (checked against `crates/` on 2026-10-23).** This is a design document; the code is the source of truth. Each section below ends with an **Implemented / Not implemented** note. Summary: the Unix socket server, protocol ops `hello`/`snapshot`/`subscribe`/`unsubscribe`/`status`, grants, audit log, rate limiting, process hardening, the passphrase-mode vault (library plus `ow vault`) and the `system` provider are implemented. Admin ops `vault.unlock`, `vault.lock` and `vault.status` (passphrase mode) and `grants.reload` are implemented. `ow install|list|remove` manage spec widgets and their grants (`docs/INSTALL_DESIGN.md`). Not implemented: `config.toml`, the other admin ops, vault keyring/TPM modes and keyring auto-unlock, every provider except `system`, any network access or egress allow-list, `tracing`. The design text is kept as intent; where it differs from the code, the status note says so. The unit in `packaging/owd.service` has been verified only offline and as a transient unit, not as an installed unit. Nothing here makes code widgets sandboxed: they run as the user.
 
 Audience: the agent that builds it. This is a proposal derived from the project plan; where it says **verify** or **decide**, record the outcome in `docs/DECISIONS.md`. Visual explanations are in `design/` (artboards "What the provider daemon is", "One request, step by step", "How to build it").
 
@@ -61,7 +61,7 @@ deny.toml
 - `ow-core`: `grants`, `audit`, `ratelimit`, `paths`, `harden`, and the synchronous `Provider` trait (`provider.rs`). The cache and scheduler are not here; they live in `owd/src/hub.rs`. There is no HTTP client.
 - `ow-providers`: only `system`.
 - `owd`: socket server, connection handling, hub (cache and scheduler), SIGHUP grants reload, `sd_notify`. No config file.
-- `ow`: `status` and `vault init|status|list|set|remove|rotate|wipe` only. No `grants`, `audit` or `unlock`/`change-mode` verbs.
+- `ow`: `status`, `vault init|status|unlock|lock|list|set|remove|rotate|wipe`, and `install <id>`, `list`, `remove <id>` for spec widgets (CLI verbs below). No `grants`, `audit` or `change-mode` verbs. `ow` is also a library (`crates/ow/src/lib.rs`) so tests can drive the install code in-process; it is the only crate that depends on `ow-egress`.
 - `packaging/owd.service` exists; no PKGBUILD was checked here.
 
 All crates `#![forbid(unsafe_code)]`. If `prctl`, `mlock` or `setrlimit` need syscalls, use `rustix` or `nix`; if a truly unsafe block remains, isolate it in one audited module with a comment explaining why.
@@ -94,7 +94,7 @@ Client -> daemon:
 {"v":0,"id":5,"op":"status"}
 ```
 
-Admin ops, on the same socket in v0 (decision D-1 still open): implemented `vault.unlock`, `vault.lock`, `vault.status`; design only `grants.list`, `grants.set`, `audit.tail`, `vault.set`, `vault.remove`, `vault.wipe`.
+Admin ops, on the same socket in v0 (decision D-1 still open): implemented `vault.unlock`, `vault.lock`, `vault.status`, `grants.reload`; design only `grants.list`, `grants.set`, `audit.tail`, `vault.set`, `vault.remove`, `vault.wipe`.
 
 Implemented admin frames (same uid only, via `SO_PEERCRED`; they carry no `widget` field, and one that does is refused with `denied` and audited by op name):
 
@@ -111,6 +111,18 @@ Implemented admin frames (same uid only, via `SO_PEERCRED`; they carry no `widge
 ```
 
 The passphrase is hex so it is arbitrary bytes and has no JSON escapes. It is decoded outside serde's tagged/flattened buffering into zeroizing memory, the frame buffers are wiped after use, `Debug` is redacted, and parse errors carry a code only. `vault.status` never returns values and does not count as use (it does not extend the idle timer). Policy constants (`crates/owd/src/unlock.rs`): 5 free failures, then a lockout of 30 s that doubles per further consecutive failure up to 15 min; one unlock attempt at a time; idle auto-lock after 15 min without a secret being resolved (a visible widget that polls keeps the vault open). Counters live in memory and reset on daemon restart. A secret-backed topic answers `locked` (to snapshot and subscribe) while the vault is locked; lock, idle lock and every fresh unlock purge the cache entries of secret-backed providers, and a result fetched across a lock is discarded. Review follow-ups, now in the code: the idle timer and lockout deadline run on CLOCK_BOOTTIME, so time spent suspended counts as idle. Any `widget` key on an admin op, including `null`, makes it a widget claim and it is refused. Cache entries carry the vault key epoch; the lock and the cache purge happen together under the hub state lock, and snapshot, cached, initial and scheduled pushes compare the epoch under that lock (a reply already past its last check can still be in flight on another connection when a lock lands). Fetch workers are counted separately from cache entries. An unlock whose audit line cannot be written is rolled back and answers `internal`. Refused widget-shaped admin frames, and data requests whose topic starts with `vault.`, share one small rate-limit bucket checked before the grant lookup; over the limit they are refused with no audit line. `ow vault set|remove|rotate|wipe` send `vault.lock` to the daemon afterwards (best effort), because the daemon's decrypted copy would otherwise go stale. Providers get secrets through `FetchCtx::with_secret` (closure) or a `SecretHandle` that borrows the context.
+
+`grants.reload` (no payload) makes the daemon re-read `grants.toml` through the same function SIGHUP uses; a failed reload fails closed (no grants, everything denied):
+
+```
+{"v":0,"id":N,"op":"grants.reload"}
+  ok:    {"v":0,"id":N,"ok":true,"state":"reloaded"}
+  unreadable, insecure or invalid file: error "internal" (the daemon now denies every widget)
+  more than the small admin burst: error "rate_limited"
+  a frame with a "widget" key (null included): error "denied", audited by op name, like the vault ops
+```
+
+Its audit entries have widget `admin`, topic `grants`, op `reload`, decision allow or deny (a failed reload is a deny). `ow install` and `ow remove` call it after editing `grants.toml`; if no daemon is running they say the grants apply at the next start.
 
 Audit entries for admin events have widget `admin`, topic `vault` and op `unlock`, `lock`, `autolock`, `lockout` or the refused op's name; no payload exists in the entry type.
 
@@ -158,7 +170,17 @@ approved_at = "2026-10-17T12:00:00Z"
 - Limits: 32 connections, 32 subscriptions per connection, 16 per widget, 256 total.
 - Audit ops logged are `snapshot`, `subscribe` and push; a push is logged only when it is denied. Rotation at 1 MiB, keeping 5 numbered files.
 
-Not implemented: `audit.tail`, `ow audit tail`, any `ow grants` command (grants are edited as a file).
+Not implemented: `audit.tail`, `ow audit tail`, any `ow grants` command. Grants are still plain file edits, except that `ow install <id>` appends the entries of a spec widget and `ow remove <id>` deletes every entry whose `widget` equals the id (text edit that keeps other entries and comments, proven with the daemon's own parser; atomic replace, mode 0600).
+
+### CLI verbs for spec widgets
+
+```
+ow install <id> [--registry https://<host>] [--allow-planned] [--dry-run] [--yes --accept-access <hash>]
+ow list
+ow remove <id>
+```
+
+Design, trust statements and limits: `docs/INSTALL_DESIGN.md`. Summary: the registry index (compiled-in host, or `--registry`, never an environment variable) names repo and commit; `manifest.json`, `widget.json`, `layout.json` are fetched from raw.githubusercontent.com at that commit through `ow-egress` (https, no redirects, 256 KB, JSON only), validated, shown as a plain-language access summary, and installed to `$XDG_DATA_HOME/owd/widgets/<id>/` only after the person types `yes` on a terminal (or passes `--yes` with the exact `--accept-access` hash of that access). `planned` widgets need `--allow-planned`; `removed` ones are never installed. Files are staged and swapped, grants are written second, and any failure rolls back. **Status:** implemented and tested against a fake byte source; a live fetch was checked once with `--dry-run` (the production index lists seven concept entries with placeholder commits, so nothing is installable yet).
 
 ## 7. Vault
 

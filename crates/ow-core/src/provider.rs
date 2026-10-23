@@ -3,6 +3,7 @@
 //! Local providers need neither.
 use serde_json::{Map, Value};
 use std::fmt;
+use std::marker::PhantomData;
 use std::time::Duration;
 use zeroize::Zeroizing;
 
@@ -95,32 +96,45 @@ pub enum ProviderError {
     NoSecret,
 }
 
-/// A secret lent to one `fetch` call. Zeroized on drop. Deliberately no `Display`, `Clone`,
-/// `Serialize` or `PartialEq`, and `Debug` is redacted, so the value cannot reach a log,
-/// an error or a reply by formatting. `expose` is the only way to read it, and the future
-/// egress wrapper (docs/AUTH_PLAN.md section 3.2) is meant to be its only caller.
-pub struct SecretHandle(Zeroizing<String>);
+/// A secret lent for the duration of one `fetch` call. The lifetime is the borrow of the
+/// `FetchCtx` it came from, so it cannot be stored or returned past the fetch, and only this
+/// crate can construct one. Zeroized on drop. Deliberately no `Display`, `Clone`, `Serialize` or
+/// `PartialEq`, and `Debug` is redacted, so the value cannot reach a log, an error or a reply by
+/// formatting. Prefer `FetchCtx::with_secret`, which never holds the value outside a closure;
+/// `expose` is for the future egress wrapper (docs/AUTH_PLAN.md section 3.2).
+///
+/// The handle cannot be kept past the context it came from, and cannot be built outside this
+/// crate:
+///
+/// ```compile_fail
+/// use ow_core::{FetchCtx, SecretHandle};
+/// fn keep(ctx: &FetchCtx<'_>) -> SecretHandle<'static> {
+///     ctx.secret("a").unwrap()
+/// }
+/// ```
+///
+/// ```compile_fail
+/// let _ = ow_core::SecretHandle::new("x");
+/// ```
+pub struct SecretHandle<'a>(Zeroizing<String>, PhantomData<&'a ()>);
 
-impl SecretHandle {
-    pub fn new(value: &str) -> Self {
-        SecretHandle(Zeroizing::new(value.to_owned()))
-    }
-
+impl SecretHandle<'_> {
     pub fn expose(&self) -> &str {
         &self.0
     }
 }
 
-impl fmt::Debug for SecretHandle {
+impl fmt::Debug for SecretHandle<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("SecretHandle(<redacted>)")
     }
 }
 
-/// Where handles come from (the unlocked vault inside `owd`). Returns `Locked` while the vault
-/// is locked and `NoSecret` for an unknown name.
+/// Where secrets come from (the unlocked vault inside `owd`). Lends the value to a closure so
+/// the implementor never hands out an owned string. `Locked` while the vault is locked,
+/// `NoSecret` for an unknown name.
 pub trait SecretSource: Send + Sync {
-    fn secret(&self, name: &str) -> Result<SecretHandle, ProviderError>;
+    fn with_secret(&self, name: &str, f: &mut dyn FnMut(&str)) -> Result<(), ProviderError>;
 }
 
 /// What a provider gets for one fetch. Secrets are reachable only through here, and only by
@@ -146,11 +160,32 @@ impl<'a> FetchCtx<'a> {
         }
     }
 
-    pub fn secret(&self, name: &str) -> Result<SecretHandle, ProviderError> {
+    /// Run `f` with the secret `name`; the value does not outlive the closure.
+    pub fn with_secret<R>(
+        &self,
+        name: &str,
+        f: impl FnOnce(&str) -> R,
+    ) -> Result<R, ProviderError> {
         if !self.allowed.contains(&name) {
             return Err(ProviderError::NoSecret);
         }
-        self.source.ok_or(ProviderError::NoSecret)?.secret(name)
+        let source = self.source.ok_or(ProviderError::NoSecret)?;
+        let mut f = Some(f);
+        let mut out = None;
+        source.with_secret(name, &mut |v| {
+            if let Some(f) = f.take() {
+                out = Some(f(v));
+            }
+        })?;
+        out.ok_or(ProviderError::NoSecret)
+    }
+
+    /// A handle for callers that need the value to outlive one closure (the egress wrapper).
+    /// It borrows `self`, so it cannot leave the fetch.
+    pub fn secret(&self, name: &str) -> Result<SecretHandle<'_>, ProviderError> {
+        self.with_secret(name, |v| {
+            SecretHandle(Zeroizing::new(v.to_owned()), PhantomData)
+        })
     }
 }
 
@@ -181,9 +216,12 @@ mod tests {
 
     struct Src;
     impl SecretSource for Src {
-        fn secret(&self, name: &str) -> Result<SecretHandle, ProviderError> {
+        fn with_secret(&self, name: &str, f: &mut dyn FnMut(&str)) -> Result<(), ProviderError> {
             match name {
-                "a" | "b" => Ok(SecretHandle::new("FAKE-value")),
+                "a" | "b" => {
+                    f("FAKE-value");
+                    Ok(())
+                }
                 _ => Err(ProviderError::NoSecret),
             }
         }
@@ -193,6 +231,7 @@ mod tests {
     fn only_declared_names_resolve() {
         let ctx = FetchCtx::new(&["a"], &Src);
         assert_eq!(ctx.secret("a").unwrap().expose(), "FAKE-value");
+        assert_eq!(ctx.with_secret("a", |v| v.len()), Ok(10));
         // "b" exists in the source but the provider did not declare it.
         assert_eq!(ctx.secret("b").err(), Some(ProviderError::NoSecret));
         assert_eq!(
@@ -203,7 +242,8 @@ mod tests {
 
     #[test]
     fn handle_debug_is_redacted() {
-        let h = SecretHandle::new("FAKE-value");
+        let ctx = FetchCtx::new(&["a"], &Src);
+        let h = ctx.secret("a").unwrap();
         assert!(!format!("{h:?}").contains("FAKE"));
     }
 }

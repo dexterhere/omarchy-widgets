@@ -5,7 +5,7 @@
 //! Nothing in this module logs, formats or returns a passphrase, key or value; errors are
 //! categories. Time comes from an injectable clock so the policy can be tested without sleeping.
 use crate::conn::lock;
-use ow_core::{ProviderError, SecretHandle, SecretSource};
+use ow_core::{ProviderError, SecretSource};
 use ow_vault::Vault;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -212,18 +212,17 @@ impl VaultState {
 }
 
 impl SecretSource for VaultState {
-    fn secret(&self, name: &str) -> Result<SecretHandle, ProviderError> {
+    fn with_secret(&self, name: &str, f: &mut dyn FnMut(&str)) -> Result<(), ProviderError> {
         let mut g = lock(&self.inner);
         let now = self.now();
         self.expire(&mut g, now);
         let Some(v) = g.vault.as_ref() else {
             return Err(ProviderError::Locked);
         };
-        let handle = v.get(name).map(SecretHandle::new);
-        if handle.is_some() {
-            g.last_use = now;
-        }
-        handle.ok_or(ProviderError::NoSecret)
+        let value = v.get(name).ok_or(ProviderError::NoSecret)?;
+        f(value);
+        g.last_use = now;
+        Ok(())
     }
 }
 
@@ -267,6 +266,13 @@ mod tests {
 
     /// The production clock must be the boottime source: it advances, and agrees with
     /// /proc/uptime (which counts suspend), unlike a monotonic Instant.
+    /// Resolve a secret to an owned string, for assertions only.
+    fn fetch(st: &VaultState, name: &str) -> Result<String, ProviderError> {
+        let mut out = String::new();
+        st.with_secret(name, &mut |v| out = v.to_owned())?;
+        Ok(out)
+    }
+
     #[test]
     fn production_clock_is_boottime() {
         let up: f64 = std::fs::read_to_string("/proc/uptime")
@@ -285,20 +291,20 @@ mod tests {
     fn starts_locked_and_resolves_nothing() {
         let f = Fixture::new();
         assert!(!f.st.is_unlocked());
-        assert_eq!(f.st.secret("tok").err(), Some(ProviderError::Locked));
+        assert_eq!(fetch(&f.st, "tok").err(), Some(ProviderError::Locked));
     }
 
     #[test]
     fn unlock_then_resolve_then_lock_wipes_access() {
         let f = Fixture::new();
         f.st.unlock(PW).unwrap();
-        assert_eq!(f.st.secret("tok").unwrap().expose(), "FAKE-secret-value");
-        assert_eq!(f.st.secret("nope").err(), Some(ProviderError::NoSecret));
+        assert_eq!(fetch(&f.st, "tok").unwrap(), "FAKE-secret-value");
+        assert_eq!(fetch(&f.st, "nope").err(), Some(ProviderError::NoSecret));
         let s = f.st.status();
         assert!(s.unlocked && s.names == ["tok"]);
         assert!(f.st.lock());
         assert!(!f.st.lock());
-        assert_eq!(f.st.secret("tok").err(), Some(ProviderError::Locked));
+        assert_eq!(fetch(&f.st, "tok").err(), Some(ProviderError::Locked));
         assert!(f.st.status().names.is_empty());
     }
 
@@ -366,12 +372,12 @@ mod tests {
         f.advance(59);
         assert_eq!(f.st.status().idle_left, Some(Duration::from_secs(1)));
         // Status is not use: it did not extend the timer. A secret read is use.
-        f.st.secret("tok").unwrap();
+        fetch(&f.st, "tok").unwrap();
         f.advance(59);
         assert!(f.st.is_unlocked());
         f.advance(1);
         assert!(!f.st.is_unlocked());
-        assert_eq!(f.st.secret("tok").err(), Some(ProviderError::Locked));
+        assert_eq!(fetch(&f.st, "tok").err(), Some(ProviderError::Locked));
         // The scheduler is told exactly once.
         assert!(f.st.tick());
         assert!(!f.st.tick());

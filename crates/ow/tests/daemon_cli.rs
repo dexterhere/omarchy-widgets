@@ -127,7 +127,7 @@ impl Provider for Secretive {
         _p: &Map<String, Value>,
         ctx: &FetchCtx<'_>,
     ) -> Result<Map<String, Value>, ProviderError> {
-        let len = ctx.secret("github-main")?.expose().len();
+        let len = ctx.with_secret("github-main", |s| s.len())?;
         Ok(json!({"len": len}).as_object().cloned().unwrap())
     }
 }

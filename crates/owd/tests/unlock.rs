@@ -52,7 +52,7 @@ impl Provider for SeqProvider {
         ctx: &FetchCtx<'_>,
     ) -> Result<Map<String, Value>, ProviderError> {
         let n = self.0.fetch_add(1, Ordering::SeqCst) + 1;
-        ctx.secret("fake-token")?;
+        ctx.with_secret("fake-token", |_| ())?;
         if n == 1 {
             std::thread::sleep(Duration::from_millis(800));
         }
@@ -86,7 +86,7 @@ impl Provider for SlowProvider {
         _p: &Map<String, Value>,
         ctx: &FetchCtx<'_>,
     ) -> Result<Map<String, Value>, ProviderError> {
-        let len = ctx.secret("fake-token")?.expose().len();
+        let len = ctx.with_secret("fake-token", |s| s.len())?;
         std::thread::sleep(Duration::from_millis(700));
         Ok(json!({"len": len}).as_object().cloned().unwrap())
     }
@@ -150,8 +150,8 @@ impl Provider for SecretProvider {
         let out = |v: Value| Ok(v.as_object().cloned().unwrap());
         match topic {
             // Proves resolution without emitting the value: only its length leaves.
-            "fake.secret" => out(json!({"len": ctx.secret("fake-token")?.expose().len()})),
-            "fake.undeclared" => out(json!({"len": ctx.secret("other")?.expose().len()})),
+            "fake.secret" => out(json!({"len": ctx.with_secret("fake-token", |s| s.len())?})),
+            "fake.undeclared" => out(json!({"len": ctx.with_secret("other", |s| s.len())?})),
             _ => Err(ProviderError::UnknownTopic),
         }
     }

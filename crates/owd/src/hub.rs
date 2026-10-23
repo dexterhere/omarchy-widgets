@@ -726,7 +726,7 @@ mod tests {
             &["tok"]
         }
         fn fetch(&self, _t: &str, _p: &Params, c: &FetchCtx<'_>) -> Result<Params, ProviderError> {
-            let n = c.secret("tok")?.expose().len();
+            let n = c.with_secret("tok", |s| s.len())?;
             Ok(serde_json::json!({ "v": n }).as_object().cloned().unwrap())
         }
     }

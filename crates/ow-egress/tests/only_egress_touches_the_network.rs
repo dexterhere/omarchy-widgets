@@ -81,6 +81,10 @@ const AUDITED: &[(&str, &[&str])] = &[
     // Tests that run the freshly built `ow` and `owd` binaries (CARGO_BIN_EXE_*).
     ("crates/ow/tests/vault_cli.rs", &["Command::new"]),
     ("crates/owd/tests/hardening.rs", &["Command::new"]),
+    // Runs the freshly built `ow` binary (CARGO_BIN_EXE_ow) for the install verbs, with an
+    // environment that tries to redirect the registry. It uses no network on any path it takes
+    // (every case is refused before a request, or needs none), and no internet socket.
+    ("crates/ow/tests/install_cli.rs", &["Command::new"]),
     // Tests of the unlock path: local Unix-domain sockets and fake listeners, and child processes
     // that run the freshly built binaries. No internet sockets.
     (
@@ -253,6 +257,26 @@ fn no_other_crate_depends_on_an_http_tls_or_socket_client_crate() {
 fn no_other_crate_opens_a_socket_or_starts_a_program_unaudited() {
     let bad = sources_with_banned_use(&root());
     assert!(bad.is_empty(), "unaudited use (see AUDITED): {bad:?}");
+}
+
+/// Crates allowed to depend on `ow-egress` (the one network door). A new user is a security
+/// decision: add it here with the reason. `ow`: `ow install` fetches the registry index and the
+/// widget files (two fixed hosts, https, no redirects, size caps) through it.
+const EGRESS_USERS: &[&str] = &["crates/ow/Cargo.toml"];
+
+#[test]
+fn only_listed_crates_depend_on_ow_egress() {
+    let root = root();
+    let mut users: Vec<String> = collect(&root, "toml")
+        .into_iter()
+        .filter(|p| p.file_name().unwrap() == "Cargo.toml")
+        .filter(|p| {
+            dependency_names(&fs::read_to_string(p).unwrap()).contains(&"ow-egress".to_owned())
+        })
+        .map(|p| rel(&root, &p))
+        .collect();
+    users.sort();
+    assert_eq!(users, EGRESS_USERS, "update EGRESS_USERS and say why");
 }
 
 #[test]

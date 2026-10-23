@@ -107,10 +107,42 @@ pub fn summary(f: &Facts<'_>) -> String {
         }
     ));
     if let Some(p) = f.previous {
-        line(format!(
-            "  UPDATE of an existing install: commit {} -> {}",
-            p.commit, l.commit
-        ));
+        if p.commit == l.commit {
+            line(format!(
+                "  REINSTALL of the commit that is already installed ({})",
+                p.commit
+            ));
+        } else {
+            line(format!(
+                "  UPDATE of an existing install: commit {} -> {}",
+                p.commit, l.commit
+            ));
+            let old: BTreeSet<&str> = p
+                .granted
+                .iter()
+                .flat_map(|g| g.topics.iter().map(String::as_str))
+                .collect();
+            let new: BTreeSet<&str> = v
+                .widget
+                .providers
+                .iter()
+                .flat_map(|g| g.topics.iter().map(String::as_str))
+                .collect();
+            let added: Vec<&str> = new.difference(&old).copied().collect();
+            let dropped: Vec<&str> = old.difference(&new).copied().collect();
+            if !added.is_empty() {
+                line(format!(
+                    "  The update asks for NEW topics: {}",
+                    added.join(", ")
+                ));
+            }
+            if !dropped.is_empty() {
+                line(format!(
+                    "  The update no longer reads: {}",
+                    dropped.join(", ")
+                ));
+            }
+        }
     }
     if f.planned_override {
         line("  NOTE: this widget is only planned. It will not show data until the needed provider exists.".into());

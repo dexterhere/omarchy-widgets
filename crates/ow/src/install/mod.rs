@@ -279,6 +279,11 @@ pub fn install(
     if !(a.dry_run || a.yes || ui.interactive()) {
         return Err("installing needs your consent, and consent needs a terminal: run this in a terminal (or use --dry-run to read what it would do)".into());
     }
+    // A grants file we could not safely edit is found now, before the network and the prompt.
+    let precheck = Grants::read_text(&paths.grants())
+        .map_err(grants_err)?
+        .unwrap_or_default();
+    Grants::parse(&precheck).map_err(grants_err)?;
     let host = match &a.registry {
         Some(r) => parse_registry(r)?,
         None => DEFAULT_REGISTRY.to_owned(),

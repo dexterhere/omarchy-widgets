@@ -55,7 +55,7 @@ cargo deny check && cargo audit
 # daemon against a throwaway dir; keep the path short (Unix socket paths max 108 bytes) and absolute
 D=$(mktemp -d -p /tmp owd.XXXX); cargo run -p owd -- --config-dir "$D"
 cargo run -p ow -- --config-dir "$D" status
-(cd fuzz && cargo +nightly fuzz run <target>)          # frame_decoder request_parse admin_parse grants_parse vault_payload vault_open
+(cd fuzz && cargo +nightly fuzz run <target>)          # frame_decoder request_parse admin_parse grants_parse vault_payload vault_open install_files
 # qmllint: not set up yet (no QML in the repo)
 ```
 

@@ -539,13 +539,12 @@ mod tests {
                 format!(r#"{{"v":0,"id":4,"id":5,"op":"{op}","passphrase":"{pw}"}}"#),
             ];
             for l in lines {
-                match Request::parse(&l) {
-                    Ok(r) => assert!(
+                if let Ok(r) = Request::parse(&l) {
+                    assert!(
                         r.op.admin_name().is_none() && !l.contains("widget"),
                         "{l} parsed as {:?}",
                         r.op.admin_name()
-                    ),
-                    Err(_) => {}
+                    );
                 }
             }
         }

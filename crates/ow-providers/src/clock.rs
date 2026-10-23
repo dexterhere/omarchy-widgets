@@ -55,4 +55,80 @@ mod tests {
             .unwrap();
         assert_eq!(fields(&z)["hms"], "23:59:59");
     }
+
+    /// (zone, UTC instant, hm, hms, date, tz)
+    #[test]
+    fn explicit_zones_dst_and_leap_day() {
+        let cases = [
+            // no letter abbreviation in tzdata: numeric offset, as `date +%Z` prints
+            (
+                "Asia/Kathmandu",
+                "2026-10-19T04:24:42Z",
+                "10:09",
+                "10:09:42",
+                "Mon 19 Oct",
+                "+0545",
+            ),
+            // spring forward 2027-03-14: 01:59:59 EST, one second later 03:00:00 EDT
+            (
+                "America/New_York",
+                "2027-03-14T06:59:59Z",
+                "01:59",
+                "01:59:59",
+                "Sun 14 Mar",
+                "EST",
+            ),
+            (
+                "America/New_York",
+                "2027-03-14T07:00:00Z",
+                "03:00",
+                "03:00:00",
+                "Sun 14 Mar",
+                "EDT",
+            ),
+            // fall back 2026-11-01: 01:30 happens twice
+            (
+                "America/New_York",
+                "2026-11-01T05:30:00Z",
+                "01:30",
+                "01:30:00",
+                "Sun 1 Nov",
+                "EDT",
+            ),
+            (
+                "America/New_York",
+                "2026-11-01T06:30:00Z",
+                "01:30",
+                "01:30:00",
+                "Sun 1 Nov",
+                "EST",
+            ),
+            // leap day, and a single-digit day without padding
+            (
+                "Europe/Paris",
+                "2028-02-29T23:30:00Z",
+                "00:30",
+                "00:30:00",
+                "Wed 1 Mar",
+                "CET",
+            ),
+            (
+                "UTC",
+                "2028-02-29T12:00:00Z",
+                "12:00",
+                "12:00:00",
+                "Tue 29 Feb",
+                "UTC",
+            ),
+        ];
+        for (zone, utc, hm, hms, date, tz) in cases {
+            let z = utc
+                .parse::<jiff::Timestamp>()
+                .unwrap()
+                .to_zoned(TimeZone::get(zone).unwrap());
+            let m = fields(&z);
+            let got = [&m["hm"], &m["hms"], &m["date"], &m["tz"]].map(|v| v.as_str().unwrap());
+            assert_eq!(got, [hm, hms, date, tz], "{zone} {utc}");
+        }
+    }
 }

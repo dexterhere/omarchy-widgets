@@ -1,0 +1,75 @@
+# S3 evidence: ok run (hot reload at ~3s, server dies at ~7s, restarted at ~9.5s)
+stub1 pid=3639962 sock=/tmp/ow-spike.yJDS/s.sock
+run dir: /tmp/ow-spike.5561  pid: 3639979
+exit=124
+--- qs.log
+  INFO: Launching config: "/tmp/ow-spike.yJDS/cfg/shell.qml"
+  INFO: Shell ID: "13cf2fe5a104234782165bc55798e0e7" Path ID "13cf2fe5a104234782165bc55798e0e7"
+  INFO: Saving logs to "/run/user/1000/quickshell/by-id/lm062tsbdnt/log.qslog"
+ DEBUG qml: S3 connected=true
+ DEBUG qml: S3 started, path=/tmp/ow-spike.yJDS/s.sock
+  INFO: Configuration Loaded
+ DEBUG qml: S3 reply {"v": 0, "id": 1, "ok": true, "daemonVersion": "stub", "protocol": 0}
+ DEBUG qml: S3 reply {"v": 0, "id": 2, "ok": true, "sub": 7}
+ DEBUG qml: S3 push n=1 total=1
+ DEBUG qml: S3 push n=2 total=2
+ DEBUG qml: S3 push n=3 total=3
+ DEBUG qml: S3 push n=4 total=4
+  INFO: Reloading configuration...
+ DEBUG qml: S3 connected=true
+ DEBUG qml: S3 started, path=/tmp/ow-spike.yJDS/s.sock
+  INFO: Configuration Loaded
+ DEBUG qml: S3 reply {"v": 0, "id": 1, "ok": true, "daemonVersion": "stub", "protocol": 0}
+ DEBUG qml: S3 reply {"v": 0, "id": 2, "ok": true, "sub": 7}
+ DEBUG qml: S3 push n=1 total=1
+ DEBUG qml: S3 push n=2 total=2
+ DEBUG qml: S3 push n=3 total=3
+ DEBUG qml: S3 push n=4 total=4
+  WARN quickshell.io.socket: Socket error for Socket(0x7fe43c536400) QLocalSocket::PeerClosedError
+ DEBUG qml: S3 socket error 1
+ DEBUG qml: S3 connected=false
+ DEBUG qml: S3 connected=true
+ DEBUG qml: S3 reply {"v": 0, "id": 1, "ok": true, "daemonVersion": "stub", "protocol": 0}
+ DEBUG qml: S3 reply {"v": 0, "id": 2, "ok": true, "sub": 7}
+ DEBUG qml: S3 push n=1 total=5
+ DEBUG qml: S3 push n=2 total=6
+=== stub1.log
+21:59:53 stub: listening /tmp/ow-spike.yJDS/s.sock
+21:59:53 stub: accept peer pid=3639981 uid=1000
+21:59:53 stub: recv hello id 1
+21:59:53 stub: recv subscribe id 2
+21:59:57 stub: accept peer pid=3639981 uid=1000
+21:59:57 stub: recv hello id 1
+21:59:57 stub: recv subscribe id 2
+21:59:57 stub: client gone
+22:00:00 stub: dying
+=== stub2.log
+22:00:03 stub: listening /tmp/ow-spike.yJDS/s.sock
+22:00:04 stub: accept peer pid=3639981 uid=1000
+22:00:04 stub: recv hello id 1
+22:00:04 stub: recv subscribe id 2
+22:00:06 stub: client gone
+
+# S3 evidence: reject run (stub expects uid 0)
+stub1 pid=3644618 sock=/tmp/ow-spike.c8nD/s.sock
+run dir: /tmp/ow-spike.Ze6m  pid: 3644635
+exit=124
+--- qs.log
+  INFO: Launching config: "/tmp/ow-spike.c8nD/cfg/shell.qml"
+  INFO: Shell ID: "20c114a66c9ccbbfce566861a475d16b" Path ID "20c114a66c9ccbbfce566861a475d16b"
+  INFO: Saving logs to "/run/user/1000/quickshell/by-id/x7462dtbdnt/log.qslog"
+ DEBUG qml: S3 connected=true
+ DEBUG qml: S3 started, path=/tmp/ow-spike.c8nD/s.sock
+  INFO: Configuration Loaded
+  WARN quickshell.io.socket: Socket error for Socket(0x7f8552787440) QLocalSocket::PeerClosedError
+ DEBUG qml: S3 socket error 1
+ DEBUG qml: S3 connected=false
+ DEBUG qml: S3 connected=true
+  WARN quickshell.io.socket: Socket error for Socket(0x7f8552787440) QLocalSocket::PeerClosedError
+ DEBUG qml: S3 socket error 1
+ DEBUG qml: S3 connected=false
+ DEBUG qml: S3 connected=true
+  WARN quickshell.io.socket: Socket error for Socket(0x7f8552787440) QLocalSocket::PeerClosedError
+ DEBUG qml: S3 socket error 1
+ DEBUG qml: S3 connected=false
+ DEBUG qml: S3 connected=true

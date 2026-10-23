@@ -29,11 +29,13 @@
 //!   server and a throwaway root that exist only in `#[cfg(test)]` code.
 #![forbid(unsafe_code)]
 
+mod client;
 mod credential;
 mod error;
 mod request;
 mod target;
 
+pub use client::{Egress, Limits};
 pub use credential::Credential;
 pub use error::{EgressError, StatusClass};
 pub use request::{Method, Request, Response};

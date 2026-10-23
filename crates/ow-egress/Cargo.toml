@@ -10,5 +10,10 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# `max_level_off` compiles every `log` macro in the whole binary (ureq, rustls) to nothing, so
+# no URL or header can be logged. This is the only reason `log` is listed; see AUTH-HTTP.
+log = { version = "0.4", features = ["max_level_off"] }
 serde_json = "1.0.154"
+# Exact pin: network dependencies are bumped deliberately, with a DECISIONS entry.
+ureq = { version = "=3.5.0", default-features = false, features = ["rustls"] }
 zeroize = "1.9.1"

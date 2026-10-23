@@ -7,3 +7,5 @@ plus unknown kind and arbitrary key:
 control, a symlink must fail:
 omarchy-plugin-validate: symlinks are not allowed inside a plugin folder: /tmp/ow-spike.XXXX/p/link
   exit=1
+data-only plugin (unknown kind, empty entryPoints, no QML at all):
+  exit=0

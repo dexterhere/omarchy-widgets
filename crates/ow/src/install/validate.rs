@@ -8,7 +8,10 @@ use super::catalog::{Auth, Catalog};
 use super::hash::sha256;
 use super::index::{FILES, Listing};
 use super::json;
-use super::text::{dotted, field_name, plain, plain_chars, schema_id, show, show_value, slug};
+use super::text::{
+    dotted, field_name, is_spoofing, plain, plain_chars, printable, schema_id, show, show_value,
+    slug, utf16_len,
+};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -46,6 +49,31 @@ pub struct Validated {
 }
 
 type R<T> = Result<T, String>;
+
+/// The registry build's `assertPlain`: every string and object key anywhere in the value must be
+/// free of spoofing characters, markup and (approximately) stacked combining marks; keys must not
+/// be prototype names. Empty strings pass.
+fn assert_plain(v: &Value, at: &str, depth: usize) -> R<()> {
+    if depth > 40 {
+        return Err(format!("{at}: nested too deeply"));
+    }
+    match v {
+        Value::String(s) if !plain_chars(s) => Err(format!(
+            "{at}: only plain text is allowed (no control or invisible characters, no markup)"
+        )),
+        Value::Array(a) => a.iter().try_for_each(|x| assert_plain(x, at, depth + 1)),
+        Value::Object(m) => m.iter().try_for_each(|(k, x)| {
+            if matches!(k.as_str(), "__proto__" | "constructor" | "prototype")
+                || k.chars().any(is_spoofing)
+            {
+                Err(format!("{at}: forbidden key"))
+            } else {
+                assert_plain(x, at, depth + 1)
+            }
+        }),
+        _ => Ok(()),
+    }
+}
 
 fn obj<'a>(v: &'a Value, at: &str) -> R<&'a Map<String, Value>> {
     v.as_object()
@@ -125,18 +153,19 @@ pub fn manifest(bytes: &[u8], id: &str) -> R<Manifest> {
         && version
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'+' | b'-'));
-    if !(plain(name) && name.chars().count() <= 80) {
+    if !(printable(name) && utf16_len(name) <= 80) {
         return Err("manifest.json name must be plain text up to 80 characters".into());
     }
     if !ver_ok {
         return Err("manifest.json version must match [0-9A-Za-z.+-]{1,40}".into());
     }
-    if !(plain(license) && license.len() <= 40) {
+    if !(printable(license) && utf16_len(license) <= 40) {
         return Err("manifest.json license must be plain text up to 40 characters".into());
     }
-    if !(plain(desc) && desc.chars().count() <= 2000) {
+    if !(printable(desc) && utf16_len(desc) <= 2000) {
         return Err("manifest.json description must be plain text up to 2000 characters".into());
     }
+    assert_plain(&v, "manifest.json", 0)?;
     Ok(Manifest {
         name: name.into(),
         version: version.into(),
@@ -161,6 +190,7 @@ const CATEGORIES: [&str; 10] = [
 /// widget and the raw value (for comparing with the index copy).
 pub fn widget(bytes: &[u8], id: &str, cat: &Catalog) -> R<(Widget, Value)> {
     let v = json::strict(bytes, json::MAX_DEPTH)?;
+    assert_plain(&v, "widget.json", 0)?;
     let m = obj(&v, "widget.json")?;
     only(
         m,
@@ -514,7 +544,8 @@ fn node_keys(t: &str) -> Option<&'static [&'static str]> {
 
 struct Walk {
     nodes: usize,
-    binds: Vec<(String, String)>,
+    /// (node type, topic, field)
+    binds: Vec<(String, String, String)>,
 }
 
 impl Walk {
@@ -589,7 +620,7 @@ impl Walk {
             );
             match (bm.len(), topic, field) {
                 (2, Some(tp), Some(f)) if dotted(tp, 100) && field_name(f) => {
-                    self.binds.push((tp.into(), f.into()))
+                    self.binds.push((t.into(), tp.into(), f.into()))
                 }
                 _ => {
                     return Err(format!(
@@ -626,7 +657,7 @@ impl Walk {
 
 /// layout.json: node rules, limits, variants declared in widget.json, every bind declared in the
 /// widget's providers. Returns the raw value for the index comparison.
-pub fn layout(bytes: &[u8], w: &Widget, widget_variants: &[String]) -> R<Value> {
+pub fn layout(bytes: &[u8], w: &Widget, widget_variants: &[String], sample: &Value) -> R<Value> {
     let v = json::strict(bytes, json::MAX_DEPTH)?;
     let m = obj(&v, "layout.json")?;
     only(m, &["schemaVersion", "root", "variants"], "layout.json")?;
@@ -659,7 +690,7 @@ pub fn layout(bytes: &[u8], w: &Widget, widget_variants: &[String]) -> R<Value> 
         .iter()
         .flat_map(|p| p.fields.iter().map(String::as_str))
         .collect();
-    for (t, f) in &walk.binds {
+    for (_, t, f) in &walk.binds {
         if !topics.contains(t.as_str()) || !fields.contains(f.as_str()) {
             return Err(format!(
                 "layout binds {}.{} which widget.json does not declare",
@@ -668,7 +699,85 @@ pub fn layout(bytes: &[u8], w: &Widget, widget_variants: &[String]) -> R<Value> 
             ));
         }
     }
+    assert_plain(&v, "layout.json", 0)?;
+    check_bindings(&walk.binds, sample)?;
     Ok(v)
+}
+
+/// `validateSampleData`: topic -> field -> finite number, plain string, or a uniform list of
+/// them (at most 50 items, strings up to 120 characters).
+pub fn sample_data(v: &Value) -> R<()> {
+    let m = obj(v, "sampleData")?;
+    if m.len() > 16 {
+        return Err("sampleData has more than 16 properties".into());
+    }
+    for (t, fields) in m {
+        let fm = fields.as_object().filter(|_| dotted(t, 100));
+        let Some(fm) = fm else {
+            return Err(format!(
+                "sampleData.{}: invalid topic or value",
+                show_value(t)
+            ));
+        };
+        for (f, val) in fm {
+            let at = format!("sampleData.{}.{}", show_value(t), show_value(f));
+            let items: Vec<&Value> = match val {
+                Value::Array(a) => a.iter().collect(),
+                x => vec![x],
+            };
+            if !field_name(f) || items.len() > 50 {
+                return Err(format!("{at}: invalid field or too many items"));
+            }
+            if let Value::Array(a) = val
+                && a.iter()
+                    .map(|x| match x {
+                        Value::Number(_) => 0u8,
+                        Value::String(_) => 1,
+                        _ => 2,
+                    })
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    > 1
+            {
+                return Err(format!("{at}: mixed types"));
+            }
+            let ok = items.iter().all(|x| match x {
+                Value::Number(n) => n.as_f64().is_some_and(f64::is_finite),
+                Value::String(s) => utf16_len(s) <= TEXT && plain(s),
+                _ => false,
+            });
+            if !ok {
+                return Err(format!(
+                    "{at}: must be finite numbers or plain strings up to {TEXT} characters"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `checkBindings`: every bound field has sample data of the shape its node needs.
+fn check_bindings(binds: &[(String, String, String)], sample: &Value) -> R<()> {
+    for (ty, t, f) in binds {
+        let at = format!("{}.{}", show_value(t), show_value(f));
+        let v = sample
+            .get(t)
+            .and_then(|x| x.get(f))
+            .ok_or_else(|| format!("layout.json bindings: {at}: no sampleData"))?;
+        let nums = |v: &Value| v.as_array().is_some_and(|a| a.iter().all(Value::is_number));
+        let ok = match ty.as_str() {
+            "bar" | "ring" => v.is_number(),
+            "sparkline" => nums(v) && v.as_array().is_some_and(|a| a.len() >= 2),
+            "list" => v.as_array().is_some_and(|a| a.iter().all(Value::is_string)),
+            _ => true,
+        };
+        if !ok {
+            return Err(format!(
+                "layout.json bindings: {at}: sample data has the wrong shape for a {ty}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Everything between the three byte strings and a decision. `index_hashes` come from the
@@ -720,7 +829,10 @@ pub fn check_files(
                 .collect()
         })
         .unwrap_or_default();
-    let lv = layout(layout_b, &w, &variants)?;
+    let empty = Value::Object(Map::new());
+    let sample = wv.get("sampleData").unwrap_or(&empty);
+    sample_data(sample)?;
+    let lv = layout(layout_b, &w, &variants, sample)?;
     for (what, from_index, fetched) in [
         ("providers", &l.providers, &wv["providers"]),
         ("capabilities", &l.capabilities, &wv["capabilities"]),

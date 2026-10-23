@@ -10,7 +10,10 @@ pub fn is_spoofing(c: char) -> bool {
             0x00ad | 0x034f | 0x061c | 0x115f | 0x1160 | 0x17b4 | 0x17b5
             | 0x180b..=0x180f | 0x200b..=0x200f | 0x2028..=0x202e | 0x2060..=0x206f
             | 0x2800 | 0x3164 | 0xfe00..=0xfe0e | 0xfeff | 0xffa0
-            | 0xfff9..=0xfffb | 0xe0000..=0xe007f)
+            | 0xfff9..=0xfffb | 0xe0000..=0xe007f
+            // Cf characters outside the blocks above (parity with the registry's SPOOF class).
+            | 0x0600..=0x0605 | 0x06dd | 0x070f | 0x0890..=0x0891 | 0x08e2 | 0x110bd | 0x110cd
+            | 0x13430..=0x1343f | 0x1bca0..=0x1bca3 | 0x1d173..=0x1d17a)
         // Private use.
         || matches!(c as u32, 0xe000..=0xf8ff | 0xf0000..=0xffffd | 0x100000..=0x10fffd)
 }
@@ -68,9 +71,38 @@ pub fn plain_chars(s: &str) -> bool {
     !htmlish(s)
 }
 
+/// Length in UTF-16 code units, which is what the website's JavaScript counts.
+pub fn utf16_len(s: &str) -> usize {
+    s.encode_utf16().count()
+}
+
+/// Typographic punctuation allowed besides ASCII.
+const TYPOGRAPHIC: &str = "\u{2018}\u{2019}\u{201c}\u{201d}\u{2013}\u{2014}\u{2026}\u{00b7}\u{2022}\u{00a9}\u{00ae}\u{2122}\u{00b0}\u{20ac}\u{00a3}\u{00a5}\u{00a0}";
+
+/// Combining marks and signs of scripts that cannot be written without them (no Unicode
+/// category table in std, so by block; may include unassigned points inside these blocks).
+fn is_mark_block(c: char) -> bool {
+    matches!(c as u32, 0x0300..=0x036f | 0x0900..=0x0dff | 0x0e31..=0x0e3a | 0x0e47..=0x0e4e | 0x3099..=0x309a)
+}
+
+/// Strict allow-list for names and descriptions shown at the consent prompt: `plain_chars`,
+/// and every character a letter or digit (`char::is_alphanumeric`), ASCII printable, one of a
+/// few typographic marks, or a combining mark of an Indic or similar script. This also rejects
+/// unassigned code points outside those blocks without a Unicode table; emoji and other
+/// symbols are refused (the website accepts them).
+pub fn printable(s: &str) -> bool {
+    plain(s)
+        && s.chars().all(|c| {
+            c.is_alphanumeric()
+                || (' '..='~').contains(&c)
+                || TYPOGRAPHIC.contains(c)
+                || is_mark_block(c)
+        })
+}
+
 /// Text safe to print to a terminal: plain, otherwise replaced by a fixed notice.
 pub fn show(s: &str) -> String {
-    if plain(s) {
+    if printable(s) {
         s.chars().take(120).collect()
     } else {
         "(unprintable text)".into()
@@ -257,6 +289,32 @@ mod tests {
         ] {
             assert!(!plain(bad), "{bad:?}");
         }
+        // Cf characters outside the common blocks.
+        for c in [
+            '\u{0600}',
+            '\u{06dd}',
+            '\u{070f}',
+            '\u{0890}',
+            '\u{08e2}',
+            '\u{110bd}',
+            '\u{13430}',
+            '\u{1bca0}',
+            '\u{1d173}',
+            '\u{e0001}',
+        ] {
+            assert!(!plain(&format!("a{c}b")), "{c:?}");
+        }
+        assert!(!printable("Clock\u{0600}\u{06dd}\u{0378}\u{1d17}3x"));
+        assert!(!printable("a\u{0378}b") && !printable("smile \u{1f600}"));
+        for ok in [
+            "Clock",
+            "\u{6642}\u{8a08}\u{30a6}\u{30a3}\u{30b8}\u{30a7}\u{30c3}\u{30c8}",
+            "\u{0918}\u{0921}\u{0940} \u{0935}\u{093f}\u{091c}\u{0947}\u{091f} \u{0915}\u{094d}\u{0932}\u{0915}",
+            "Caf\u{e9} \u{2014} it\u{2019}s 9\u{b0}",
+        ] {
+            assert!(printable(ok), "{ok}");
+        }
+        assert_eq!(utf16_len("a\u{1f600}"), 3);
         assert!(plain("1 < 2"));
         assert_eq!(show("a\u{1b}[31m"), "(unprintable text)");
         assert!(!show_value("a\u{202e}\"b\\c").contains(['\u{202e}', '\\']));

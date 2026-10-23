@@ -422,7 +422,7 @@ fn layout_depth_and_node_limits() {
         f.2 = serde_json::to_vec(&json!({"schemaVersion": 0, "root": root})).unwrap()
     };
     put(&mut f, nest(7));
-    assert!(run(&listing("clock", |e| drop_key(e, "layout")), &f).is_ok());
+    run(&listing("clock", |e| drop_key(e, "layout")), &f).unwrap();
     put(&mut f, nest(8));
     assert!(
         run(&listing("clock", |e| drop_key(e, "layout")), &f)
@@ -481,5 +481,149 @@ fn what_the_index_showed_must_equal_what_installs() {
 fn hostile_text_in_names_is_never_printable() {
     for bad in ["a\u{1b}[2J", "a\u{202e}b", "a\u{200b}", "a\nb", "\u{0}"] {
         refused(0, "name", |m| m["name"] = json!(bad));
+    }
+}
+
+#[test]
+fn names_use_a_printable_allow_list_and_legitimate_non_latin_names_pass() {
+    // The audit's example: Cf characters, an unassigned code point, a phonetic letter.
+    for bad in [
+        "Clock\u{0600}\u{06DD}\u{0378}\u{1D17}3x",
+        "Clock\u{0378}",
+        "Clock \u{1F600}",
+        "Clock\u{200D}",
+        "Cl\u{070F}ock",
+    ] {
+        refused(0, "name", |m| m["name"] = json!(bad));
+    }
+    refused(0, "description", |m| {
+        m["description"] = json!("nice \u{1F600}")
+    });
+    refused(0, "license", |m| m["license"] = json!("MIT\u{2060}"));
+    // Length is counted in UTF-16 units like the website: 41 astral characters are 82 units.
+    refused(0, "name", |m| m["name"] = json!("\u{1D400}".repeat(41)));
+    for ok in [
+        "\u{6642}\u{8a08}\u{30a6}\u{30a3}\u{30b8}\u{30a7}\u{30c3}\u{30c8}",
+        "\u{0918}\u{0921}\u{0940} \u{0935}\u{093f}\u{091c}\u{0947}\u{091f} \u{0915}\u{094d}\u{0932}\u{0915}",
+        "Caf\u{e9} \u{2014} it\u{2019}s 9\u{b0}",
+    ] {
+        let mut f = files("clock");
+        let mut m: Value = serde_json::from_slice(&f.0).unwrap();
+        m["name"] = json!(ok);
+        f.0 = serde_json::to_vec(&m).unwrap();
+        run(&listing("clock", |e| e["name"] = json!(ok)), &f)
+            .unwrap_or_else(|e| panic!("{ok}: {e}"));
+    }
+}
+
+#[test]
+fn format_characters_hidden_in_any_string_or_key_are_refused() {
+    refused(1, "plain", |w| {
+        w["settings"] = json!([{"key": "a", "type": "string", "default": "x\u{0600}y"}])
+    });
+    refused(1, "forbidden key", |w| w["extra\u{202e}"] = json!(1));
+    refused(1, "forbidden key", |w| {
+        w["sampleData"]["__proto__"] = json!({})
+    });
+    refused(2, "plain", |l| {
+        l["root"]["children"][0]["unit"] = json!("\u{200b}")
+    });
+}
+
+#[test]
+fn sample_data_is_checked_like_the_website_does() {
+    let with = |sd: Value| {
+        let mut f = files("clock");
+        let mut w: Value = serde_json::from_slice(&f.1).unwrap();
+        w["sampleData"] = sd;
+        f.1 = serde_json::to_vec(&w).unwrap();
+        run(&listing("clock", |_| {}), &f)
+    };
+    let good =
+        json!({"system.time": {"hm": "10:09", "hms": "10:09:42", "date": "Mon", "tz": "NPT"}});
+    assert!(with(good.clone()).is_ok());
+    // Every bind needs sample data.
+    let mut missing = good.clone();
+    missing["system.time"].as_object_mut().unwrap().remove("tz");
+    assert!(with(missing).unwrap_err().contains("no sampleData"));
+    assert!(with(json!({})).unwrap_err().contains("no sampleData"));
+    for (bad, why) in [
+        (json!("x"), "must be an object"),
+        (json!({"Bad Topic": {}}), "invalid topic"),
+        (json!({"system.time": []}), "invalid topic"),
+        (json!({"system.time": {"hm": [1, "a"]}}), "mixed types"),
+        (
+            json!({"system.time": {"hm": (0..51).collect::<Vec<_>>()}}),
+            "too many items",
+        ),
+        (json!({"system.time": {"hm": "x\u{1b}[31m"}}), "plain text"),
+        (
+            json!({"system.time": {"hm": "a".repeat(121)}}),
+            "plain strings",
+        ),
+        (json!({"system.time": {"hm": true}}), "plain strings"),
+        (json!({"system.time": {"hm": null}}), "plain strings"),
+        (json!({"system.time": {"bad field": 1}}), "invalid field"),
+    ] {
+        let mut sd = good.clone();
+        let tgt = bad.clone();
+        if bad.is_object()
+            && bad.as_object().unwrap().contains_key("system.time")
+            && bad["system.time"].is_object()
+        {
+            for (k, v) in tgt["system.time"].as_object().unwrap() {
+                sd["system.time"][k] = v.clone();
+            }
+        } else {
+            sd = bad;
+        }
+        let e = with(sd).unwrap_err();
+        assert!(e.contains(why), "{why}: {e}");
+    }
+}
+
+#[test]
+fn bound_nodes_need_sample_data_of_the_right_shape() {
+    // battery: a bar needs a number, a sparkline a series of at least two numbers.
+    let l = listing("battery", |_| {});
+    let base = files("battery");
+    let mut w: Value = serde_json::from_slice(&base.1).unwrap();
+    let mut lay: Value = serde_json::from_slice(&base.2).unwrap();
+    let topic = w["providers"][0]["topics"][0].as_str().unwrap().to_owned();
+    let field = w["providers"][0]["fields"][0].as_str().unwrap().to_owned();
+    lay["root"] = json!({"type": "bar", "bind": {"topic": topic, "field": field}});
+    lay.as_object_mut().unwrap().remove("variants");
+    for (sample, ok) in [
+        (json!(55), true),
+        (json!("high"), false),
+        (json!([1, 2]), false),
+    ] {
+        w["sampleData"] = json!({ topic.clone(): { field.clone(): sample } });
+        let f = (
+            base.0.clone(),
+            serde_json::to_vec(&w).unwrap(),
+            serde_json::to_vec(&lay).unwrap(),
+        );
+        let mut l2 = l.clone();
+        l2.providers = None;
+        l2.layout = None;
+        assert_eq!(run(&l2, &f).is_ok(), ok);
+    }
+    lay["root"]["type"] = json!("sparkline");
+    for (sample, ok) in [
+        (json!([1, 2, 3]), true),
+        (json!([1]), false),
+        (json!(5), false),
+    ] {
+        w["sampleData"] = json!({ topic.clone(): { field.clone(): sample } });
+        let f = (
+            base.0.clone(),
+            serde_json::to_vec(&w).unwrap(),
+            serde_json::to_vec(&lay).unwrap(),
+        );
+        let mut l2 = l.clone();
+        l2.providers = None;
+        l2.layout = None;
+        assert_eq!(run(&l2, &f).is_ok(), ok);
     }
 }

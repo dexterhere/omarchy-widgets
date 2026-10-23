@@ -8,6 +8,13 @@ use std::path::Path;
 
 const UNLOCK_ID: u64 = 1;
 
+/// The daemon keeps a decrypted copy while unlocked, so after the file changes under it we
+/// tell it to lock (dropping the copy and every cache entry derived from it). Best effort: no
+/// daemon, or one we do not trust, simply means there is no copy to drop.
+fn lock_daemon(paths: &Paths) {
+    let _ = daemon::call(paths, "{\"v\":0,\"id\":1,\"op\":\"vault.lock\"}\n");
+}
+
 fn err(e: VaultError) -> String {
     e.to_string()
 }
@@ -90,11 +97,13 @@ pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Resu
             drop(pass);
             let value = secret_confirmed(&format!("Value for {name}"))?;
             v.set(name, utf8(&value)?).map_err(err)?;
+            lock_daemon(paths);
             writeln!(out, "stored {name}").map_err(w)
         }
         ["remove", name] => {
             let mut v = Vault::open(&path, &secret("Vault passphrase")?).map_err(err)?;
             let removed = v.remove(name).map_err(err)?;
+            lock_daemon(paths);
             writeln!(
                 out,
                 "{}",
@@ -106,10 +115,12 @@ pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Resu
             let mut v = Vault::open(&path, &secret("Current passphrase")?).map_err(err)?;
             let new = secret_confirmed("New passphrase (min 12 bytes)")?;
             v.rotate_passphrase(&new, Profile::Standard).map_err(err)?;
+            lock_daemon(paths);
             writeln!(out, "passphrase and data key rotated").map_err(w)
         }
         ["wipe", "--yes"] => {
             ow_vault::wipe(&path).map_err(err)?;
+            lock_daemon(paths);
             writeln!(out, "vault file removed. Copies you made elsewhere (backups, snapshots, dotfile repos) are NOT erased and stay decryptable with the passphrase.")
                 .map_err(w)
         }

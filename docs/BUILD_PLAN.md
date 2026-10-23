@@ -29,6 +29,8 @@ packaging/            PKGBUILD, systemd unit
 .github/workflows/    CI
 ```
 
+Note: `site/` and `registry/` live in the web repo (dexterhere/dexterhere-omarchy-widgets-web), not in this repo; the layout above shows them for the overall plan.
+
 Note: an Omarchy plugin install requires exactly one `manifest.json` at a repository root. Monorepo widgets therefore need mirror repos (or Plugin Depot-style single-commit fetch) for standalone `omarchy plugin add`. Decide this in Phase 0.
 
 ## Progress (updated 2026-10-17)
@@ -74,7 +76,7 @@ Spikes (each: write a minimal experiment in `spikes/<name>/`, record result and 
 - [ ] S13 Keybinding: confirm a free chord for the Center on stock Omarchy 4; prototype the consented, reversible `bindings.lua` edit (against a copy).
 
 Documents
-- [ ] Threat model v0 (`docs/threat-model.md`) from PROJECT_BRIEF section 10, updated with S4 results.
+- [x] Threat model v0 (`docs/threat-model.md`) from PROJECT_BRIEF section 10, updated with S4 results. (Draft exists; S4 update still pending.)
 - [ ] Spec schema v0 (`spec/widget.schema.json`, `spec/layout.schema.json`).
 - [ ] DECISIONS.md filled for D-1 (admin ops authorization), host strategy, name, sidecar vs manifest, shared singleton vs per-widget client, monorepo vs mirror strategy.
 

@@ -540,3 +540,45 @@ fn lock_then_unlock_during_a_fetch_discards_the_old_result() {
     let n = again["data"]["len"].as_u64().unwrap_or(0);
     assert!(n >= 2, "stale cache entry served: {again}");
 }
+
+/// If the unlock cannot be written to the audit log it does not stand.
+#[test]
+fn unlock_fails_closed_when_the_audit_log_is_unwritable() {
+    let h = start(Duration::from_secs(900));
+    std::fs::remove_file(h.paths.audit()).unwrap();
+    std::fs::create_dir(h.paths.audit()).unwrap(); // reopen now fails
+    let r = h.unlock(PASS);
+    assert_eq!(code(&r), "internal", "{r}");
+    assert_eq!(h.status()["state"], "locked");
+    assert_eq!(code(&h.snap("fake.secret")), "locked");
+}
+
+/// A flood of widget-shaped admin frames writes a bounded number of audit lines.
+#[test]
+fn widget_shaped_admin_flood_cannot_fill_the_audit_log() {
+    let h = start(Duration::from_secs(900));
+    h.unlock(PASS);
+    let before = h.audit().lines().count();
+    let mut s = UnixStream::connect(h.paths.socket()).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    for i in 0..60 {
+        // The server drops a connection after 8 bad frames in a row, so use fresh ones.
+        if i % 6 == 0 {
+            s = UnixStream::connect(h.paths.socket()).unwrap();
+            s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        }
+        s.write_all(b"{\"v\":0,\"id\":1,\"op\":\"vault.lock\",\"widget\":null}\n")
+            .unwrap();
+        let mut r = BufReader::new(s.try_clone().unwrap());
+        let mut l = String::new();
+        r.read_line(&mut l).unwrap();
+        assert!(l.contains("denied"), "{l}");
+    }
+    let added = h.audit().lines().count() - before;
+    assert!(added <= 14, "{added} audit lines from a flood");
+    assert_eq!(
+        h.status()["state"],
+        "unlocked",
+        "refused frames must not lock"
+    );
+}

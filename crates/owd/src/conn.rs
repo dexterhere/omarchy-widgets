@@ -53,8 +53,16 @@ impl Shared {
     /// Audit an admin event. Fixed vocabulary, no payload: who is always "admin", the topic is
     /// "vault" and the op is one of unlock, lock, autolock, lockout, or the name of
     /// an admin op that was refused.
-    fn audit_admin(&self, op: &str, allow: bool) {
-        lock(&self.audit).record("admin", "vault", op, allow, 0);
+    fn audit_admin(&self, op: &str, allow: bool) -> bool {
+        lock(&self.audit).record("admin", "vault", op, allow, 0)
+    }
+
+    /// Refused admin-shaped requests share one small bucket, so a flood of them cannot rotate
+    /// real history out of the audit log. Over the limit: still refused, no audit line.
+    fn admin_denial_audited(&self, op: &str) {
+        if lock(&self.limiter).allow("admin", "vault", Instant::now()) {
+            self.audit_admin(op, false);
+        }
     }
 
     /// Drop the key and everything derived from it.
@@ -75,7 +83,11 @@ impl Shared {
             Ok(()) => {
                 // A fresh unlock re-reads the vault, so anything cached from older secrets goes.
                 self.hub.purge_secret_entries();
-                self.audit_admin("unlock", true);
+                // Fail closed: an unlock that cannot be recorded does not stand.
+                if !self.audit_admin("unlock", true) {
+                    self.lock_vault();
+                    return Reply::err(id, ErrorCode::Internal, None);
+                }
                 Reply::ok(id, state_body("unlocked"))
             }
             Err(UnlockError::Denied { locked_out }) => {
@@ -166,6 +178,12 @@ fn data_op(
         lock(&shared.audit).record(widget, &topic, op, false, 0);
         (Reply::err(id, code, Some(topic.clone())), None)
     };
+    // A data request that names an admin op as its topic is the same kind of probe as a
+    // widget-shaped admin frame: bound how often it can write audit lines.
+    if topic.starts_with("vault.") && !lock(&shared.limiter).allow("admin", "vault", Instant::now())
+    {
+        return (Reply::err(id, ErrorCode::Denied, Some(topic.clone())), None);
+    }
     if grant_for(shared, widget, &topic).is_none() {
         return deny(ErrorCode::Denied);
     }
@@ -240,7 +258,7 @@ fn handle(line: &str, shared: &Shared, ctx: &Ctx) -> (bool, bool) {
         Err(e) => {
             if let Some(op) = e.admin_op {
                 // Admin op dressed as a widget request: refused and audited, no payload.
-                shared.audit_admin(op, false);
+                shared.admin_denial_audited(op);
             }
             return (
                 true,

@@ -65,12 +65,14 @@ const BANNED_SOURCE: &[&str] = &[
 /// say what the use is. Paths are relative to the workspace root.
 const AUDITED: &[(&str, &[&str])] = &[
     // `ow` talks to the local daemon over its Unix-domain socket and checks the peer uid
-    // (SO_PEERCRED via rustix::net::sockopt) before sending anything.
-    ("crates/ow/src/daemon.rs", &["UnixStream", "rustix::net"]),
+    // (`ow_core::peer_is_self`) before sending anything.
+    ("crates/ow/src/daemon.rs", &["UnixStream"]),
+    // The one peer-uid check (SO_PEERCRED via rustix::net::sockopt), used by `ow` and `owd`.
+    ("crates/ow-core/src/peer.rs", &["UnixStream", "rustix::net"]),
     // `owd` serves its Unix-domain socket and probes it for a stale instance.
     ("crates/owd/src/server.rs", &["UnixStream", "UnixListener"]),
-    // `owd` reads SO_PEERCRED of a Unix-domain connection (rustix::net::sockopt).
-    ("crates/owd/src/conn.rs", &["UnixStream", "rustix::net"]),
+    // `owd` serves Unix-domain connections and checks the peer uid with `ow_core::peer_is_self`.
+    ("crates/owd/src/conn.rs", &["UnixStream"]),
     // Integration tests of the daemon socket.
     (
         "crates/owd/tests/socket.rs",
@@ -90,6 +92,11 @@ const AUDITED: &[(&str, &[&str])] = &[
         &["Command::new", "UnixListener"],
     ),
     ("crates/owd/tests/leak.rs", &["Command::new", "UnixStream"]),
+    // Same search, but the test binary re-runs itself as a daemon with a secret-backed provider.
+    (
+        "crates/owd/tests/provider_leak.rs",
+        &["Command::new", "UnixStream"],
+    ),
     ("crates/owd/tests/unlock.rs", &["UnixStream"]),
 ];
 

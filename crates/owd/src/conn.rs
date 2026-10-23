@@ -12,11 +12,6 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 use zeroize::{Zeroize, Zeroizing};
 
-/// True only for the daemon's own uid.
-fn peer_is_self(stream: &UnixStream) -> bool {
-    rustix::net::sockopt::socket_peercred(stream).is_ok_and(|c| c.uid == rustix::process::geteuid())
-}
-
 fn info() -> Map<String, serde_json::Value> {
     json!({"daemonVersion": env!("CARGO_PKG_VERSION"), "protocol": ow_proto::PROTOCOL})
         .as_object()
@@ -342,7 +337,7 @@ const MAX_BAD_FRAMES: u32 = 8;
 const QUEUE: usize = 16;
 
 pub(crate) fn serve(stream: UnixStream, shared: &Shared, conn_id: u64) {
-    if !peer_is_self(&stream)
+    if !ow_core::peer_is_self(&stream)
         || stream.set_read_timeout(Some(FIRST_FRAME)).is_err()
         || stream.set_write_timeout(Some(WRITE)).is_err()
     {

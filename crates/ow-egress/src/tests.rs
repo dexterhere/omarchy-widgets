@@ -168,6 +168,22 @@ fn agent_settings_match_the_rules() {
     );
 }
 
+/// The tests above use `Egress::for_tests` with their own roots, so they cannot notice a change
+/// to what production trusts. This builds the real constructor and reads the settings back
+/// (AUTH-HTTP: bundled webpki roots, no environment-variable or system CA, verification on).
+#[test]
+fn production_egress_trusts_only_the_bundled_roots_and_verifies() {
+    let e = Egress::new(&[A]).unwrap();
+    let c = e.agent().config();
+    let t = c.tls_config();
+    assert!(matches!(t.root_certs(), ureq::tls::RootCerts::WebPki));
+    assert!(matches!(t.provider(), ureq::tls::TlsProvider::Rustls));
+    assert!(!t.disable_verification());
+    assert!(t.use_sni());
+    assert!(t.client_cert().is_none());
+    assert!(c.https_only() && c.proxy().is_none() && c.max_redirects() == 0);
+}
+
 // ---- redirects ----------------------------------------------------------------------------
 
 #[test]

@@ -324,6 +324,38 @@ mod tests {
         );
     }
 
+    /// AUTH-UNLOCK states these numbers to users, and the other tests use the constants
+    /// symbolically, so a quiet change (5 free guesses becoming 500) would pass them all.
+    #[test]
+    fn the_documented_numbers_and_guess_budget_hold() {
+        assert_eq!(FREE_FAILURES, 5);
+        assert_eq!(LOCKOUT_BASE, Duration::from_secs(30));
+        assert_eq!(LOCKOUT_MAX, Duration::from_secs(15 * 60));
+        assert_eq!(IDLE_TIMEOUT, Duration::from_secs(15 * 60));
+        assert_eq!(VaultPolicy::default().idle, IDLE_TIMEOUT);
+        // An attacker who guesses at the first moment each lockout allows gets 5 free guesses
+        // and then 30, 60, 120, 240, 480 s, then 900 s apart: 32 guesses in the first six hours.
+        let f = Fixture::new();
+        let mut guesses = 0u32;
+        let mut t = 0u64;
+        while t <= 6 * 3600 {
+            match f.st.unlock(b"FAKE wrong passphrase") {
+                Err(UnlockError::LockedOut) => {}
+                Err(UnlockError::Denied { .. }) => guesses += 1,
+                // Stop early if the limit has stopped limiting (each guess runs Argon2).
+                other => panic!("{other:?}"),
+            }
+            assert!(
+                guesses <= 40,
+                "{guesses} guesses: the lockout is not growing"
+            );
+            let wait = f.st.status().lockout_left.map_or(1, |d| d.as_secs().max(1));
+            f.advance(wait);
+            t += wait;
+        }
+        assert_eq!(guesses, 32, "guesses in 6 h");
+    }
+
     #[test]
     fn lockout_after_five_failures_doubles_and_caps() {
         let f = Fixture::new();

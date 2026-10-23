@@ -17,14 +17,15 @@ allow-wildcard-paths = true
 # Kept equal to BANNED_CRATES in crates/ow-egress/tests/only_egress_touches_the_network.rs (a
 # test compares them). rustix and nix are not banned: owd uses rustix for local files and
 # Unix-socket peer credentials, which the same test audits file by file.
-# Not verified locally (cargo-deny is not installed here); CI is the first real run.
+# Verified with cargo-deny 0.20.2: advisories, bans, licenses and sources pass; a scratch dependency of
+# ow-providers on ureq or reqwest fails the bans check.
 deny = [
     { crate = "ureq", wrappers = ["ow-egress"] },
     { crate = "ureq-proto", wrappers = ["ureq"] },
     { crate = "rustls", wrappers = ["ow-egress", "ureq"] },
     { crate = "rustls-webpki", wrappers = ["rustls"] },
     { crate = "webpki-roots", wrappers = ["ureq"] },
-    { crate = "httparse", wrappers = ["ureq", "ureq-proto"] },
+    { crate = "httparse", wrappers = ["ureq-proto"] },
     { crate = "rustls-native-certs" },
     { crate = "rustls-platform-verifier" },
     { crate = "tokio-rustls" },

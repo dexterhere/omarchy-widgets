@@ -26,8 +26,7 @@ pub fn call(paths: &Paths, request: &str) -> Result<String, String> {
         }
     }
     let mut s = UnixStream::connect(&sock).map_err(|e| format!("daemon not reachable: {e}"))?;
-    if !rustix::net::sockopt::socket_peercred(&s).is_ok_and(|c| c.uid == rustix::process::geteuid())
-    {
+    if !ow_core::peer_is_self(&s) {
         return Err("refusing to use the daemon socket: it is not served by your user".into());
     }
     s.set_read_timeout(Some(TIMEOUT))

@@ -488,6 +488,70 @@ mod tests {
         }
     }
 
+    /// A duplicated key must not let a frame be read one way by the router and another way by
+    /// the handler: whatever the order, a frame that carries a `widget` key never becomes an
+    /// admin request, and a duplicated `op` is refused outright.
+    /// True when `$t` implements `$tr` (a probe that compiles either way).
+    macro_rules! implements {
+        ($t:ty, $tr:path) => {{
+            #[allow(dead_code)]
+            trait No {
+                const V: bool = false;
+            }
+            struct W<T: ?Sized>(std::marker::PhantomData<T>);
+            impl<T: ?Sized> No for W<T> {}
+            impl<T: ?Sized + $tr> W<T> {
+                #[allow(dead_code)] // unused when the bound does not hold: that is the probe
+                const V: bool = true;
+            }
+            <W<$t>>::V
+        }};
+    }
+
+    /// The type's doc says a passphrase cannot be displayed, serialized or deserialized.
+    #[test]
+    fn passphrase_cannot_be_displayed_serialized_or_deserialized() {
+        assert!(implements!(String, std::fmt::Display), "probe is broken");
+        assert!(!implements!(Passphrase, std::fmt::Display));
+        assert!(!implements!(Passphrase, serde::Serialize));
+        assert!(!implements!(Passphrase, serde::de::DeserializeOwned));
+        assert!(!implements!(Passphrase, Copy));
+    }
+
+    #[test]
+    fn duplicate_keys_cannot_smuggle_an_admin_op_past_the_widget_rule() {
+        for op in ["vault.unlock", "vault.lock", "vault.status"] {
+            let pw = hex(PW);
+            let lines = [
+                format!(
+                    r#"{{"v":0,"id":4,"op":"{op}","widget":"w","widget":null,"passphrase":"{pw}"}}"#
+                ),
+                format!(
+                    r#"{{"v":0,"id":4,"op":"{op}","widget":null,"widget":"w","passphrase":"{pw}"}}"#
+                ),
+                format!(
+                    r#"{{"v":0,"id":4,"op":"{op}","op":"snapshot","widget":"w","topic":"t","passphrase":"{pw}"}}"#
+                ),
+                format!(
+                    r#"{{"v":0,"id":4,"op":"snapshot","op":"{op}","widget":"w","topic":"t","passphrase":"{pw}"}}"#
+                ),
+                format!(r#"{{"v":0,"id":4,"op":"{op}","op":"status","passphrase":"{pw}"}}"#),
+                format!(r#"{{"v":0,"id":4,"op":"status","op":"{op}","passphrase":"{pw}"}}"#),
+                format!(r#"{{"v":0,"v":1,"id":4,"op":"{op}","passphrase":"{pw}"}}"#),
+                format!(r#"{{"v":0,"id":4,"id":5,"op":"{op}","passphrase":"{pw}"}}"#),
+            ];
+            for l in lines {
+                if let Ok(r) = Request::parse(&l) {
+                    assert!(
+                        r.op.admin_name().is_none() && !l.contains("widget"),
+                        "{l} parsed as {:?}",
+                        r.op.admin_name()
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn admin_ops_claiming_a_widget_are_denied_and_named() {
         for op in ["vault.unlock", "vault.lock", "vault.status"] {

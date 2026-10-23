@@ -240,6 +240,35 @@ mod tests {
         );
     }
 
+    /// True when `$t` implements `$tr` (a probe that compiles either way).
+    macro_rules! implements {
+        ($t:ty, $tr:path) => {{
+            #[allow(dead_code)]
+            trait No {
+                const V: bool = false;
+            }
+            struct W<T: ?Sized>(std::marker::PhantomData<T>);
+            impl<T: ?Sized> No for W<T> {}
+            impl<T: ?Sized + $tr> W<T> {
+                #[allow(dead_code)] // unused when the bound does not hold: that is the probe
+                const V: bool = true;
+            }
+            <W<$t>>::V
+        }};
+    }
+
+    /// The type's doc says a secret handle cannot be formatted, copied, compared or serialized.
+    #[test]
+    fn secret_handle_cannot_be_displayed_cloned_compared_or_serialized() {
+        assert!(implements!(String, std::fmt::Display), "probe is broken");
+        assert!(implements!(SecretHandle<'static>, std::fmt::Debug));
+        assert!(!implements!(SecretHandle<'static>, std::fmt::Display));
+        assert!(!implements!(SecretHandle<'static>, Clone));
+        assert!(!implements!(SecretHandle<'static>, Copy));
+        assert!(!implements!(SecretHandle<'static>, PartialEq));
+        assert!(!implements!(SecretHandle<'static>, serde::Serialize));
+    }
+
     #[test]
     fn handle_debug_is_redacted() {
         let ctx = FetchCtx::new(&["a"], &Src);

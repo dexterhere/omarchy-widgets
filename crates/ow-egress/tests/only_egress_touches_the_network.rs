@@ -64,8 +64,9 @@ const BANNED_SOURCE: &[&str] = &[
 /// The only existing uses, each reviewed by hand. Adding a line here is a security decision:
 /// say what the use is. Paths are relative to the workspace root.
 const AUDITED: &[(&str, &[&str])] = &[
-    // `ow` talks to the local daemon over its Unix-domain socket.
-    ("crates/ow/src/main.rs", &["UnixStream"]),
+    // `ow` talks to the local daemon over its Unix-domain socket and checks the peer uid
+    // (SO_PEERCRED via rustix::net::sockopt) before sending anything.
+    ("crates/ow/src/daemon.rs", &["UnixStream", "rustix::net"]),
     // `owd` serves its Unix-domain socket and probes it for a stale instance.
     ("crates/owd/src/server.rs", &["UnixStream", "UnixListener"]),
     // `owd` reads SO_PEERCRED of a Unix-domain connection (rustix::net::sockopt).
@@ -78,6 +79,18 @@ const AUDITED: &[(&str, &[&str])] = &[
     // Tests that run the freshly built `ow` and `owd` binaries (CARGO_BIN_EXE_*).
     ("crates/ow/tests/vault_cli.rs", &["Command::new"]),
     ("crates/owd/tests/hardening.rs", &["Command::new"]),
+    // Tests of the unlock path: local Unix-domain sockets and fake listeners, and child processes
+    // that run the freshly built binaries. No internet sockets.
+    (
+        "crates/ow/tests/daemon_cli.rs",
+        &["Command::new", "UnixStream"],
+    ),
+    (
+        "crates/ow/tests/socket_trust.rs",
+        &["Command::new", "UnixListener"],
+    ),
+    ("crates/owd/tests/leak.rs", &["Command::new", "UnixStream"]),
+    ("crates/owd/tests/unlock.rs", &["UnixStream"]),
 ];
 
 fn root() -> PathBuf {

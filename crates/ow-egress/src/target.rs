@@ -5,7 +5,9 @@ const MAX_PATH: usize = 2048;
 const MAX_HEADER_VALUE: usize = 256;
 const MAX_HEADER_NAME: usize = 64;
 
-/// Request headers a caller may never set: the wrapper owns them.
+/// Request headers a caller may never set: the wrapper owns them, or they change how a server
+/// or proxy routes, caches or interprets the request. The conditional and range headers
+/// (`if-*`, `range`) are refused for now and will be reconsidered when ETag polling is added.
 const RESERVED_HEADERS: &[&str] = &[
     "authorization",
     "proxy-authorization",
@@ -16,6 +18,7 @@ const RESERVED_HEADERS: &[&str] = &[
     "content-length",
     "transfer-encoding",
     "connection",
+    "keep-alive",
     "accept-encoding",
     "content-encoding",
     "upgrade",
@@ -23,6 +26,18 @@ const RESERVED_HEADERS: &[&str] = &[
     "trailer",
     "expect",
     "forwarded",
+    "via",
+    "origin",
+    "referer",
+    "range",
+    "if-match",
+    "if-none-match",
+    "if-modified-since",
+    "if-unmodified-since",
+    "if-range",
+    "x-http-method-override",
+    "x-method-override",
+    "x-real-ip",
     "x-forwarded-for",
     "x-forwarded-host",
     "x-forwarded-proto",

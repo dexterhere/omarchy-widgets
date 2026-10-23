@@ -92,6 +92,11 @@ const AUDITED: &[(&str, &[&str])] = &[
         &["Command::new", "UnixListener"],
     ),
     ("crates/owd/tests/leak.rs", &["Command::new", "UnixStream"]),
+    // Same search, but the test binary re-runs itself as a daemon with a secret-backed provider.
+    (
+        "crates/owd/tests/provider_leak.rs",
+        &["Command::new", "UnixStream"],
+    ),
     ("crates/owd/tests/unlock.rs", &["UnixStream"]),
 ];
 

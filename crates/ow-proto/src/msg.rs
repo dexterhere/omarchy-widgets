@@ -177,8 +177,13 @@ struct Probe {
     id: u64,
     #[serde(default)]
     op: Option<Value>,
-    #[serde(default)]
-    widget: Option<Value>,
+    /// True when the key is present, whatever its value (null included).
+    #[serde(default, deserialize_with = "present")]
+    widget: bool,
+}
+
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    serde::de::IgnoredAny::deserialize(d).map(|_| true)
 }
 
 #[derive(Deserialize)]
@@ -208,7 +213,7 @@ impl Request {
         if let Some(name) = admin {
             // Widget requests carry a widget id; admin requests never do. A frame mixing the
             // two is refused so a widget-shaped request can never reach an admin handler.
-            if probe.widget.is_some() {
+            if probe.widget {
                 return Err(ParseError {
                     admin_op: Some(name),
                     ..fail(Some(probe.id), ErrorCode::Denied)
@@ -464,6 +469,21 @@ mod tests {
             code(&bad_lines[7]),
             (Some(3), ErrorCode::UnsupportedVersion)
         );
+    }
+
+    /// `"widget":null` is still a widget claim: the key's presence is what counts.
+    #[test]
+    fn null_or_odd_widget_values_still_count_as_a_claim() {
+        for w in ["null", "\"\"", "0", "[]", "{}", "false"] {
+            for op in ["vault.unlock", "vault.lock", "vault.status"] {
+                let l = format!(
+                    r#"{{"v":0,"id":4,"op":"{op}","widget":{w},"passphrase":"{}"}}"#,
+                    hex(PW)
+                );
+                let e = Request::parse(&l).unwrap_err();
+                assert_eq!((e.code, e.admin_op), (ErrorCode::Denied, Some(op)), "{l}");
+            }
+        }
     }
 
     #[test]

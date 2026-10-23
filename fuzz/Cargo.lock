@@ -317,6 +317,7 @@ dependencies = [
  "ow-core",
  "ow-proto",
  "ow-vault",
+ "serde_json",
 ]
 
 [[package]]

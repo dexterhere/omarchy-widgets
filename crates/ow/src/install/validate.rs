@@ -8,7 +8,7 @@ use super::catalog::{Auth, Catalog};
 use super::hash::sha256;
 use super::index::{FILES, Listing};
 use super::json;
-use super::text::{dotted, field_name, plain, schema_id, show, show_value, slug};
+use super::text::{dotted, field_name, plain, plain_chars, schema_id, show, show_value, slug};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -442,7 +442,7 @@ fn settings(v: &Value) -> R<()> {
         }
         match need(m, "default", &at)? {
             Value::Bool(_) | Value::Number(_) => {}
-            Value::String(d) if d.chars().count() <= 200 && plain_or_empty(d) => {}
+            Value::String(d) if d.chars().count() <= 200 && plain_chars(d) => {}
             _ => {
                 return Err(format!(
                     "{at}.default must be a scalar of at most 200 plain characters"
@@ -451,7 +451,7 @@ fn settings(v: &Value) -> R<()> {
         }
         if let Some(l) = m.get("label") {
             let l = string(l, &at)?;
-            if l.chars().count() > 80 || !plain_or_empty(l) {
+            if l.chars().count() > 80 || !plain_chars(l) {
                 return Err(format!("{at}.label must be plain text up to 80 characters"));
             }
         }
@@ -463,7 +463,7 @@ fn settings(v: &Value) -> R<()> {
         if let Some(o) = m.get("options") {
             for x in arr(o, &at, 32)? {
                 let x = string(x, &at)?;
-                if x.chars().count() > 40 || !plain_or_empty(x) {
+                if x.chars().count() > 40 || !plain_chars(x) {
                     return Err(format!(
                         "{at}.options must be plain text up to 40 characters"
                     ));
@@ -472,10 +472,6 @@ fn settings(v: &Value) -> R<()> {
         }
     }
     Ok(())
-}
-
-fn plain_or_empty(s: &str) -> bool {
-    s.is_empty() || plain(s)
 }
 
 // ---- layout.json (layout v0) -------------------------------------------------------------
@@ -606,7 +602,7 @@ impl Walk {
             && let Some(u) = m.get("unit")
         {
             match u.as_str() {
-                Some(s) if s.chars().count() <= 4 && plain(s) => {}
+                Some(s) if s.chars().count() <= 4 && plain_chars(s) => {}
                 _ => return Err(format!("{at}.unit must be plain text up to 4 characters")),
             }
         }

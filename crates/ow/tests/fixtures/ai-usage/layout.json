@@ -1,0 +1,324 @@
+{
+  "schemaVersion": 0,
+  "root": {
+    "type": "grid",
+    "columns": 2,
+    "gap": "md",
+    "children": [
+      {
+        "type": "value",
+        "bind": {
+          "topic": "ai-usage.sessions",
+          "field": "sessions"
+        },
+        "size": "lg",
+        "color": "accent"
+      },
+      {
+        "type": "text",
+        "text": "sessions",
+        "size": "sm",
+        "color": "muted"
+      },
+      {
+        "type": "value",
+        "bind": {
+          "topic": "ai-usage.sessions",
+          "field": "requests"
+        },
+        "size": "lg",
+        "color": "foreground"
+      },
+      {
+        "type": "text",
+        "text": "requests",
+        "size": "sm",
+        "color": "muted"
+      },
+      {
+        "type": "value",
+        "bind": {
+          "topic": "ai-usage.sessions",
+          "field": "activeMinutes"
+        },
+        "unit": "m",
+        "size": "lg",
+        "color": "foreground"
+      },
+      {
+        "type": "text",
+        "text": "active",
+        "size": "sm",
+        "color": "muted"
+      }
+    ]
+  },
+  "variants": {
+    "counts": {
+      "type": "grid",
+      "columns": 2,
+      "gap": "md",
+      "children": [
+        {
+          "type": "value",
+          "bind": {
+            "topic": "ai-usage.sessions",
+            "field": "sessions"
+          },
+          "size": "lg",
+          "color": "accent"
+        },
+        {
+          "type": "text",
+          "text": "sessions",
+          "size": "sm",
+          "color": "muted"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "ai-usage.sessions",
+            "field": "requests"
+          },
+          "size": "lg",
+          "color": "foreground"
+        },
+        {
+          "type": "text",
+          "text": "requests",
+          "size": "sm",
+          "color": "muted"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "ai-usage.sessions",
+            "field": "activeMinutes"
+          },
+          "unit": "m",
+          "size": "lg",
+          "color": "foreground"
+        },
+        {
+          "type": "text",
+          "text": "active",
+          "size": "sm",
+          "color": "muted"
+        }
+      ]
+    },
+    "sessions-only": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "value",
+          "bind": {
+            "topic": "ai-usage.sessions",
+            "field": "sessions"
+          },
+          "size": "xl",
+          "color": "accent"
+        },
+        {
+          "type": "text",
+          "text": "sessions",
+          "size": "sm",
+          "color": "muted"
+        }
+      ]
+    },
+    "activity": {
+      "type": "row",
+      "gap": "md",
+      "children": [
+        {
+          "type": "ring",
+          "bind": {
+            "topic": "ai-usage.sessions",
+            "field": "activeMinutes"
+          },
+          "color": "accent"
+        },
+        {
+          "type": "stack",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "value",
+              "bind": {
+                "topic": "ai-usage.sessions",
+                "field": "activeMinutes"
+              },
+              "unit": "m",
+              "size": "xl",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "active today",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "row",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "ai-usage.sessions",
+                    "field": "sessions"
+                  },
+                  "size": "sm",
+                  "color": "secondary"
+                },
+                {
+                  "type": "text",
+                  "text": "sessions",
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "chip": {
+      "type": "row",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "icon",
+          "name": "bolt",
+          "size": "sm",
+          "color": "secondary"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "ai-usage.sessions",
+            "field": "sessions"
+          },
+          "size": "sm",
+          "color": "foreground"
+        }
+      ]
+    },
+    "minimal": {
+      "type": "value",
+      "bind": {
+        "topic": "ai-usage.sessions",
+        "field": "requests"
+      },
+      "size": "xl",
+      "color": "foreground"
+    },
+    "detailed": {
+      "type": "stack",
+      "gap": "md",
+      "children": [
+        {
+          "type": "row",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "icon",
+              "name": "bolt",
+              "size": "md",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "AI usage",
+              "size": "sm",
+              "color": "secondary"
+            }
+          ]
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "row",
+          "gap": "lg",
+          "children": [
+            {
+              "type": "stack",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "ai-usage.sessions",
+                    "field": "sessions"
+                  },
+                  "size": "lg",
+                  "color": "accent"
+                },
+                {
+                  "type": "text",
+                  "text": "sessions",
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            },
+            {
+              "type": "stack",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "ai-usage.sessions",
+                    "field": "requests"
+                  },
+                  "size": "lg",
+                  "color": "foreground"
+                },
+                {
+                  "type": "text",
+                  "text": "requests",
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            },
+            {
+              "type": "stack",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "ai-usage.sessions",
+                    "field": "activeMinutes"
+                  },
+                  "unit": "m",
+                  "size": "lg",
+                  "color": "foreground"
+                },
+                {
+                  "type": "text",
+                  "text": "active",
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "bar",
+          "bind": {
+            "topic": "ai-usage.sessions",
+            "field": "activeMinutes"
+          },
+          "color": "accent"
+        }
+      ]
+    }
+  }
+}

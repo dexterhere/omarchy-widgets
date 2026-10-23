@@ -1,0 +1,7 @@
+{
+  "id": "io.github.dexterhere.docker",
+  "name": "Docker",
+  "version": "0.1.0",
+  "description": "Container counts at a glance. Spec widget with no code and six layout variants: counts, health, names, detailed, minimal and a bar chip.",
+  "license": "MIT"
+}

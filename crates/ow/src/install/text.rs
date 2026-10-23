@@ -42,10 +42,14 @@ pub fn htmlish(s: &str) -> bool {
     false
 }
 
-/// Plain text a person can see: no spoofing characters, nothing markup-like, no run of four
-/// combining marks, at least one non-space character. (NFC is not checked: no normalisation
-/// tables without a new dependency.)
+/// Plain text a person can see: `plain_chars` and at least one non-space character.
 pub fn plain(s: &str) -> bool {
+    plain_chars(s) && s.chars().any(|c| !c.is_whitespace())
+}
+
+/// No spoofing characters, nothing markup-like, no run of four combining marks (the empty
+/// string passes). NFC is not checked: no normalisation tables without a new dependency.
+pub fn plain_chars(s: &str) -> bool {
     let mut marks = 0;
     for c in s.chars() {
         if is_spoofing(c) {
@@ -61,7 +65,7 @@ pub fn plain(s: &str) -> bool {
             return false;
         }
     }
-    !htmlish(s) && s.chars().any(|c| !c.is_whitespace())
+    !htmlish(s)
 }
 
 /// Text safe to print to a terminal: plain, otherwise replaced by a fixed notice.

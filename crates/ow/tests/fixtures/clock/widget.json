@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 0,
+  "id": "io.github.dexterhere.clock",
+  "tier": "spec",
+  "category": "time-calendar",
+  "surfaces": ["desktop", "bar"],
+  "sizeClasses": [
+    { "name": "chip", "min": [60, 24], "max": [140, 40], "aspectLock": null },
+    { "name": "compact", "min": [140, 80], "max": [240, 160], "aspectLock": null },
+    { "name": "wide", "min": [240, 100], "max": [480, 220], "aspectLock": null }
+  ],
+  "variants": ["digital", "digital-seconds", "minimal", "date-focus", "chip", "stacked"],
+  "providers": [
+    {
+      "name": "system",
+      "topics": ["system.time"],
+      "fields": ["hm", "hms", "date", "tz"],
+      "auth": "none"
+    }
+  ],
+  "capabilities": { "network": [], "files": [], "spawn": [] },
+  "interactiveRegions": [],
+  "settings": [],
+  "compat": { "omarchy": ">=4.0", "widgetsKit": "^1" },
+  "sampleData": {
+    "system.time": {
+      "hm": "10:09",
+      "hms": "10:09:42",
+      "date": "Mon 19 Oct",
+      "tz": "NPT"
+    }
+  }
+}

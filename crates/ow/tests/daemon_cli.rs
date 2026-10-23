@@ -9,6 +9,10 @@ use std::process::{Command, Output, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+/// Tests here spawn children while another test may hold a vault lock file open; a fork in that
+/// window briefly shares the lock and makes `Vault` report Busy. Run them one at a time.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 const PASS: &str = "FAKE-passphrase-correct-horse";
 const WRONG: &str = "FAKE-passphrase-wrong-horse!";
 const TOKEN: &str = "FAKE-TOKEN-VALUE-77c1e";
@@ -39,6 +43,9 @@ fn text(o: &Output) -> String {
 
 #[test]
 fn unlock_status_lock_roundtrip_never_prints_secrets() {
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let d = tempfile::tempdir().unwrap();
     let paths = Paths::under(d.path());
     // Not running yet: status still reports the file, and lock fails clearly.
@@ -140,6 +147,9 @@ fn snapshot(paths: &Paths) -> String {
 /// Changing the vault file under an unlocked daemon must not leave a decrypted copy serving.
 #[test]
 fn file_changing_commands_lock_the_daemon() {
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     use std::os::unix::fs::PermissionsExt;
     let d = tempfile::tempdir().unwrap();
     let paths = Paths::under(d.path());

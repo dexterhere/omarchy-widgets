@@ -7,6 +7,9 @@ use serde_json::{Map, Value};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
+/// Largest grants file read (and written by tools).
+pub const MAX_FILE: u64 = 1024 * 1024;
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Grant {
@@ -62,6 +65,15 @@ impl Grants {
     /// group/other access. Opened with O_NOFOLLOW|O_NONBLOCK and checked on the open
     /// descriptor, so a swapped path or a FIFO cannot bypass the check or hang startup.
     pub fn load(path: &Path) -> Result<Self, GrantsError> {
+        match Self::read_text(path)? {
+            Some(text) => Self::parse(&text),
+            None => Ok(Self::default()),
+        }
+    }
+
+    /// The file's text under the rules of `load` (`None` = file missing). For tools that edit
+    /// the file (`ow install`): they must apply the daemon's own checks before touching it.
+    pub fn read_text(path: &Path) -> Result<Option<String>, GrantsError> {
         use std::io::Read;
         use std::os::unix::fs::OpenOptionsExt;
         let flags = rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK;
@@ -71,7 +83,7 @@ impl Grants {
             .open(path)
         {
             Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(_) => return Err(GrantsError::Io),
         };
         let md = f.metadata().map_err(|_| GrantsError::Io)?;
@@ -82,10 +94,19 @@ impl Grants {
             return Err(GrantsError::Insecure);
         }
         let mut text = String::new();
-        f.take(1024 * 1024)
+        // One byte over the cap is read so that an oversize file is an error, not a truncation.
+        f.take(MAX_FILE + 1)
             .read_to_string(&mut text)
             .map_err(|_| GrantsError::Io)?;
-        Self::parse(&text)
+        if text.len() as u64 > MAX_FILE {
+            return Err(GrantsError::Invalid);
+        }
+        Ok(Some(text))
+    }
+
+    /// Every grant, in file order.
+    pub fn entries(&self) -> &[Grant] {
+        &self.0
     }
 
     /// The grant covering `(widget, topic)`, if any.

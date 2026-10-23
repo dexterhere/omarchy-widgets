@@ -10,7 +10,7 @@ mod provider;
 mod ratelimit;
 
 pub use audit::AuditLog;
-pub use grants::{Grant, Grants, GrantsError};
+pub use grants::{Grant, Grants, GrantsError, MAX_FILE as MAX_GRANTS_FILE};
 pub use harden::{check_private_dir, harden_process, private_dir};
 pub use paths::Paths;
 pub use peer::peer_is_self;

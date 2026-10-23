@@ -52,6 +52,23 @@ impl Shared {
         lock(&self.audit).record("admin", "vault", op, allow, 0)
     }
 
+    /// `grants.reload`: same function SIGHUP runs, so a failed reload also fails closed (no
+    /// grants). Shares the small admin rate bucket, because a reload takes the grants write lock.
+    /// The reply carries no detail about why a reload failed (the file is the user's to fix).
+    fn admin_grants_reload(&self, id: u64) -> Reply {
+        if !lock(&self.limiter).allow("admin", "grants", Instant::now()) {
+            return Reply::err(id, ErrorCode::RateLimited, None);
+        }
+        let ok = self.reload_grants().is_ok();
+        // Audited as admin/grants/reload; no payload exists in the entry type.
+        lock(&self.audit).record("admin", "grants", "reload", ok, 0);
+        if ok {
+            Reply::ok(id, state_body("reloaded"))
+        } else {
+            Reply::err(id, ErrorCode::Internal, None)
+        }
+    }
+
     /// Refused admin-shaped requests share one small bucket, so a flood of them cannot rotate
     /// real history out of the audit log. Over the limit: still refused, no audit line.
     fn admin_denial_audited(&self, op: &str) {
@@ -287,6 +304,7 @@ fn handle(line: &str, shared: &Shared, ctx: &Ctx) -> (bool, bool) {
             (Reply::ok(req.id, state_body("locked")), None)
         }
         Op::VaultStatus => (shared.admin_status(req.id), None),
+        Op::GrantsReload => (shared.admin_grants_reload(req.id), None),
         Op::Unknown => (Reply::err(req.id, ErrorCode::BadRequest, None), None),
     };
     let mut alive = ctx.send(reply.to_line());

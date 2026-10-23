@@ -23,6 +23,8 @@ fn utf8(b: &[u8]) -> Result<&str, String> {
 pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Result<(), String> {
     let path = paths.vault();
     let w = |e: std::io::Error| e.to_string();
+    // Every subcommand, not just init, refuses a vault directory that is not private.
+    ensure_dir(&path)?;
     match args
         .iter()
         .map(String::as_str)
@@ -30,7 +32,6 @@ pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Resu
         .as_slice()
     {
         ["init"] => {
-            ensure_dir(&path)?;
             let pass = secret_confirmed("New vault passphrase (min 12 bytes)")?;
             Vault::create(&path, &pass, Profile::Standard).map_err(err)?;
             writeln!(

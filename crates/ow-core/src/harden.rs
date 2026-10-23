@@ -26,18 +26,18 @@ pub fn harden_process() -> io::Result<()> {
 /// group/other access. `DirBuilder` modes only apply to directories it creates, so a
 /// pre-existing loose directory must be refused, not trusted.
 pub fn private_dir(dir: &std::path::Path) -> io::Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(dir)?;
-    let md = std::fs::symlink_metadata(dir)?;
-    if !md.is_dir() || md.uid() != rustix::process::geteuid().as_raw() || md.mode() & 0o077 != 0 {
-        return Err(io::Error::other(format!(
+    // One rule for "private directory": the shared check, with this function's wording.
+    check_private_dir(dir).map_err(|_| {
+        io::Error::other(format!(
             "{} must be a directory owned by you with mode 0700 (try: chmod 700)",
             dir.display()
-        )));
-    }
+        ))
+    })?;
     Ok(())
 }
 

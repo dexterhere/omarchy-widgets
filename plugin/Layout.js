@@ -194,7 +194,8 @@ function treeFits(root) {
   var stack = [{ n: root, d: 1 }], count = 0
   while (stack.length) {
     var it = stack.pop()
-    if (++count > LIMITS.nodes || it.d > LIMITS.depth || !J.isObj(it.n)) return false
+    if (++count > LIMITS.nodes || it.d > LIMITS.depth) return false
+    if (!J.isObj(it.n)) continue                  // not a node at all: drawn as a fixed card, no children
     var ch = J.own(it.n, "children")
     if (ch === undefined) continue
     if (!Array.isArray(ch) || ch.length > LIMITS.children) return false
@@ -481,3 +482,35 @@ function layoutTiles(records, placement, screens) {
   }
   return list
 }
+
+// ---------------------------------------------------------------- helpers for the renderer
+
+// Reads that never throw on a node that is not an object.
+function prop(n, k) { return J.isObj(n) ? J.own(n, k) : undefined }
+function typeOf(n) { var t = prop(n, "type"); return isKnownType(t) ? t : "" }
+function kids(n) {
+  var c = prop(n, "children")
+  return Array.isArray(c) ? c.slice(0, LIMITS.children) : []
+}
+function sizeOr(n, fallback) { var s = prop(n, "size"); return oneOf(SIZES, s) ? s : fallback }
+function roleOr(n, fallback) { var c = prop(n, "color"); return oneOf(ROLES, c) ? c : fallback }
+function columnsOf(n) { var c = prop(n, "columns"); return c === 2 || c === 3 || c === 4 ? c : 2 }
+function gapOf(n) { var g = prop(n, "gap"); return oneOf(GAPS, g) ? g : "sm" }
+
+// Icon outlines on a 16 by 16 grid, the same drawings the website uses. A widget picks a
+// NAME from ICONS; it never supplies a path, a file or a URL.
+var ICON_PATHS = {
+  cpu: "M3 3h10v10H3zM6 1v2M10 1v2M6 13v2M10 13v2",
+  memory: "M2 5h12v6H2zM5 5v6M8 5v6M11 5v6",
+  battery: "M1.5 4.5h11v7h-11zM14 7v2",
+  clock: "M8 2a6 6 0 100 12A6 6 0 008 2zM8 4v4l3 2",
+  list: "M2 3h12M2 8h12M2 13h12",
+  git: "M5 3v10M11 5v2a3 3 0 01-3 3H5M5 3a1 1 0 100 .01M11 5a1 1 0 100 .01M5 13a1 1 0 100 .01",
+  container: "M2 5l6-3 6 3v6l-6 3-6-3zM2 5l6 3 6-3M8 8v6",
+  disk: "M2 5h12v6H2zM11 8h1",
+  network: "M8 2v4M3 14V10h10v4M8 6v4M2 14h4M10 14h4",
+  bolt: "M9 1L3 9h4l-1 6 6-8H8z",
+  calendar: "M2 4h12v10H2zM2 7h12M5 2v3M11 2v3",
+  check: "M3 8l3 3 7-7"
+}
+function iconPath(name) { return oneOf(ICONS, name) ? ICON_PATHS[name] : "" }

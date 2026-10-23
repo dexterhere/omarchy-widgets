@@ -21,9 +21,12 @@ QtObject {
   readonly property color muted: pick(Commons.Color.muted, "#707880")
   readonly property color urgent: pick(Commons.Color.urgent, "#a55555")
   readonly property color secondary: mix(foreground, background, 0.35)
-  readonly property color surface: Commons.Color.popups ? pick(Commons.Color.popups.background, withAlpha(background, 0.85)) : withAlpha(background, 0.85)
-  readonly property color border: Commons.Color.popups ? pick(Commons.Color.popups.border, withAlpha(foreground, 0.2)) : withAlpha(foreground, 0.2)
-  readonly property string family: Commons.Style.font ? pick(Commons.Style.font.family, "monospace") : "monospace"
+  // read as var: the sub-objects are QtObjects whose members the linter cannot see
+  readonly property var popups: Commons.Color.popups
+  readonly property var fontTokens: Commons.Style.font
+  readonly property color surface: popups ? pick(popups.background, withAlpha(background, 0.85)) : withAlpha(background, 0.85)
+  readonly property color border: popups ? pick(popups.border, withAlpha(foreground, 0.2)) : withAlpha(foreground, 0.2)
+  readonly property string family: fontTokens ? pick(fontTokens.family, "monospace") : "monospace"
   readonly property int radius: pick(Commons.Style.cornerRadius, 0)
 
   // Role name -> colour. Anything that is not one of the four roles gets foreground:

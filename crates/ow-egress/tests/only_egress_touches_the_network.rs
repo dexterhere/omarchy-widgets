@@ -37,18 +37,47 @@ const BANNED_CRATES: &[&str] = &[
     "httparse",
     "socket2",
     "mio",
+    "tokio",
+    "async-std",
+    "smol",
 ];
 
-/// Source patterns for internet sockets. Unix-domain sockets stay allowed (the daemon's own
-/// socket uses them).
+/// Source patterns that open sockets or start programs, matched after removing all whitespace so
+/// line breaks and spacing cannot hide them. A use outside `AUDITED` fails the test.
 const BANNED_SOURCE: &[&str] = &[
+    "rustix::net",
+    "nix::sys::socket",
+    "SocketAddr",
+    "Command::new",
+    "std::process::Command",
     "TcpStream",
     "TcpListener",
     "UdpSocket",
+    "UnixStream",
+    "UnixListener",
     "ToSocketAddrs",
-    "SocketAddrV4",
-    "SocketAddrV6",
-    "AddressFamily::INET",
+    "libc::socket",
+    "libc::connect",
+    "AF_INET",
+];
+
+/// The only existing uses, each reviewed by hand. Adding a line here is a security decision:
+/// say what the use is. Paths are relative to the workspace root.
+const AUDITED: &[(&str, &[&str])] = &[
+    // `ow` talks to the local daemon over its Unix-domain socket.
+    ("crates/ow/src/main.rs", &["UnixStream"]),
+    // `owd` serves its Unix-domain socket and probes it for a stale instance.
+    ("crates/owd/src/server.rs", &["UnixStream", "UnixListener"]),
+    // `owd` reads SO_PEERCRED of a Unix-domain connection (rustix::net::sockopt).
+    ("crates/owd/src/conn.rs", &["UnixStream", "rustix::net"]),
+    // Integration tests of the daemon socket.
+    (
+        "crates/owd/tests/socket.rs",
+        &["UnixStream", "UnixListener"],
+    ),
+    // Tests that run the freshly built `ow` and `owd` binaries (CARGO_BIN_EXE_*).
+    ("crates/ow/tests/vault_cli.rs", &["Command::new"]),
+    ("crates/owd/tests/hardening.rs", &["Command::new"]),
 ];
 
 fn root() -> PathBuf {
@@ -58,108 +87,254 @@ fn root() -> PathBuf {
         .unwrap()
 }
 
-fn files(dir: &Path, ext: &str, out: &mut Vec<PathBuf>) {
+/// Walks `dir`, skipping only `<root>/target`, `<root>/fuzz/target` and `<root>/.git`, and the
+/// exempt crate directory `<root>/crates/ow-egress`. Matching is by exact path, not by name, so a
+/// directory called `target` or `ow-egress` anywhere else is scanned.
+fn files(root: &Path, dir: &Path, ext: &str, out: &mut Vec<PathBuf>) {
+    let skip = [
+        root.join("target"),
+        root.join("fuzz").join("target"),
+        root.join(".git"),
+        root.join("crates").join("ow-egress"),
+    ];
     let Ok(rd) = fs::read_dir(dir) else { return };
     for e in rd.map(|e| e.unwrap().path()) {
+        if skip.contains(&e) {
+            continue;
+        }
         if e.is_dir() {
-            if !matches!(
-                e.file_name().and_then(|n| n.to_str()),
-                Some("target" | ".git")
-            ) {
-                files(&e, ext, out);
-            }
+            files(root, &e, ext, out);
         } else if e.extension().and_then(|x| x.to_str()) == Some(ext) {
             out.push(e);
         }
     }
 }
 
-/// Crate names a manifest depends on (any dependency table, including renames).
+fn collect(root: &Path, ext: &str) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    files(root, root, ext, &mut out);
+    out
+}
+
+/// Every crate name a manifest depends on, with renames resolved through `package`.
 fn dependency_names(manifest: &str) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut in_deps = false;
-    for line in manifest.lines().map(str::trim) {
-        if let Some(header) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
-            in_deps = header.ends_with("dependencies");
-            if let Some((_, name)) = header.rsplit_once("dependencies.") {
-                names.push(name.trim_matches('"').to_owned());
-            }
-        } else if in_deps && !line.starts_with('#') {
-            if let Some((key, rest)) = line.split_once('=') {
-                names.push(
-                    key.trim()
-                        .split('.')
-                        .next()
-                        .unwrap()
-                        .trim_matches('"')
-                        .to_owned(),
-                );
-                if let Some(pkg) = rest
-                    .split("package")
-                    .nth(1)
-                    .and_then(|p| p.split('"').nth(1))
-                {
-                    names.push(pkg.to_owned());
+    fn tables(t: &toml::Table, out: &mut Vec<String>) {
+        for (k, v) in t {
+            if k.ends_with("dependencies") {
+                for (name, spec) in v.as_table().into_iter().flatten() {
+                    out.push(name.clone());
+                    if let Some(p) = spec.get("package").and_then(|p| p.as_str()) {
+                        out.push(p.to_owned());
+                    }
                 }
-            }
-        } else if line.starts_with("package") {
-            if let Some(pkg) = line.split('"').nth(1) {
-                names.push(pkg.to_owned());
+            } else if let Some(t) = v.as_table() {
+                tables(t, out);
             }
         }
     }
-    names
+    let mut out = Vec::new();
+    tables(&manifest.parse::<toml::Table>().unwrap(), &mut out);
+    out
 }
 
-fn other_manifests() -> Vec<PathBuf> {
-    let mut all = Vec::new();
-    files(&root(), "toml", &mut all);
-    all.retain(|p| p.file_name().unwrap() == "Cargo.toml");
-    all.retain(|p| !p.components().any(|c| c.as_os_str() == "ow-egress"));
-    all
+fn manifests_with_banned_crates(root: &Path) -> Vec<String> {
+    let mut bad = Vec::new();
+    for path in collect(root, "toml") {
+        if path.file_name().unwrap() != "Cargo.toml" {
+            continue;
+        }
+        for dep in dependency_names(&fs::read_to_string(&path).unwrap()) {
+            if BANNED_CRATES.contains(&dep.as_str()) {
+                bad.push(format!("{} depends on `{dep}`", path.display()));
+            }
+        }
+    }
+    bad
 }
 
-#[test]
-fn the_scan_sees_the_workspace() {
-    let m = other_manifests();
-    assert!(m.len() >= 7, "found only {m:?}");
-    assert!(dependency_names("[dependencies]\nureq = \"3\"").contains(&"ureq".to_owned()));
-    assert!(dependency_names("[dependencies.ureq]\nversion = \"3\"").contains(&"ureq".to_owned()));
-    assert!(
-        dependency_names("[dev-dependencies]\nx = { package = \"ureq\", version = \"3\" }")
-            .contains(&"ureq".to_owned())
-    );
-    assert!(
-        dependency_names("[target.'cfg(unix)'.dependencies]\nrustls.workspace = true")
-            .contains(&"rustls".to_owned())
-    );
+fn rel(root: &Path, p: &Path) -> String {
+    p.strip_prefix(root).unwrap().to_string_lossy().into_owned()
+}
+
+/// Text of `use crate::{...}` groups starting at each `prefix{`, braces balanced.
+fn groups<'a>(text: &'a str, prefix: &str) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(i) = text[from..].find(prefix) {
+        let start = from + i + prefix.len();
+        let mut depth = 1;
+        let mut end = start;
+        for (j, c) in text[start..].char_indices() {
+            depth += (c == '{') as i32 - (c == '}') as i32;
+            if depth == 0 {
+                end = start + j;
+                break;
+            }
+        }
+        out.push(&text[start..end]);
+        from = start;
+    }
+    out
+}
+
+/// Banned patterns found in one source file (whitespace removed, so layout cannot hide them).
+fn banned_in(source: &str) -> Vec<String> {
+    let text: String = source.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut found: Vec<String> = BANNED_SOURCE
+        .iter()
+        .filter(|p| text.contains(**p))
+        .map(|p| (*p).to_owned())
+        .collect();
+    if text.to_lowercase().contains("addressfamily")
+        || text.to_lowercase().contains("address_family")
+    {
+        found.push("AddressFamily".to_owned());
+    }
+    // `use rustix::{fd::X, net::Y}` and `use nix::{sys::socket::Z}` hide the path behind braces.
+    if groups(&text, "rustix::{")
+        .iter()
+        .any(|g| g.starts_with("net") || g.contains(",net"))
+    {
+        found.push("rustix::net".to_owned());
+    }
+    if groups(&text, "nix::{").iter().any(|g| g.contains("socket")) {
+        found.push("nix::sys::socket".to_owned());
+    }
+    found
+}
+
+fn sources_with_banned_use(root: &Path) -> Vec<String> {
+    let mut bad = Vec::new();
+    for path in collect(root, "rs") {
+        let name = rel(root, &path);
+        let allowed: &[&str] = AUDITED
+            .iter()
+            .find(|(f, _)| *f == name)
+            .map_or(&[], |(_, p)| *p);
+        for pat in banned_in(&fs::read_to_string(&path).unwrap()) {
+            if !allowed.contains(&pat.as_str()) {
+                bad.push(format!("{name} uses `{pat}`"));
+            }
+        }
+    }
+    bad
 }
 
 #[test]
 fn no_other_crate_depends_on_an_http_tls_or_socket_client_crate() {
-    for path in other_manifests() {
-        let text = fs::read_to_string(&path).unwrap();
-        for dep in dependency_names(&text) {
+    let bad = manifests_with_banned_crates(&root());
+    assert!(
+        bad.is_empty(),
+        "network crates belong to ow-egress only: {bad:?}"
+    );
+}
+
+#[test]
+fn no_other_crate_opens_a_socket_or_starts_a_program_unaudited() {
+    let bad = sources_with_banned_use(&root());
+    assert!(bad.is_empty(), "unaudited use (see AUDITED): {bad:?}");
+}
+
+#[test]
+fn the_audited_list_has_no_stale_entries() {
+    let root = root();
+    for (file, pats) in AUDITED {
+        let found = banned_in(&fs::read_to_string(root.join(file)).unwrap());
+        for p in *pats {
             assert!(
-                !BANNED_CRATES.contains(&dep.as_str()),
-                "{} depends on `{dep}`: network crates belong to ow-egress only",
-                path.display()
+                found.iter().any(|f| f == p),
+                "{file} no longer uses `{p}`; remove it"
             );
         }
     }
 }
 
 #[test]
-fn no_other_crate_opens_an_internet_socket() {
-    let mut sources = Vec::new();
-    files(&root().join("crates"), "rs", &mut sources);
-    files(&root().join("fuzz"), "rs", &mut sources);
-    sources.retain(|p| !p.components().any(|c| c.as_os_str() == "ow-egress"));
-    assert!(sources.len() >= 10);
-    for path in sources {
-        let text = fs::read_to_string(&path).unwrap();
-        for bad in BANNED_SOURCE {
-            assert!(!text.contains(bad), "{} uses `{bad}`", path.display());
-        }
+fn the_scan_sees_the_workspace() {
+    let root = root();
+    assert!(collect(&root, "toml").len() >= 7);
+    assert!(collect(&root, "rs").len() >= 10);
+}
+
+#[test]
+fn dependency_parsing_handles_every_spelling() {
+    for m in [
+        "[dependencies]\nureq = \"3\"",
+        "[dependencies.ureq]\nversion = \"3\"",
+        "[dev-dependencies]\nx = { package = \"ureq\", version = \"3\" }",
+        "[dependencies]\nx = { version = \"3\",\n  package = \"ureq\",\n}",
+        "[dependencies.x]\npackage = \"ureq\"\nversion = \"3\"",
+        "[target.'cfg(unix)'.dependencies]\nureq.workspace = true",
+        "[build-dependencies]\nureq = \"3\"",
+        "[workspace.dependencies]\nureq = \"3\"",
+        "[target.x86_64-unknown-linux-gnu.dev-dependencies]\nureq = \"3\"",
+    ] {
+        assert!(dependency_names(m).contains(&"ureq".to_owned()), "{m}");
     }
+}
+
+#[test]
+fn banned_source_patterns_are_found_in_any_layout() {
+    for s in [
+        "let s = TcpStream::connect(a);",
+        "use rustix::net::connect;",
+        "use rustix :: \n net::connect;",
+        "use rustix::{fd::AsFd, net::connect};",
+        "use rustix::{\n    net,\n};",
+        "use nix::sys::socket::socket;",
+        "use nix::{sys::socket};",
+        "let a: SocketAddr;",
+        "std::process::Command::new(\"curl\")",
+        "Command\n::new(x)",
+        "use rustix::net::AddressFamily;",
+        "let f = libc::AF_INET;",
+        "UdpSocket::bind(a)",
+        "UnixStream::connect(p)",
+    ] {
+        assert!(!banned_in(s).is_empty(), "missed: {s}");
+    }
+    assert!(banned_in("use rustix::fs::flock; use rustix::process::geteuid;").is_empty());
+}
+
+#[test]
+fn scanner_flags_files_hidden_in_lookalike_directories() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let put = |rel: &str, text: &str| {
+        let p = root.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, text).unwrap();
+    };
+    // Exempt: the real egress crate, the workspace target and .git.
+    put("crates/ow-egress/src/lib.rs", "use std::net::TcpStream;");
+    put(
+        "crates/ow-egress/Cargo.toml",
+        "[dependencies]\nureq = \"3\"",
+    );
+    put("target/debug/x.rs", "use std::net::TcpStream;");
+    put(".git/x.rs", "use std::net::TcpStream;");
+    assert!(sources_with_banned_use(&root).is_empty());
+    assert!(manifests_with_banned_crates(&root).is_empty());
+    // Not exempt: same names elsewhere.
+    put("crates/evil/src/target/net.rs", "use std::net::TcpStream;");
+    put(
+        "crates/evil/ow-egress/Cargo.toml",
+        "[dependencies]\nureq = \"3\"",
+    );
+    put(
+        "crates/evil/ow-egress/src/lib.rs",
+        "use std::net::UdpSocket;",
+    );
+    put("crates/evil/.git/x.rs", "use std::net::TcpListener;");
+    let src = sources_with_banned_use(&root);
+    assert_eq!(src.len(), 3, "{src:?}");
+    assert!(
+        src.iter()
+            .any(|s| s.contains("crates/evil/src/target/net.rs"))
+    );
+    assert!(
+        src.iter()
+            .any(|s| s.contains("crates/evil/ow-egress/src/lib.rs"))
+    );
+    assert_eq!(manifests_with_banned_crates(&root).len(), 1);
 }

@@ -1,0 +1,9 @@
+extra top-level key 'ow':
+  exit=0
+plus sidecar widget.json and layout.json files:
+  exit=0
+plus unknown kind and arbitrary key:
+  exit=0
+control, a symlink must fail:
+omarchy-plugin-validate: symlinks are not allowed inside a plugin folder: /tmp/ow-spike.XXXX/p/link
+  exit=1

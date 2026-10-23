@@ -315,6 +315,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ow-egress"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "zeroize",
+]
+
+[[package]]
 name = "ow-proto"
 version = "0.0.0"
 dependencies = [

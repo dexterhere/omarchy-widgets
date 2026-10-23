@@ -1,4 +1,5 @@
-//! Secret input: no-echo prompt on a terminal, plain lines from a pipe. Never argv.
+//! Secret input: no-echo prompt on a terminal, plain lines from a pipe, or a prompt on the
+//! controlling terminal (`/dev/tty`) regardless of stdin. Never argv.
 use rustix::fd::BorrowedFd;
 use rustix::stdio::stdin;
 use rustix::termios::{
@@ -107,9 +108,10 @@ fn read_line_from(
 pub fn secret(prompt: &str) -> Result<Zeroizing<Vec<u8>>, String> {
     let fd = stdin();
     if isatty(fd) {
+        // Mode first, then the prompt: input typed once the prompt shows is never flushed.
+        let guard = PromptMode::new(fd)?;
         eprint!("{prompt}: ");
         let _ = std::io::stderr().flush();
-        let guard = PromptMode::new(fd)?;
         let line = read_line(true);
         drop(guard);
         eprintln!();

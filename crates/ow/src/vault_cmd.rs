@@ -1,9 +1,12 @@
 //! `ow vault ...`: offline operations on the vault file. Secrets come only from
 //! `input` (terminal prompt or stdin), never from arguments.
+use crate::daemon;
 use crate::input::{secret, secret_confirmed};
 use ow_core::Paths;
 use ow_vault::{Profile, Vault, VaultError};
 use std::path::Path;
+
+const UNLOCK_ID: u64 = 1;
 
 fn err(e: VaultError) -> String {
     e.to_string()
@@ -40,16 +43,32 @@ pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Resu
             )
             .map_err(w)
         }
-        ["status"] => match ow_vault::inspect(&path) {
-            Ok(i) => writeln!(
-                out,
-                "vault: present, mode {}, profile {:?}",
-                i.mode, i.profile
-            )
-            .map_err(w),
-            Err(VaultError::NotFound) => writeln!(out, "vault: not initialised").map_err(w),
-            Err(e) => Err(err(e)),
-        },
+        ["status"] => {
+            match ow_vault::inspect(&path) {
+                Ok(i) => writeln!(
+                    out,
+                    "vault: present, mode {}, profile {:?}",
+                    i.mode, i.profile
+                )
+                .map_err(w)?,
+                Err(VaultError::NotFound) => {
+                    writeln!(out, "vault: not initialised").map_err(w)?;
+                }
+                Err(e) => return Err(err(e)),
+            }
+            daemon_status(paths, out)
+        }
+        ["unlock"] => {
+            let pass = secret("Vault passphrase")?;
+            let req = ow_proto::unlock_request(UNLOCK_ID, &pass)
+                .ok_or("passphrase is empty or too long")?;
+            daemon::call_ok(paths, &req)?;
+            writeln!(out, "daemon unlocked").map_err(w)
+        }
+        ["lock"] => {
+            daemon::call_ok(paths, "{\"v\":0,\"id\":1,\"op\":\"vault.lock\"}\n")?;
+            writeln!(out, "daemon locked").map_err(w)
+        }
         ["list"] => {
             let v = Vault::open(&path, &secret("Vault passphrase")?).map_err(err)?;
             for n in v.names() {
@@ -85,9 +104,36 @@ pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Resu
                 .map_err(w)
         }
         _ => Err(
-            "usage: ow vault init|status|list|set <name>|remove <name>|rotate|wipe --yes\n\
+            "usage: ow vault init|status|unlock|lock|list|set <name>|remove <name>|rotate|wipe --yes\n\
                   secrets are read from the terminal (no echo) or stdin, never from arguments"
                 .into(),
         ),
+    }
+}
+
+/// Daemon half of `vault status`. An unreachable daemon is not an error here: the file facts
+/// above are still true.
+fn daemon_status(paths: &Paths, out: &mut dyn std::io::Write) -> Result<(), String> {
+    let w = |e: std::io::Error| e.to_string();
+    let Ok(v) = daemon::call_ok(paths, "{\"v\":0,\"id\":1,\"op\":\"vault.status\"}\n") else {
+        return writeln!(out, "daemon: not running or not reachable").map_err(w);
+    };
+    if v["state"] == "unlocked" {
+        let names: Vec<&str> = v["names"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|n| n.as_str()).collect())
+            .unwrap_or_default();
+        writeln!(
+            out,
+            "daemon: unlocked, {} secret(s) [{}], locks after {} s idle",
+            names.len(),
+            names.join(", "),
+            v["idleSecsLeft"].as_u64().unwrap_or(0)
+        )
+        .map_err(w)
+    } else if let Some(s) = v["lockoutSecsLeft"].as_u64() {
+        writeln!(out, "daemon: locked; unlock attempts blocked for {s} s").map_err(w)
+    } else {
+        writeln!(out, "daemon: locked").map_err(w)
     }
 }

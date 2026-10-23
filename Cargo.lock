@@ -296,6 +296,7 @@ dependencies = [
  "ow-core",
  "ow-proto",
  "ow-vault",
+ "owd",
  "rustix",
  "serde_json",
  "tempfile",

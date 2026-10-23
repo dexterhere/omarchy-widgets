@@ -46,3 +46,9 @@ name = "vault_open"
 path = "fuzz_targets/vault_open.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "admin_parse"
+path = "fuzz_targets/admin_parse.rs"
+test = false
+doc = false

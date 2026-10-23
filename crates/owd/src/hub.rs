@@ -191,6 +191,8 @@ impl Hub {
         let (provider, spec) = self.find(&key.topic)?;
         let secret_backed = !provider.secrets().is_empty();
         let ctx = FetchCtx::new(provider.secrets(), &*self.vault);
+        // Key epoch before the fetch: any lock, idle lock or fresh unlock changes it.
+        let epoch = self.vault.generation();
         let res = std::panic::catch_unwind(AssertUnwindSafe(|| {
             provider.fetch(&key.topic, params, &ctx)
         }))
@@ -200,15 +202,22 @@ impl Hub {
             let size = serde_json::to_string(&d).map_or(usize::MAX, |s| s.len());
             if size > MAX_OUTPUT_BYTES {
                 Err(ProviderError::Format)
-            } else if secret_backed && !self.vault.is_unlocked() {
-                // A lock that landed while the fetch ran must not let its result in.
-                Err(ProviderError::Locked)
             } else {
                 Ok(d)
             }
         });
         let now = Instant::now();
         let mut st = lock(&self.state);
+        // Decided under the state lock: purge_secret_entries needs this lock and runs after
+        // the epoch change, so a result that passes here is purged by any later lock, and one
+        // that fails here never reaches the cache, a reply or a push.
+        let res = res.and_then(|d| {
+            if secret_backed && (self.vault.generation() != epoch || !self.vault.is_unlocked()) {
+                Err(ProviderError::Locked)
+            } else {
+                Ok(d)
+            }
+        });
         let Some(e) = st.cache.get_mut(key) else {
             // Evicted while fetching (cannot happen for claimed keys; defensive).
             return res.ok().map(|data| Snap {
@@ -419,6 +428,9 @@ fn push_to_subscribers(shared: &Shared, key: &Key, snap: &Snap) {
         let Some(sub) = st.subs.get(&id) else {
             continue;
         };
+        if shared.hub.needs_secret(&key.topic) && !shared.vault.is_unlocked() {
+            continue; // locked since the fetch: nothing derived from the secret goes out
+        }
         if matches!(
             sub.tx.try_send(line),
             Err(TrySendError::Full(_) | TrySendError::Disconnected(_))

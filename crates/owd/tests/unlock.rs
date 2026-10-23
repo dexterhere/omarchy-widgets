@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 const PASS: &str = "FAKE-passphrase-correct-horse";
 const WRONG: &str = "FAKE-passphrase-wrong-horse!";
 const TOKEN: &str = "FAKE-TOKEN-VALUE-77c1e";
-const GRANTS: &str = "[[grant]]\nwidget=\"w1\"\ntopics=[\"fake.secret\",\"fake.plain\",\"fake.undeclared\"]\nfields=[\"len\",\"n\"]\n";
+const GRANTS: &str = "[[grant]]\nwidget=\"w1\"\ntopics=[\"fake.slow\",\"fake.secret\",\"fake.plain\",\"fake.undeclared\"]\nfields=[\"len\",\"n\"]\n";
 
 /// A secret-backed provider: one topic that uses its secret and one that asks for a secret it
 /// did not declare. Secrets are declared per provider, so a topic that needs none lives in
@@ -23,6 +23,38 @@ const GRANTS: &str = "[[grant]]\nwidget=\"w1\"\ntopics=[\"fake.secret\",\"fake.p
 struct SecretProvider;
 
 struct PlainProvider;
+
+/// Resolves the secret, then takes a while: lets a test lock the vault mid-fetch.
+struct SlowProvider;
+
+static SLOW: [TopicSpec; 1] = [TopicSpec::new(
+    "fake.slow",
+    Sensitivity::High,
+    Duration::from_millis(50),
+    &["len"],
+)];
+
+impl Provider for SlowProvider {
+    fn id(&self) -> &'static str {
+        "slow"
+    }
+    fn topics(&self) -> &'static [TopicSpec] {
+        &SLOW
+    }
+    fn secrets(&self) -> &'static [&'static str] {
+        &["fake-token"]
+    }
+    fn fetch(
+        &self,
+        _t: &str,
+        _p: &Map<String, Value>,
+        ctx: &FetchCtx<'_>,
+    ) -> Result<Map<String, Value>, ProviderError> {
+        let len = ctx.secret("fake-token")?.expose().len();
+        std::thread::sleep(Duration::from_millis(700));
+        Ok(json!({"len": len}).as_object().cloned().unwrap())
+    }
+}
 
 static PLAIN: [TopicSpec; 1] = [TopicSpec::new(
     "fake.plain",
@@ -124,7 +156,11 @@ fn start(idle: Duration) -> H {
     };
     let server = Server::bind_with(
         &paths,
-        vec![Arc::new(SecretProvider), Arc::new(PlainProvider)],
+        vec![
+            Arc::new(SecretProvider),
+            Arc::new(PlainProvider),
+            Arc::new(SlowProvider),
+        ],
         policy,
     )
     .unwrap();
@@ -389,4 +425,51 @@ fn malformed_unlock_frames_never_echo_the_passphrase() {
     assert_eq!(h.status()["state"], "locked");
     let a = h.audit();
     assert!(!a.contains(PASS) && !a.contains(&hexed));
+}
+
+/// Lock lands while a secret-backed fetch is in flight: the result must not be returned,
+/// cached or pushed.
+#[test]
+fn lock_during_a_slow_fetch_leaks_nothing() {
+    let h = start(Duration::from_secs(900));
+    h.unlock(PASS);
+    let mut sub = UnixStream::connect(h.paths.socket()).unwrap();
+    sub.set_read_timeout(Some(Duration::from_millis(2500)))
+        .unwrap();
+    sub.write_all(
+        b"{\"v\":0,\"id\":1,\"op\":\"subscribe\",\"widget\":\"w1\",\"topic\":\"fake.slow\"}\n",
+    )
+    .unwrap();
+    let mut sub = BufReader::new(sub);
+    let mut l = String::new();
+    sub.read_line(&mut l).unwrap(); // subscribe reply; the scheduler's fetch is now sleeping
+    std::thread::sleep(Duration::from_millis(200));
+    // A direct snapshot joins the in-flight fetch window too.
+    let path = h.paths.socket();
+    let snap = std::thread::spawn(move || {
+        let mut s = UnixStream::connect(path).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        s.write_all(
+            b"{\"v\":0,\"id\":3,\"op\":\"snapshot\",\"widget\":\"w1\",\"topic\":\"fake.slow\"}\n",
+        )
+        .unwrap();
+        let mut out = String::new();
+        BufReader::new(s).read_line(&mut out).unwrap();
+        out
+    });
+    std::thread::sleep(Duration::from_millis(100));
+    h.ask("{\"v\":0,\"id\":5,\"op\":\"vault.lock\"}\n");
+    let r = snap.join().unwrap();
+    assert!(
+        !r.contains("\"len\""),
+        "snapshot returned data after lock: {r}"
+    );
+    // Nothing is pushed to the subscriber after the lock.
+    l.clear();
+    assert!(
+        sub.read_line(&mut l).is_err() || !l.contains("\"len\""),
+        "push after lock: {l}"
+    );
+    // Nothing was cached: still locked, and a new request is refused rather than served.
+    assert_eq!(code(&h.snap("fake.slow")), "locked");
 }

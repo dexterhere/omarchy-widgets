@@ -8,6 +8,7 @@ use crate::conn::lock;
 use ow_core::{ProviderError, SecretHandle, SecretSource};
 use ow_vault::Vault;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
 use std::time::{Duration, Instant};
 
@@ -70,6 +71,8 @@ pub(crate) struct VaultState {
     path: PathBuf,
     policy: VaultPolicy,
     attempt: Mutex<()>,
+    /// Bumped whenever the key changes (unlock, lock, idle lock), before caches are purged.
+    epoch: AtomicU64,
     inner: Mutex<Inner>,
 }
 
@@ -85,6 +88,7 @@ impl VaultState {
             path,
             policy,
             attempt: Mutex::new(()),
+            epoch: AtomicU64::new(0),
             inner: Mutex::new(Inner {
                 vault: None,
                 last_use: now,
@@ -102,6 +106,7 @@ impl VaultState {
     /// Lock if idle for too long. Caller holds `inner`.
     fn expire(&self, g: &mut Inner, now: Instant) {
         if g.vault.is_some() && now.saturating_duration_since(g.last_use) >= self.policy.idle {
+            self.epoch.fetch_add(1, Ordering::SeqCst);
             g.vault = None; // drop wipes keys and records
             g.purge_due = true;
         }
@@ -123,6 +128,7 @@ impl VaultState {
         let mut g = lock(&self.inner);
         match opened {
             Ok(v) => {
+                self.epoch.fetch_add(1, Ordering::SeqCst);
                 g.vault = Some(v);
                 g.last_use = now;
                 g.fails = 0;
@@ -143,7 +149,14 @@ impl VaultState {
 
     /// Drop the key. True if it was unlocked.
     pub(crate) fn lock(&self) -> bool {
-        lock(&self.inner).vault.take().is_some()
+        let mut g = lock(&self.inner);
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+        g.vault.take().is_some()
+    }
+
+    /// Key epoch: changes on every unlock, lock and idle lock.
+    pub(crate) fn generation(&self) -> u64 {
+        self.epoch.load(Ordering::SeqCst)
     }
 
     pub(crate) fn is_unlocked(&self) -> bool {

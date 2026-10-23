@@ -1,10 +1,11 @@
 //! `battery`: `battery.status {percent, state, timeLeft}` from /sys/class/power_supply, read only.
 //!
-//! Uses the first battery by name order (`BAT0` before `BAT1`) whose `type` is `Battery` (or has
-//! no `type` file). No battery at all (desktop PC) is `Unavailable`; a battery whose files are
+//! Uses the first battery in natural name order (`BAT0`, `BAT2`, `BAT10`): any power_supply whose
+//! `type` is `Battery` (so `macsmc-battery`, `CMB0` count too), or a `BAT*` with no readable `type`. No battery at all (desktop PC) is `Unavailable`; a battery whose files are
 //! unusable is `Format`. State is the kernel string when it is one of Charging, Discharging,
 //! Full, Not charging, else "Unknown". `timeLeft` is "3h 20m" or "45m" while charging or
 //! discharging and a rate is known, otherwise "" (never a made-up value).
+use crate::attr::{SYSFS_MAX, read};
 use ow_core::{FetchCtx, Provider, ProviderError, Sensitivity, TopicSpec};
 use serde_json::{Map, Value, json};
 use std::fs;
@@ -40,22 +41,34 @@ impl Default for Battery {
 }
 
 fn int(dir: &Path, file: &str) -> Option<i64> {
-    fs::read_to_string(dir.join(file)).ok()?.trim().parse().ok()
+    read(&dir.join(file), SYSFS_MAX).ok()?.trim().parse().ok()
 }
 
 fn num(dir: &Path, file: &str) -> Option<u64> {
     int(dir, file)?.try_into().ok()
 }
 
+/// Natural order key: "BAT2" sorts before "BAT10".
+fn natural(p: &Path) -> (String, u64) {
+    let n = p.file_name().map(|n| n.to_string_lossy().into_owned());
+    let n = n.unwrap_or_default();
+    let stem = n.trim_end_matches(|c: char| c.is_ascii_digit());
+    (stem.to_owned(), n[stem.len()..].parse().unwrap_or(0))
+}
+
+/// Every supply whose `type` says Battery, whatever its name (BAT0, macsmc-battery, CMB0 ...);
+/// a supply with no readable `type` counts only if its name starts with BAT.
 fn first_battery(root: &Path) -> Option<PathBuf> {
     let mut v: Vec<_> = fs::read_dir(root.join("class/power_supply"))
         .ok()?
         .flatten()
-        .filter(|e| e.file_name().to_string_lossy().starts_with("BAT"))
         .map(|e| e.path())
-        .filter(|p| fs::read_to_string(p.join("type")).map_or(true, |t| t.trim() == "Battery"))
+        .filter(|p| match read(&p.join("type"), SYSFS_MAX) {
+            Ok(t) => t.trim() == "Battery",
+            Err(_) => natural(p).0.starts_with("BAT"),
+        })
         .collect();
-    v.sort();
+    v.sort_by_key(|p| natural(p));
     v.into_iter().next()
 }
 
@@ -82,7 +95,7 @@ fn percent(d: &Path) -> Option<u64> {
 }
 
 fn state(d: &Path) -> &'static str {
-    let s = fs::read_to_string(d.join("status")).unwrap_or_default();
+    let s = read(&d.join("status"), SYSFS_MAX).unwrap_or_default();
     ["Charging", "Discharging", "Full", "Not charging"]
         .into_iter()
         .find(|k| *k == s.trim())
@@ -289,6 +302,72 @@ mod tests {
         assert_eq!(
             b.fetch("battery.x", &Map::new(), &FetchCtx::none()),
             Err(ProviderError::UnknownTopic)
+        );
+    }
+
+    #[test]
+    fn batteries_found_by_type_not_only_by_name() {
+        let d = tempfile::tempdir().unwrap();
+        put(
+            d.path(),
+            "ucsi-source",
+            &[("type", "USB\n"), ("capacity", "9")],
+        );
+        put(
+            d.path(),
+            "macsmc-battery",
+            &[("type", "Battery\n"), ("capacity", "64")],
+        );
+        let b = Battery::with_root(d.path().to_owned());
+        assert_eq!(get(&b).unwrap()["percent"], 64);
+        // BAT without a type file still counts; non-battery type does not
+        let d = tempfile::tempdir().unwrap();
+        put(d.path(), "BAT0", &[("capacity", "33")]);
+        put(d.path(), "qcom", &[("capacity", "9")]); // no type, not BAT*: ignored
+        let b = Battery::with_root(d.path().to_owned());
+        assert_eq!(get(&b).unwrap()["percent"], 33);
+    }
+
+    #[test]
+    fn natural_order_bat2_before_bat10() {
+        let d = tempfile::tempdir().unwrap();
+        put(d.path(), "BAT10", &[("capacity", "10")]);
+        put(d.path(), "BAT2", &[("capacity", "2")]);
+        let b = Battery::with_root(d.path().to_owned());
+        assert_eq!(get(&b).unwrap()["percent"], 2);
+    }
+
+    #[test]
+    fn hostile_attribute_files_never_hang() {
+        use crate::attr::tests::{hostile, within_2s};
+        for attr in ["capacity", "status", "energy_now", "power_now", "type"] {
+            let (d, _) = bat(&[
+                ("capacity", "50"),
+                ("energy_now", "1"),
+                ("energy_full", "2"),
+            ]);
+            let root = d.path().to_owned();
+            let p = root.join("class/power_supply/BAT0").join(attr);
+            hostile(&p, || {
+                let r = root.clone();
+                // any answer is fine, a hang or a panic is not
+                let _ = within_2s(move || get(&Battery::with_root(r)));
+            });
+        }
+    }
+
+    #[test]
+    fn symlinked_battery_directory_works() {
+        let d = tempfile::tempdir().unwrap();
+        let real = d.path().join("devices/bat");
+        fs::create_dir_all(&real).unwrap();
+        fs::write(real.join("capacity"), "81").unwrap();
+        let ps = d.path().join("class/power_supply");
+        fs::create_dir_all(&ps).unwrap();
+        std::os::unix::fs::symlink(&real, ps.join("BAT0")).unwrap();
+        assert_eq!(
+            get(&Battery::with_root(d.path().to_owned())).unwrap()["percent"],
+            81
         );
     }
 }

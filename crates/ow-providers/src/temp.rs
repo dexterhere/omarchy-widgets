@@ -4,6 +4,7 @@
 //! `cpu_thermal`, `x86_pkg_temp`), report the max over its `temp*_input` files (package and core
 //! sensors). Otherwise the max over every hwmon `temp*_input`, then over
 //! `/sys/class/thermal/thermal_zone*/temp`. Readings outside -50..=150 C are ignored.
+use crate::attr::{SYSFS_MAX, read};
 use ow_core::ProviderError;
 use std::fs;
 use std::path::Path;
@@ -17,7 +18,7 @@ const CPU_DRIVERS: [&str; 5] = [
 ];
 
 fn milli(p: &Path) -> Option<f64> {
-    let m: i64 = fs::read_to_string(p).ok()?.trim().parse().ok()?;
+    let m: i64 = read(p, SYSFS_MAX).ok()?.trim().parse().ok()?;
     let c = m as f64 / 1000.0;
     (-50.0..=150.0).contains(&c).then_some(c)
 }
@@ -54,7 +55,7 @@ fn hwmon_max(dir: &Path) -> Option<f64> {
 pub(crate) fn celsius(sys: &Path) -> Result<f64, ProviderError> {
     let hw = dirs(&sys.join("class/hwmon"), "hwmon");
     let is_cpu = |d: &&std::path::PathBuf| {
-        fs::read_to_string(d.join("name")).is_ok_and(|n| CPU_DRIVERS.contains(&n.trim()))
+        read(&d.join("name"), SYSFS_MAX).is_ok_and(|n| CPU_DRIVERS.contains(&n.trim()))
     };
     let cpu = max(hw.iter().filter(is_cpu).filter_map(|d| hwmon_max(d)));
     let any = || max(hw.iter().filter_map(|d| hwmon_max(d)));
@@ -119,5 +120,20 @@ mod tests {
         put(d.path(), "class/hwmon/hwmon0/temp1_input", "999000");
         put(d.path(), "class/hwmon/hwmon1/temp1_input", "42000");
         assert_eq!(celsius(d.path()), Ok(42.0));
+    }
+
+    #[test]
+    fn hostile_sensor_files_never_hang() {
+        use crate::attr::tests::{hostile, within_2s};
+        for f in ["name", "temp1_input"] {
+            let d = tempfile::tempdir().unwrap();
+            put(d.path(), "class/hwmon/hwmon0/name", "coretemp");
+            put(d.path(), "class/hwmon/hwmon0/temp1_input", "50000");
+            let root = d.path().to_owned();
+            hostile(&root.join("class/hwmon/hwmon0").join(f), || {
+                let r = root.clone();
+                let _ = within_2s(move || celsius(&r));
+            });
+        }
     }
 }

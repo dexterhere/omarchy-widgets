@@ -1,6 +1,6 @@
 //! `system`: CPU, memory and load from /proc, temperature from /sys, local time. No secrets, no
 //! network.
-use crate::{clock, temp};
+use crate::{attr, clock, temp};
 use ow_core::{FetchCtx, Provider, ProviderError, Sensitivity, TopicSpec};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
@@ -77,7 +77,7 @@ impl System {
     }
 
     fn read(&self, file: &str) -> Result<String, ProviderError> {
-        std::fs::read_to_string(self.proc_root.join(file)).map_err(|_| ProviderError::Unavailable)
+        attr::read(&self.proc_root.join(file), attr::PROC_MAX)
     }
 }
 

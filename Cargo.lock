@@ -618,6 +618,7 @@ version = "0.0.0"
 dependencies = [
  "jiff",
  "ow-core",
+ "rustix",
  "serde_json",
  "tempfile",
 ]

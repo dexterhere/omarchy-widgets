@@ -1,5 +1,7 @@
 # Kickoff prompts for Claude Code
 
+> **Historical, not maintained.** Prompts 1 to 6 have largely been executed; the Phase 0 spikes S1 to S10 have not. This file is kept for reference only. The current status is in [HANDOFF.md](HANDOFF.md) and [BUILD_PLAN.md](BUILD_PLAN.md).
+
 Setup (once)
 
 ```bash

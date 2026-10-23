@@ -1,6 +1,8 @@
 <!-- Auto-exported from the planning document "Omarchy Widgets Plan v0.2" (17 Oct 2026). Tables are flattened to line-per-cell and a few illustrative code blocks were lost in export; PROJECT_BRIEF.md and DAEMON_SPEC.md are the maintained versions. Kept for the sources list and extra detail. -->
 
 
+> **Historical, not maintained.** Prompts 1 to 6 have largely been executed; the Phase 0 spikes S1 to S10 have not. This export is kept for its sources list and extra detail only. The current status is in [HANDOFF.md](HANDOFF.md) and [BUILD_PLAN.md](BUILD_PLAN.md) in the same folder.
+
 # Omarchy Widgets — Plan v0.2
  · 
 

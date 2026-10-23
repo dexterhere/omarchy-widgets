@@ -2,6 +2,14 @@
 
 Status: planning v0.2, checked against public sources on 17 October 2026. Everything about Omarchy and Quickshell internals is **believed, not verified**; Phase 0 verifies it. Names, UI text and the `ow` command set are placeholders until the naming decision.
 
+**Reality check (2026-10-23)**, what the code does today, as opposed to the plan below:
+- The vault is passphrase-only; there is no keyring default.
+- No `mlock` is applied anywhere yet.
+- Fuzzing covers the frame, request, grants and vault parsers. There is no spec parser.
+- No bridge exists.
+- Not built: `ow new`, `check`, `install`, `enable`, `place`, `pack`, `snapshot`, `rollback`, `eject`, `doctor`, `search`, `grants`, `audit`, `center`.
+- Only the `system` provider exists.
+
 ## 1. Vision
 
 Give every Omarchy user one place to install, arrange, tweak and create desktop widgets, with their data handled safely.

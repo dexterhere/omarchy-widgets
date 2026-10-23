@@ -9,7 +9,7 @@
 
 **Desktop widgets for [Omarchy](https://omarchy.org) that handle your data safely.**
 
-Install a widget, drop it anywhere on your desktop, resize it, and it follows your theme. Your tokens and passwords never touch the widget: a small background service holds them in an encrypted vault and hands each widget only what you allowed.
+Install a widget, drop it anywhere on your desktop, resize it, and it follows your theme. Your tokens and passwords never touch the widget: a small background service holds them in an encrypted vault and hands each widget only what you allowed. Today the daemon does not open the vault: the vault and the `ow vault` CLI work as standalone tools, and daemon unlock is not built yet.
 
 > **Status: early development.** The secure data layer (daemon, vault, CLI) works and is tested. The desktop canvas, the Widget Center and the widgets themselves are not built yet, so there is nothing to install for end users today. See [Roadmap](#roadmap). The name is a placeholder.
 
@@ -47,7 +47,7 @@ widget (QML or JSON spec)  ->  bridge plugin  ->  owd daemon  ->  encrypted vaul
 
 ## Roadmap
 
-1. **Phase 0 (now, in parallel):** verify how Omarchy 4 and Quickshell behave (surfaces, plugin contract, keyring), decide the host strategy and the final name.
+1. **Phase 0 (spikes pending):** verify how Omarchy 4 and Quickshell behave (surfaces, plugin contract, keyring), decide the host strategy and the final name. Phase 1 epic 1 (the daemon core) is done ahead of these spikes because it does not depend on them.
 2. **Phase 1:** QML bridge and kit, desktop canvas with edit mode, `ow` manager commands, Widget Center, first widgets (clocks, system, battery), packaging.
 3. **Phase 2 (public beta):** GitHub, Gmail, calendar, tasks, Docker and AI-usage widgets, the Discover tab. Gated on an external review of the vault and protocol.
 4. **Phase 3 and 4:** maker tools (scaffolder, spec widgets, visual designer), registry, website, contribution ladder.

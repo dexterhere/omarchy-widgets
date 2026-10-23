@@ -299,3 +299,28 @@ fn cli_process_is_hardened_while_holding_secrets() {
         .unwrap();
     assert_eq!(core.split_whitespace().rev().nth(1), Some("0"), "{core}");
 }
+
+#[test]
+fn every_vault_command_refuses_a_loose_vault_dir() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("data/owd");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let stdin = format!("{PASS}\n{SECRET}\n{SECRET}\n");
+    for args in [
+        &["vault", "status"][..],
+        &["vault", "list"],
+        &["vault", "set", "x"],
+        &["vault", "remove", "x"],
+        &["vault", "rotate"],
+        &["vault", "wipe", "--yes"],
+    ] {
+        let o = ow(d.path(), args, &stdin);
+        assert!(
+            !o.status.success() && text(&o).contains("0700"),
+            "{args:?}: {}",
+            text(&o)
+        );
+    }
+}

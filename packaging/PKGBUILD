@@ -14,7 +14,6 @@ makedepends=(cargo git)
 # fingerprint below and sign release tags with `git tag -s`.
 # Local testing only: source=("omarchy-widgets::git+file://$PWD#branch=develop") and drop ?signed;
 # also skip the guard below by pinning any placeholder fingerprint in your private copy.
-source=("omarchy-widgets::git+file://$PWD#branch=develop") and drop ?signed.
 source=("omarchy-widgets::git+$url.git?signed#tag=v$pkgver")
 validpgpkeys=()
 sha256sums=(SKIP) # git sources are verified by the signed tag, not a hash

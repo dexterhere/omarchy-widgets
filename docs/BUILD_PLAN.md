@@ -44,7 +44,8 @@ Phase 1, epic 1 (daemon core) is largely done ahead of the Phase 0 spikes becaus
 - [x] Daemon-side vault unlock, passphrase mode (AUTH-UNLOCK): `vault.unlock|lock|status`, attempt limit and lockout, idle lock, `locked` error plumbing, `ow vault unlock|lock|status`, `ow vault set` tty passphrase, daemon leak test. Not done: keyring auto-unlock, network providers, grants admin ops, remove-then-reload flow
 - [x] Step 5: provider hub, scheduler, push, `system` provider
 - [ ] Step 6 network providers, step 7 hardening/PKGBUILD/outside review
-- [ ] Epics 2 to 7 (bridge and kit, canvas, `ow` manager verbs, Widget Center, first widgets, packaging)
+- [x] Epic 2 and 3, first slice (SHELL-PLUGIN, `plugin/`): bridge, layout.json v0 renderer, widget store, minimal Bottom-layer canvas, offscreen tests and an end-to-end smoke with a real `owd`. Not done: edit mode, Widget Center, settings, code widgets, click pass-through and in-shell behaviour unverified (see `plugin/README.md`)
+- [ ] Epics 4 to 7 (`ow` manager verbs, Widget Center, first widgets, packaging) and the remainder of 2 and 3 (kit components for code widgets, edit overlay, tray with undo, per-monitor layout keyed by monitor set)
 
 Phase 0 spikes S1, S2, S3, S5, S6, S7, S8, S9, S10 and S13 have recorded results in `docs/SPIKES.md` (S12 not measurable offline, S4 keyring and S11 headless CI not run; all **[Dexter]** tasks untouched). Machine facts: bare metal Omarchy 4.0.6, Quickshell 0.3.2, Hyprland 0.56.2, TPM2 present (see DECISIONS.md).
 

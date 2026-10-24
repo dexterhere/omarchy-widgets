@@ -56,7 +56,7 @@ cargo deny check && cargo audit
 D=$(mktemp -d -p /tmp owd.XXXX); cargo run -p owd -- --config-dir "$D"
 cargo run -p ow -- --config-dir "$D" status
 (cd fuzz && cargo +nightly fuzz run <target>)          # frame_decoder request_parse admin_parse grants_parse vault_payload vault_open
-# qmllint: not set up yet (no QML in the repo)
+plugin/tests/run-all.sh   # QML: qmllint, static safety check, QtTest offscreen, bridge, store (Qt6 tools in /usr/lib/qt6/bin)
 ```
 
 ## How to work
@@ -69,4 +69,4 @@ cargo run -p ow -- --config-dir "$D" status
 
 ## Current phase
 
-Phase 1, epic 1 (daemon core: socket, vault, grants, audit, provider hub, `ow status` and `ow vault`) is done, and the daemon can now be unlocked with the vault passphrase (`ow vault unlock|lock|status`; AUTH-UNLOCK in `docs/DECISIONS.md`). Keyring auto-unlock, the egress crate and network providers, and grants admin ops are not built. Phase 0 spikes were run on 2026-10-23 except S4 (keyring), S11 (headless CI) and S12 (needs network); results are in `docs/SPIKES.md` and the SPIKE-* entries in `docs/DECISIONS.md`. Not built yet: keyring auto-unlock, network providers, hardening verification, bridge/QML/canvas/Widget Center, `ow new|check|install|publish`, `spec/`. See `docs/BUILD_PLAN.md`. Update this line when the phase changes.
+Phase 1, epic 1 (daemon core: socket, vault, grants, audit, provider hub, `ow status` and `ow vault`) is done, and the daemon can now be unlocked with the vault passphrase (`ow vault unlock|lock|status`; AUTH-UNLOCK in `docs/DECISIONS.md`). Keyring auto-unlock, the egress crate and network providers, and grants admin ops are not built. Phase 0 spikes were run on 2026-10-23 except S4 (keyring), S11 (headless CI) and S12 (needs network); results are in `docs/SPIKES.md` and the SPIKE-* entries in `docs/DECISIONS.md`. The first desktop-layer slice exists in `plugin/` (bridge, layout.json v0 renderer, widget store, minimal Bottom-layer canvas; SHELL-PLUGIN in `docs/DECISIONS.md`, run it only in a throwaway Quickshell as `plugin/README.md` says); edit mode, Widget Center and in-shell behaviour are not built or verified. Not built yet: keyring auto-unlock, network providers, hardening verification, Widget Center, `ow new|check|install|publish`, `spec/`. See `docs/BUILD_PLAN.md`. Update this line when the phase changes.

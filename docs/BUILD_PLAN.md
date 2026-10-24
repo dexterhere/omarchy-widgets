@@ -46,7 +46,8 @@ Phase 1, epic 1 (daemon core) is largely done ahead of the Phase 0 spikes becaus
 - [x] `ow install|list|remove` for spec widgets (INSTALL_DESIGN.md, INSTALL in DECISIONS.md): registry index + raw files at the pinned commit through `ow-egress`, Rust re-implementation of the widget schema, layout rules and spec policy, consent by typing `yes`, `--yes` only with `--accept-access <hash>`, staged install with rollback, grants edit, `grants.reload` admin op (parser tests, `admin_parse` fuzz). Not done: per-file hashes in the index (web change, listed in HANDOFF), signatures, update checks (`ow update`), a pty test of the real binary through a live fetch, no installable widget exists yet (all seven registry entries are concept entries with placeholder commits)
 - [x] Local providers for the clock, battery and system-monitor widgets: `system.time`, `system.temp`, `battery.status` (DEP-TIME: jiff)
 - [ ] Step 6 network providers, step 7 hardening/PKGBUILD/outside review
-- [ ] Epics 2 to 7 (bridge and kit, canvas, `ow` manager verbs, Widget Center, first widgets, packaging)
+- [x] Epic 2 and 3, first slice (SHELL-PLUGIN, `plugin/`): bridge, layout.json v0 renderer, widget store, minimal Bottom-layer canvas, offscreen tests and an end-to-end smoke with a real `owd`. Not done: edit mode, Widget Center, settings, code widgets, click pass-through and in-shell behaviour unverified (see `plugin/README.md`)
+- [ ] Epics 4 to 7 (`ow` manager verbs, Widget Center, first widgets, packaging) and the remainder of 2 and 3 (kit components for code widgets, edit overlay, tray with undo, per-monitor layout keyed by monitor set)
 
 Phase 0 spikes S1, S2, S3, S5, S6, S7, S8, S9, S10 and S13 have recorded results in `docs/SPIKES.md` (S12 not measurable offline, S4 keyring and S11 headless CI not run; all **[Dexter]** tasks untouched). Machine facts: bare metal Omarchy 4.0.6, Quickshell 0.3.2, Hyprland 0.56.2, TPM2 present (see DECISIONS.md).
 

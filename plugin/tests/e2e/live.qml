@@ -6,5 +6,5 @@ import "plugin"
 
 ShellRoot {
   Service { id: svc }
-  Timer { interval: 5500; running: true; onTriggered: { console.log("LIVE widgets=" + svc.store.list.length + " link=" + svc.bridge.link + " pushes=" + svc.bridge.pushes); Qt.quit() } }
+  Timer { interval: 5500; running: true; onTriggered: { console.log("TILES " + JSON.stringify(svc.tiles)); console.log("LIVE widgets=" + svc.store.list.length + " link=" + svc.bridge.link + " pushes=" + svc.bridge.pushes); Qt.quit() } }
 }

@@ -21,7 +21,7 @@ python3 - "$fx" "$D" <<'PY'
 import json, os, shutil, sys
 fx, D = sys.argv[1:3]
 w = f"{D}/data/owd/widgets"; grants = []
-for name, topics in (("clock", ["system.time"]), ("system-monitor", ["system.cpu", "system.memory", "system.load"]), ("battery", ["battery.status"])):
+for name, topics in (("clock", ["system.time"]), ("system-monitor", ["system.cpu", "system.memory", "system.load", "system.temp"]), ("battery", ["battery.status"])):
     wid = json.load(open(f"{fx}/{name}/widget.json"))
     shutil.copytree(f"{fx}/{name}", f"{w}/{wid['id']}")
     fields = [f for p in wid["providers"] for f in p["fields"]]
@@ -50,7 +50,7 @@ if [ "${OW_E2E_LIVE:-0}" = 1 ]; then
   # a few seconds of a real Bottom-layer surface on the live compositor (like spikes/s1); read-only hyprctl probes
   realrt=${XDG_RUNTIME_DIR_REAL:-/run/user/$(id -u)}
   case "$WAYLAND_DISPLAY" in /*) ;; *) export WAYLAND_DISPLAY=$realrt/$WAYLAND_DISPLAY;; esac   # our XDG_RUNTIME_DIR is the throwaway one
-  timeout -s TERM 12 quickshell -p "$run/cfg" >"$run/qs.log" 2>&1 &
+  WAYLAND_DEBUG=client timeout -s TERM 12 quickshell -p "$run/cfg" >"$run/qs.log" 2>&1 &
   qs=$!; pids+=("$qs")
   python3 -c 'import time;time.sleep(3)'
   echo "--- hyprctl layers (owd-canvas only)"; XDG_RUNTIME_DIR=$realrt hyprctl layers -j 2>/dev/null | python3 -c '
@@ -61,6 +61,29 @@ for mon,lv in d.items():
         for l in obj:
             if l["namespace"]=="owd-canvas": print(mon,"level",level,l["namespace"],l["w"],"x",l["h"])'
   wait "$qs"
+  cp "$run/qs.log" "${OW_E2E_KEEPLOG:-/dev/null}" 2>/dev/null; echo "--- input regions the compositor was sent vs the tiles"
+  python3 - "$run/qs.log" <<'PY'
+import json, re, sys
+log = re.sub(r"\x1b\[[0-9;]*m", "", open(sys.argv[1], errors="replace").read())
+tiles = []
+for l in log.splitlines():
+    if "qml: TILES " in l: tiles = json.loads(l.split("TILES ", 1)[1])
+regions = {}      # region object id -> [(x,y,w,h)]
+sent = []
+for l in log.splitlines():
+    m = re.search(r"wl_compositor#\d+\.create_region\(new id wl_region#(\d+)\)", l)
+    if m: regions[m.group(1)] = []
+    m = re.search(r"wl_region#(\d+)\.add\((-?\d+), (-?\d+), (-?\d+), (-?\d+)\)", l)
+    if m and m.group(1) in regions: regions[m.group(1)].append(tuple(int(v) for v in m.groups()[1:]))
+    m = re.search(r"set_input_region\(wl_region#(\d+)\)", l)
+    if m and m.group(1) in regions: sent.append(regions[m.group(1)][:])
+want = sorted((t["x"], t["y"], t["w"], t["h"]) for t in tiles)
+ne = [r for r in sent if r]
+last = sorted(ne[-1]) if ne else []
+print("tiles   :", want)
+print("regions :", last)
+print("input region == tiles:", last == want and len(want) > 0, "| area", sum(w * h for _, _, w, h in last), "<= sum of tiles", sum(w * h for _, _, w, h in want))
+PY
 else
   unset WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
   export QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software

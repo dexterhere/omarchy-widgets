@@ -25,7 +25,8 @@ Item {
 
   Store { id: widgets }
   Bridge { id: link; wanted: widgets.wanted }
-  DesktopCanvas { store: widgets; bridge: link; placement: root.placement }
+  readonly property var tiles: desk.tiles
+  DesktopCanvas { id: desk; store: widgets; bridge: link; placement: root.placement }
 
   FileView {
     path: root.placementPath

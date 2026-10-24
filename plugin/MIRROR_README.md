@@ -11,8 +11,8 @@ Pre-release. Be honest with yourself before installing:
 - Spec widgets only. No code widgets.
 - Not yet verified inside the real Omarchy shell. It has only run offscreen and in throwaway Quickshell instances. Click pass-through, lock screen, fullscreen windows and theme switching are untested live.
 - It never calls `Qt.quit()`.
-- It takes no keyboard focus and has no keyboard control.
-- The Widget Center overlay is an empty placeholder.
+- The desktop tiles take no keyboard focus. The Widget Center overlay takes keyboard focus on demand (after a click) and uses it for Escape only.
+- The Widget Center overlay is read-only: it lists installed widgets, what each may read and how each is doing, and prints the command to remove one. It cannot install or remove anything, and nothing is bound to open it yet.
 
 ## Install
 

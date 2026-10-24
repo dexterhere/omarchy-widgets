@@ -201,4 +201,26 @@ TestCase {
         verify(typeof v === "string" || typeof v === "boolean" || Array.isArray(v), k)
       }
   }
+
+  Component { id: svcC; QtObject { property var store: null; property var bridge: null } }
+  Component { id: stateC; CenterState { } }
+  function test_state_toggle_hide_and_rows() {
+    var st = createTemporaryObject(stateC, tc)
+    compare(st.visible, false); compare(st.open, false)
+    compare(st.rows.length, 0)                          // no service injected yet: empty, no error
+    compare(st.link, "unavailable")
+    st.toggle(); compare(st.visible, true); compare(st.open, true)
+    st.toggle(); compare(st.visible, false)
+    st.toggle(); st.hide(); compare(st.visible, false)
+    st.hide(); compare(st.visible, false)
+    var svc = createTemporaryObject(svcC, tc)
+    svc.store = { list: [rec("clock")] }
+    svc.bridge = { entries: entry(Fx.IDS.clock, "system.time", { state: "live", data: { hm: "1" } }), link: "connected" }
+    st.service = svc
+    compare(st.rows.length, 1)
+    compare(st.rows[0].summary, "ok")
+    compare(st.rows[0].command, "ow remove io.github.dexterhere.clock")
+    svc.bridge = { entries: {}, link: "unavailable" }
+    compare(st.rows[0].summary, "daemon not running")
+  }
 }

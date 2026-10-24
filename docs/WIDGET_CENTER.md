@@ -21,7 +21,7 @@ Where the list comes from: the daemon has no read-only op that lists installed w
 
 ## Opening it
 
-NOT ESTABLISHED. The repo records that Omarchy 4.0.6 has `omarchy-shell shell summon|toggle|hide <plugin-id>` and that Hyprland bindings are Lua calls to `o.bind` (SPIKES S13, PROJECT_BRIEF). It does not record what the shell does to an overlay plugin's root item when told to toggle it (set `visible`, call a function, or reach an `IpcHandler`). So `Center` exposes `visible` and `toggle()` and I stopped there (OPEN_QUESTIONS 40). If the shell sets `visible`, it already works; if it needs an `IpcHandler`, that is a small addition once someone reads the shell's plugin host.
+NOT ESTABLISHED. The repo records that Omarchy 4.0.6 has `omarchy-shell shell summon|toggle|hide <plugin-id>` and that Hyprland bindings are Lua calls to `o.bind` (SPIKES S13, PROJECT_BRIEF). It does not record what the shell does to an overlay plugin's root item when told to toggle it (set `visible`, call a function, or reach an `IpcHandler`). So `Center` exposes `open`, `visible` and `toggle()` and I stopped there (OPEN_QUESTIONS 40). If the shell sets `visible`, it already works; if it needs an `IpcHandler`, that is a small addition once someone reads the shell's plugin host.
 
 Proposed binding, for Dexter to apply by hand, with a backup and a diff shown first (this branch does not touch `bindings.lua`). `SUPER + ALT + W` was free on stock Omarchy 4 (SPIKES S13). The plugin id is `io.github.dexterhere.widget-shell` (`plugin/manifest.json`); the id may change with D-3.
 

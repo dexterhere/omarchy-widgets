@@ -152,7 +152,7 @@ ShellRoot {
       [1500, "no runtime dir: unavailable, no crash", function () { return [b.socketPath === "" && b.link === "unavailable", b.socketPath + b.link] }]
     ]
   })
-  property var endAt: ({ normal: 4600, fragment: 3000, garbage: 2800, oversize: 4800, caps: 5400, floodpre: 7800, flood: 7800, burst: 3800, drop: 6300, silent: 8300, reject: 7300, refuse: 1800, badproto: 1900, noproto: 1900,
+  property var endAt: ({ normal: 4600, health: 2000, fragment: 3000, garbage: 2800, oversize: 4800, caps: 5400, floodpre: 7800, flood: 7800, burst: 3800, drop: 6300, silent: 8300, reject: 7300, refuse: 1800, badproto: 1900, noproto: 1900,
                          unsupported: 1800, locked: 4500, late: 9300, defaultpath: 1800, nopath: 1800, relpath: 1800 })
 
   // sample for facts a single end-of-run check would miss

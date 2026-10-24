@@ -13,7 +13,7 @@ What is here:
 | `LayoutNode.qml`, `Kids.qml`, `Tile.qml` | The renderer for the 13 node types, and one widget tile with its status |
 | `Theme.qml` | The only file that imports `qs.Commons` or contains a colour literal |
 | `DesktopCanvas.qml` | One Bottom-layer layer-shell window per monitor, input mask = tiles |
-| `Center.qml`, `CenterPanel.qml`, `CenterModel.js` | The `overlay` kind: a read-only Widget Center (list, grants, health, the remove command as text). See `docs/WIDGET_CENTER.md` |
+| `Center.qml`, `CenterState.qml`, `CenterPanel.qml`, `CenterModel.js` | The `overlay` kind: a read-only Widget Center (list, grants, health, the remove command as text). See `docs/WIDGET_CENTER.md` |
 
 ## Run it safely (throwaway only)
 
@@ -54,7 +54,7 @@ Code widgets are not handled here and are not sandboxed anywhere in this project
 ## What is NOT done
 
 - Edit mode, settings forms, drag/resize. The Widget Center exists but is read-only v0: it lists installed widgets, their grants and their health and prints `ow remove <id>` as text. It has no install, no remove, no enable, no Discover, Layouts or Create tabs, no audit viewer (WIDGET-CENTER-V0 in `docs/DECISIONS.md`).
-- How the real shell summons the overlay is not established from the repo (`docs/WIDGET_CENTER.md`). `Center` exposes `visible` and `toggle()`; nothing calls them yet and no key is bound. Escape needs one click in the panel first (`OnDemand` focus, SPIKES S2); the Close button works without it. Never run in the real shell.
+- How the real shell summons the overlay is not established from the repo (`docs/WIDGET_CENTER.md`). `Center` exposes `open`, `visible` and `toggle()`; nothing calls them yet and no key is bound. Escape needs one click in the panel first (`OnDemand` focus, SPIKES S2); the Close button works without it. Never run in the real shell.
 - Code widgets (only `tier: "spec"` is drawn; anything else is dropped).
 - Real click pass-through on the canvas. The mask is the union of tile rectangles and one live run confirmed a level-1 `owd-canvas` surface, but nobody has clicked through it (OPEN_QUESTIONS 19). Clicks on a tile are swallowed (no interaction exists yet). Lock screen and fullscreen windows untested.
 - Running inside the real shell: `service`/`overlay` property injection, `keepLoaded` across `rescanPlugins`, theme re-read on `omarchy theme set` (OPEN_QUESTIONS 20, 24).

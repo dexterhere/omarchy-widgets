@@ -23,6 +23,7 @@ Never enable it in your real shell from this slice. Nothing below touches `~/.co
 plugin/tests/run-all.sh                       # lint, static check, QtTest, bridge, store, manifest validation
 plugin/tests/run-qml-tests.sh                 # QtTest only (offscreen)
 plugin/tests/run-e2e.sh /tmp/out.png          # real owd + fake installs + offscreen render to a PNG
+plugin/tests/run-installed.sh /tmp/ow-try.XXXX /tmp/out.png   # draw what `ow install` put in a sandbox (docs/TRY_IT.md)
 OW_E2E_LIVE=1 plugin/tests/run-e2e.sh /tmp/x  # ~6 s of the real Bottom-layer canvas on the live compositor (like spikes/s1)
 ```
 

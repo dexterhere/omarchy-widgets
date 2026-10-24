@@ -43,6 +43,7 @@ Phase 1, epic 1 (daemon core) is largely done ahead of the Phase 0 spikes becaus
 - [x] Step 4 (partly): vault format v0.1 and passphrase mode, `ow vault` CLI. Keyring and TPM modes wait for spike S4; kernel-keyring key caching and daemon unlock are not built
 - [x] Daemon-side vault unlock, passphrase mode (AUTH-UNLOCK): `vault.unlock|lock|status`, attempt limit and lockout, idle lock, `locked` error plumbing, `ow vault unlock|lock|status`, `ow vault set` tty passphrase, daemon leak test. Not done: keyring auto-unlock, network providers, grants admin ops, remove-then-reload flow
 - [x] Step 5: provider hub, scheduler, push, `system` provider
+- [x] Local providers for the clock, battery and system-monitor widgets: `system.time`, `system.temp`, `battery.status` (DEP-TIME: jiff)
 - [ ] Step 6 network providers, step 7 hardening/PKGBUILD/outside review
 - [ ] Epics 2 to 7 (bridge and kit, canvas, `ow` manager verbs, Widget Center, first widgets, packaging)
 

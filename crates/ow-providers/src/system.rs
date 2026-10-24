@@ -1,11 +1,13 @@
-//! `system`: CPU, memory and load from /proc. No secrets, no network.
+//! `system`: CPU, memory and load from /proc, temperature from /sys, local time. No secrets, no
+//! network.
+use crate::{attr, clock, temp};
 use ow_core::{FetchCtx, Provider, ProviderError, Sensitivity, TopicSpec};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
-static TOPICS: [TopicSpec; 3] = [
+static TOPICS: [TopicSpec; 5] = [
     TopicSpec::new(
         "system.cpu",
         Sensitivity::Low,
@@ -24,6 +26,18 @@ static TOPICS: [TopicSpec; 3] = [
         Duration::from_secs(5),
         &["load1", "load5", "load15"],
     ),
+    TopicSpec::new(
+        "system.time",
+        Sensitivity::Low,
+        Duration::from_secs(1),
+        &["hm", "hms", "date", "tz"],
+    ),
+    TopicSpec::new(
+        "system.temp",
+        Sensitivity::Low,
+        Duration::from_secs(5),
+        &["celsius"],
+    ),
 ];
 
 #[derive(Clone, Copy)]
@@ -36,18 +50,25 @@ struct CpuSample {
 
 pub struct System {
     proc_root: PathBuf,
+    sys_root: PathBuf,
     last_cpu: Mutex<Option<CpuSample>>,
 }
 
 impl System {
     pub fn new() -> Self {
-        Self::with_root("/proc".into())
+        Self::with_roots("/proc".into(), "/sys".into())
     }
 
-    /// Read from another directory laid out like /proc (tests).
+    /// Read from another directory laid out like /proc (tests); /sys stays the real one.
     pub fn with_root(proc_root: PathBuf) -> Self {
+        Self::with_roots(proc_root, "/sys".into())
+    }
+
+    /// Both roots injectable (tests): /proc-like and /sys-like.
+    pub fn with_roots(proc_root: PathBuf, sys_root: PathBuf) -> Self {
         let s = Self {
             proc_root,
+            sys_root,
             last_cpu: Mutex::new(None),
         };
         // Baseline now, so the first real fetch already has a delta to work with.
@@ -56,7 +77,7 @@ impl System {
     }
 
     fn read(&self, file: &str) -> Result<String, ProviderError> {
-        std::fs::read_to_string(self.proc_root.join(file)).map_err(|_| ProviderError::Unavailable)
+        attr::read(&self.proc_root.join(file), attr::PROC_MAX)
     }
 }
 
@@ -195,6 +216,8 @@ impl Provider for System {
                 let [a, b, c] = parse_load(&self.read("loadavg")?).ok_or(ProviderError::Format)?;
                 json!({ "load1": a, "load5": b, "load15": c })
             }
+            "system.time" => return Ok(spec.sanitize(clock::fields(&jiff::Zoned::now()))),
+            "system.temp" => json!({ "celsius": temp::celsius(&self.sys_root)? }),
             _ => return Err(ProviderError::UnknownTopic),
         };
         Ok(spec.sanitize(obj(data)))

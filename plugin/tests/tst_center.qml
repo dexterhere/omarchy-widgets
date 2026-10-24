@@ -116,19 +116,24 @@ TestCase {
     compare(texts(p, "command")[0], "ow remove io.github.dexterhere.clock")
   }
 
-  function test_odd_ids_are_quoted_and_inert() {
-    var odd = ["a; rm -rf ~", "$(touch /tmp/x)", "`id`", "a b", "x'y", "x\ny", "../../etc/passwd", "UPPER", "a\u0000b", "", "-rf", "x\u202ey"]
+  function test_invalid_ids_never_get_a_runnable_command() {
+    var odd = ["a; rm -rf ~", "$(touch /tmp/x)", "`id`", "a b", "x'y", "x\ny", "../../etc/passwd", "UPPER", "a\u0000b", "", "-rf", "x\u202ey",
+               "a\u200bb", "a\u200b" + "b".repeat(200), "a".repeat(150), "io.github.example.clock\u200b"]
     for (var i = 0; i < odd.length; i++) {
       var c = M.removeCommand(odd[i])
-      verify(c.indexOf("ow remove '") === 0 && c.charAt(c.length - 1) === "'", JSON.stringify(odd[i]) + " -> " + c)
-      verify(c.indexOf("\n") < 0 && c.indexOf("\u0000") < 0 && c.indexOf("\u202e") < 0, c)
-      // inside the quotes there is no bare quote: each ' is closed, escaped and reopened
-      var inner = c.substring("ow remove '".length, c.length - 1)
-      verify(inner.replace(/'\\''/g, "").indexOf("'") < 0, c)
+      verify(c.indexOf("ow remove") < 0, JSON.stringify(odd[i]) + " -> " + c)
+      verify(c.indexOf("id not valid, nothing to run: \"") === 0, c)
+      // plain printable ASCII only: every odd character is spelled out
+      verify(/^[\x20-\x7e]*$/.test(c), c)
+      verify(c.length < 400, "" + c.length)
     }
-    compare(M.removeCommand("x'y"), "ow remove 'x'\\''y'")
-    compare(M.removeCommand(42), "ow remove ''")
-    compare(M.removeCommand("a".repeat(500)).length, "ow remove ''".length + 100)
+    // the zero-width case from the audit: it must not read as the id without the invisible character
+    compare(M.removeCommand("a\u200bb"), "id not valid, nothing to run: \"a\\u200bb\"")
+    compare(M.removeCommand(42), "id not valid, nothing to run: \"\"")
+    // a row for an invalid id shows the escaped id too
+    var row = M.rows([{ id: "a\u200bb", ok: false, reason: "id" }], {}, "connected")[0]
+    compare(row.id, "a\\u200bb")
+    verify(row.command.indexOf("ow remove") < 0)
   }
 
   function test_failed_widget_row_shows_only_id_and_a_fixed_reason() {
@@ -192,6 +197,78 @@ TestCase {
     compare(M.rows(new Array(1000).fill({ id: "io.a", ok: false, reason: "x" }), {}, "connected").length, 200)
   }
 
+  function test_grant_and_health_lines_are_deduplicated_and_capped() {
+    // 16 grants x 16 topics x 40 fields, every topic repeated: the audit's 257-line worst case
+    var topics = [], fields = []
+    for (var i = 0; i < 16; i++) topics.push("sys.t" + i)
+    for (var f = 0; f < 40; f++) fields.push("f" + (f % 5))
+    var grants = []
+    for (var g = 0; g < 16; g++) grants.push({ topics: topics.slice(), fields: fields.slice() })
+    var big = { id: "io.test.big", ok: true, name: "Big", version: "1", status: "alpha", topics: topics.slice(), ungranted: ["x.a", "x.b", "x.c", "x.d", "x.e", "x.f", "x.g", "x.h", "x.i", "x.j"],
+                declared: topics.concat(["d.a", "d.b", "d.c"]), grants: grants }
+    var row = M.rows([big], {}, "connected")[0]
+    compare(row.grants.length, 8)
+    compare(row.grants[7].indexOf("+"), 0)
+    verify(row.grants[7].indexOf("more") > 0)
+    compare(row.grants[0], "granted sys.t0 (fields: f0, f1, f2, f3, f4)")        // fields deduplicated
+    compare(row.health.length, 8)
+    verify(row.health[7].indexOf("more") > 0)
+    // a small repeat is deduplicated without a "+N more" line
+    var small = M.rows([{ id: "io.test.s", ok: true, name: "", version: "", status: "alpha", topics: [], ungranted: [], declared: [],
+                          grants: [{ topics: ["a.b", "a.b"], fields: ["x", "x"] }, { topics: ["a.b"], fields: [] }] }], {}, "connected")[0]
+    compare(small.grants.length, 1)
+    compare(small.grants[0], "granted a.b (fields: x)")
+  }
+
+  function test_rows_are_capped_and_the_rest_counted() {
+    var many = []
+    for (var i = 0; i < 260; i++) many.push({ id: "io.test.w" + i, ok: false, reason: "layout" })
+    compare(M.rows(many, {}, "connected").length, 200)
+    compare(M.hiddenCount(260, 200, 0), 60)
+    compare(M.hiddenCount(260, 200, 40), 100)
+    compare(M.hiddenCount(3, 3, 0), 0)
+    var p = panelFor([rec("clock")])
+    p.hiddenCount = 7
+    waitForRendering(p)
+    compare(texts(p, "hiddenText")[0], "7 more not shown")
+    var q = panelFor([rec("clock")])
+    var hidden = null
+    ;(function walk(i) { if (i.objectName === "hiddenText") hidden = i; for (var c = 0; c < i.children.length; c++) walk(i.children[c]) })(q)
+    compare(hidden.visible, false)
+  }
+
+  function test_closed_center_does_no_row_work() {
+    var st = createTemporaryObject(stateC, tc)
+    var svc = createTemporaryObject(svcC, tc)
+    svc.store = { list: [rec("clock"), rec("battery")], overflowDirs: 5 }
+    svc.bridge = { entries: {}, link: "connected" }
+    st.service = svc
+    compare(st.open, false)
+    compare(st.rows.length, 0)                           // records are there, the Center is closed: no rows
+    compare(st.hiddenCount, 0)
+    svc.bridge = { entries: entry(Fx.IDS.clock, "system.time", { state: "live", data: {} }), link: "connected" }   // a bridge change while closed
+    compare(st.rows.length, 0)
+    st.toggle()
+    compare(st.rows.length, 2)
+    compare(st.hiddenCount, 5)
+    st.hide()
+    compare(st.rows.length, 0)
+  }
+
+  function test_data_derived_keys_do_not_find_functions() {
+    var words = ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf", "isPrototypeOf"]
+    var id = Fx.IDS.clock, r = rec("clock")
+    for (var i = 0; i < words.length; i++) {
+      var row = M.rows([r], entry(id, "system.time", { state: "live", data: {}, health: words[i] }), "connected")[0]
+      compare(row.summary, "ok", words[i])                // an unknown health word is ignored, not a function
+      compare(M.linkLabel(words[i]), "daemon not running", words[i])
+      verify(typeof M.linkLabel(words[i]) === "string")
+      var row2 = M.rows([r], entry(id, "system.time", { state: words[i] }), "connected")[0]
+      compare(row2.summary, "waiting for data", words[i])
+      for (var k in row) verify(typeof row[k] !== "function", k)
+    }
+  }
+
   function test_center_item_model_is_inert_data() {
     // nothing in the model is a function or a url; it is strings and arrays of strings
     var rows = M.rows([rec("clock"), rec("battery")], {}, "connected")
@@ -217,6 +294,8 @@ TestCase {
     svc.store = { list: [rec("clock")] }
     svc.bridge = { entries: entry(Fx.IDS.clock, "system.time", { state: "live", data: { hm: "1" } }), link: "connected" }
     st.service = svc
+    compare(st.rows.length, 0)                          // closed
+    st.open = true
     compare(st.rows.length, 1)
     compare(st.rows[0].summary, "ok")
     compare(st.rows[0].command, "ow remove io.github.dexterhere.clock")

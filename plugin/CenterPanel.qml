@@ -12,6 +12,7 @@ Item {
 
   property var rows: []
   property string link: "connecting"
+  property int hiddenCount: 0
   signal closeRequested()
 
   readonly property alias list: list
@@ -89,10 +90,21 @@ Item {
       color: Theme.muted
     }
 
+    Text {
+      objectName: "hiddenText"
+      visible: panel.hiddenCount > 0
+      width: parent.width
+      text: panel.hiddenCount + " more not shown"
+      textFormat: Text.PlainText
+      font.family: Theme.family
+      font.pixelSize: Theme.textPx("sm")
+      color: Theme.muted
+    }
+
     ListView {
       id: list
       width: parent.width
-      height: parent.height - y
+      height: Math.max(0, parent.height - y)
       clip: true
       spacing: Theme.space(10)
       model: panel.rows

@@ -23,5 +23,8 @@ Item {
   readonly property var store: service ? service.store : null
   readonly property var bridge: service ? service.bridge : null
   readonly property string link: bridge ? bridge.link : "unavailable"
-  readonly property var rows: Model.rows(store ? store.list : [], bridge ? bridge.entries : ({}), link)
+  // Computed only while the Center is open: a closed Center does no row work, however often the bridge changes.
+  readonly property var rows: open ? Model.rows(store ? store.list : [], bridge ? bridge.entries : ({}), link) : []
+  // widgets not shown: rows cut at the cap, plus directories the store refused to load
+  readonly property int hiddenCount: open ? Model.hiddenCount(store && store.list ? store.list.length : 0, rows.length, store && store.overflowDirs ? store.overflowDirs : 0) : 0
 }

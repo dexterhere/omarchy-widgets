@@ -35,6 +35,7 @@ CenterState {
         id: panel
         anchors.fill: parent
         rows: root.rows
+        hiddenCount: root.hiddenCount
         link: root.link
         onCloseRequested: root.hide()
       }

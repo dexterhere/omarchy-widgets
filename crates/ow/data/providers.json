@@ -19,7 +19,12 @@
         "system.load.load15",
         "system.memory.total_mib",
         "system.memory.used_mib",
-        "system.memory.used_pct"
+        "system.memory.used_pct",
+        "system.temp.celsius",
+        "system.time.date",
+        "system.time.hm",
+        "system.time.hms",
+        "system.time.tz"
       ]
     },
     "battery": {
@@ -28,7 +33,12 @@
       "egress": [],
       "topics": {
         "battery.status": ["percent", "state", "timeLeft"]
-      }
+      },
+      "serving": [
+        "battery.status.percent",
+        "battery.status.state",
+        "battery.status.timeLeft"
+      ]
     },
     "github": {
       "class": "personal",

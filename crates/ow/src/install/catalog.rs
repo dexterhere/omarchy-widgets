@@ -110,21 +110,30 @@ mod tests {
         }
     }
 
-    /// The catalog's `serving` list must equal what the shipped daemon provider really offers;
+    /// The catalog's `serving` list must equal what the shipped daemon providers really offer;
     /// otherwise the "will not show data" statements would be false.
     #[test]
-    fn serving_matches_the_system_provider_in_this_workspace() {
-        use ow_core::Provider as _;
-        let sys = ow_providers::System::new();
-        let mut actual: BTreeSet<String> = BTreeSet::new();
-        for t in sys.topics() {
-            for f in t.fields {
-                actual.insert(format!("{}.{}", t.name, f));
+    fn serving_matches_the_shipped_providers_in_this_workspace() {
+        fn served(p: &dyn ow_core::Provider) -> BTreeSet<String> {
+            let mut actual = BTreeSet::new();
+            for t in p.topics() {
+                for f in t.fields {
+                    actual.insert(format!("{}.{}", t.name, f));
+                }
             }
+            actual
         }
-        assert_eq!(snapshot().unwrap().providers["system"].serving, actual);
-        for (n, p) in snapshot().unwrap().providers {
-            if n != "system" {
+        let catalog = snapshot().unwrap().providers;
+        assert_eq!(
+            catalog["system"].serving,
+            served(&ow_providers::System::new())
+        );
+        assert_eq!(
+            catalog["battery"].serving,
+            served(&ow_providers::Battery::new())
+        );
+        for (n, p) in catalog {
+            if n != "system" && n != "battery" {
                 assert!(p.serving.is_empty(), "{n} claims to be served");
             }
         }

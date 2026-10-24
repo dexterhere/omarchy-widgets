@@ -264,12 +264,8 @@ fn status_gate_planned_needs_the_flag_removed_never_unknown_refused() {
         "{}",
         ok.out
     );
-    // system.time is not served by the daemon yet: the summary says so.
-    assert!(
-        ok.out.contains("does not serve yet: system.time.date"),
-        "{}",
-        ok.out
-    );
+    // system.time is served by the daemon now (local providers), so no "does not serve yet" line.
+    assert!(!ok.out.contains("does not serve yet"), "{}", ok.out);
     for (st, tier) in [
         ("removed", "community"),
         ("beta", "community"),

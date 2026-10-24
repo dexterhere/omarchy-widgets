@@ -268,9 +268,14 @@ fn no_other_crate_opens_a_socket_or_starts_a_program_unaudited() {
 }
 
 /// Crates allowed to depend on `ow-egress` (the one network door). A new user is a security
-/// decision: add it here with the reason. `ow`: `ow install` fetches the registry index and the
-/// widget files (two fixed hosts, https, no redirects, size caps) through it.
-const EGRESS_USERS: &[&str] = &["crates/ow/Cargo.toml"];
+/// decision: add it here with the reason.
+/// - `ow`: `ow install` fetches the registry index and the widget files (two fixed hosts, https,
+///   no redirects, size caps) through it.
+/// - `owd`: the daemon's network providers (the first is `github`, host `api.github.com`) reach
+///   the network only through `owd::EgressHttp`, an adapter over `ow-egress` that implements the
+///   `ow_core::Http` trait; providers themselves (`ow-providers`) depend on neither. `owd` needs
+///   no `deny.toml` wrapper: it names `ow-egress` only, never `ureq` or `rustls`.
+const EGRESS_USERS: &[&str] = &["crates/ow/Cargo.toml", "crates/owd/Cargo.toml"];
 
 #[test]
 fn only_listed_crates_depend_on_ow_egress() {

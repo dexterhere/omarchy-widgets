@@ -693,6 +693,7 @@ name = "owd"
 version = "0.0.0"
 dependencies = [
  "ow-core",
+ "ow-egress",
  "ow-proto",
  "ow-providers",
  "ow-vault",

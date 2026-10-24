@@ -5,6 +5,7 @@ mod audit;
 mod config;
 mod grants;
 mod harden;
+mod http;
 mod paths;
 mod peer;
 mod private_file;
@@ -18,6 +19,9 @@ pub use config::{
 };
 pub use grants::{Grant, Grants, GrantsError, MAX_FILE as MAX_GRANTS_FILE};
 pub use harden::{check_private_dir, harden_process, private_dir};
+pub use http::{
+    Bearer, Http, HttpError, HttpRequest, HttpResponse, StatusClass, header as header_value,
+};
 pub use paths::Paths;
 pub use peer::peer_is_self;
 pub use provider::{

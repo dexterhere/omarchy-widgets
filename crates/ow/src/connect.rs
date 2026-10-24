@@ -413,6 +413,7 @@ fn connect(paths: &Paths, o: &Opts, out: &mut dyn Write, ui: &mut dyn Ui) -> Res
     let mut vault = Vault::open(&paths.vault(), &pass).map_err(vault_err)?;
     drop(pass);
     let replaced = vault.get(name).is_some();
+    let old_secret_present = old_name.as_ref().is_some_and(|n| vault.get(n).is_some());
     if replaced {
         writeln!(
             out,
@@ -448,7 +449,7 @@ fn connect(paths: &Paths, o: &Opts, out: &mut dyn Write, ui: &mut dyn Ui) -> Res
         "Wrote {} (mode 0600): [providers.github] secret = \"{name}\", interval_secs = {secs}.\nThe loader accepts only the github provider today, so that table is all the file holds.\n",
         paths.config_file().display()
     );
-    if let Some(old_name) = old_name {
+    if let Some(old_name) = old_name.filter(|_| old_secret_present) {
         let _ = writeln!(
             out,
             "The old secret {old_name} is still in the vault. Remove it with: ow vault remove {old_name}\n"

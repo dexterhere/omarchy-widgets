@@ -384,3 +384,59 @@ pub fn installed_ids(paths: &Paths) -> Vec<String> {
     ids.sort();
     ids
 }
+
+#[cfg(test)]
+mod atomic_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    #[test]
+    fn a_planted_file_or_link_at_the_temp_name_is_never_written_through() {
+        let d = tempfile::tempdir().unwrap();
+        let victim = d.path().join("victim");
+        fs::write(&victim, "keep").unwrap();
+        let planted_file = d.path().join("planted");
+        fs::write(&planted_file, "keep").unwrap();
+        let planted_link = d.path().join("link");
+        symlink(&victim, &planted_link).unwrap();
+        let dangling = d.path().join("dangling");
+        symlink(d.path().join("not-yet"), &dangling).unwrap();
+        for p in [&planted_file, &planted_link, &dangling] {
+            assert!(write_new(p, b"SECRET-TEXT").is_err());
+        }
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "keep");
+        assert_eq!(fs::read_to_string(&planted_file).unwrap(), "keep");
+        assert!(!d.path().join("not-yet").exists());
+    }
+
+    #[test]
+    fn replacing_through_a_symlink_swaps_the_link_and_leaves_its_target_alone() {
+        let d = tempfile::tempdir().unwrap();
+        fs::set_permissions(d.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let victim = d.path().join("victim");
+        fs::write(&victim, "keep").unwrap();
+        let target = d.path().join("config.toml");
+        symlink(&victim, &target).unwrap();
+        write_private_atomic(&target, "new\n", 1024, "file").unwrap();
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "keep");
+        assert!(
+            !fs::symlink_metadata(&target)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let leftovers: Vec<_> = fs::read_dir(d.path())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty());
+        // Over the cap: refused before anything is written.
+        assert!(write_private_atomic(&target, "xxxxx", 4, "file").is_err());
+    }
+}

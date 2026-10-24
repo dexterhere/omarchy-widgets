@@ -271,10 +271,54 @@ fn init_vault(d: &Path) {
     );
 }
 
+/// Run `ow` with `stdin`, and while it runs read the argv and environment of every process whose
+/// command line names this test's directory. Afterwards scan the output and EVERY file in the
+/// tree (vault ciphertext included) for the fake token, the passphrase and `extra_needle`, in
+/// every spelling. Panics on any hit, so every connect and remove run is a leak test.
+fn run_scanned(d: &Path, args: &[&str], stdin: &str, extra_needle: &str) -> Output {
+    let mut child = cmd(d, args).spawn().unwrap();
+    let _ = child.stdin.take().unwrap().write_all(stdin.as_bytes());
+    let me = d.to_str().unwrap().as_bytes().to_vec();
+    let mut proc_text: Vec<(String, Vec<u8>)> = Vec::new();
+    let t = Instant::now();
+    while proc_text.is_empty() && t.elapsed() < Duration::from_millis(300) {
+        for e in std::fs::read_dir("/proc").unwrap().flatten() {
+            let p = e.path();
+            let Ok(argv) = std::fs::read(p.join("cmdline")) else {
+                continue;
+            };
+            if argv.windows(me.len()).any(|w| w == me.as_slice()) {
+                proc_text.push((format!("{}/cmdline", p.display()), argv));
+                if let Ok(env) = std::fs::read(p.join("environ")) {
+                    proc_text.push((format!("{}/environ", p.display()), env));
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let o = child.wait_with_output().unwrap();
+    let mut places = output_places(&o);
+    places.extend(file_places(d));
+    places.extend(proc_text);
+    let mut needles = vec![GH_TOKEN, PASS];
+    if !extra_needle.is_empty() {
+        needles.push(extra_needle);
+    }
+    let found = leaks(&places, &needles);
+    assert!(found.is_empty(), "leaked: {found:?}");
+    o
+}
+
 fn connect(d: &Path, extra: &[&str], token_line: &str) -> Output {
     let mut a = vec!["connect", "github", "--passphrase-stdin"];
     a.extend_from_slice(extra);
-    ow(d, &a, &format!("{PASS}\n{token_line}\n"))
+    run_scanned(d, &a, &format!("{PASS}\n{token_line}\n"), token_line)
+}
+
+fn remove_cmd(d: &Path, extra: &[&str]) -> Output {
+    let mut a = vec!["connect", "github", "--remove", "--passphrase-stdin"];
+    a.extend_from_slice(extra);
+    run_scanned(d, &a, &format!("{PASS}\n"), "")
 }
 
 fn stored(d: &Path, name: &str) -> Option<String> {
@@ -445,13 +489,17 @@ fn bad_tokens_are_refused_and_nothing_changes() {
     let _s = serial();
     let d = tempfile::tempdir().unwrap();
     init_vault(d.path());
-    let long = "a".repeat(16 * 1024 + 1);
+    let long = format!("github_pat_{}", "a".repeat(16 * 1024));
     for bad in [
         "".to_owned(),
         "github_pat_FAKE with space".into(),
         "github_pat_FAKE\u{e9}".into(),
         "github_pat_FAKE\x01ctl".into(),
         "ghp_FAKEclassic0123456789".into(),
+        "gho_FAKE0123456789".into(),
+        "ghs_FAKE0123456789".into(),
+        "0123456789abcdef0123456789abcdef01234567".into(),
+        "FAKE-not-a-github-token".into(),
         long,
     ] {
         let o = connect(d.path(), &[], &bad);
@@ -598,7 +646,7 @@ fn an_existing_binding_is_updated_in_place_and_the_interval_is_clamped() {
     assert_eq!(stored(d.path(), "github-new").as_deref(), Some(GH_TOKEN));
     // Out-of-range intervals are clamped and said so.
     for (given, want) in [("5", 60), ("99999", 3600)] {
-        let o = connect(d.path(), &["--interval", given], GH_TOKEN);
+        let o = connect(d.path(), &["--interval", given, "--yes"], GH_TOKEN);
         assert!(o.status.success(), "{}", text(&o));
         assert!(
             text(&o).contains(&format!("using {want} s")),
@@ -617,11 +665,7 @@ fn remove_needs_consent_then_removes_binding_and_secret() {
     init_vault(d.path());
     assert!(connect(d.path(), &[], GH_TOKEN).status.success());
     // No terminal and no --yes: refused, nothing changed.
-    let o = ow(
-        d.path(),
-        &["connect", "github", "--remove", "--passphrase-stdin"],
-        &format!("{PASS}\n"),
-    );
+    let o = remove_cmd(d.path(), &[]);
     assert!(
         !o.status.success() && text(&o).contains("--yes"),
         "{}",
@@ -635,17 +679,7 @@ fn remove_needs_consent_then_removes_binding_and_secret() {
             .is_some()
     );
     // With --yes (the same escape hatch `ow remove` has).
-    let o = ow(
-        d.path(),
-        &[
-            "connect",
-            "github",
-            "--remove",
-            "--yes",
-            "--passphrase-stdin",
-        ],
-        &format!("{PASS}\n"),
-    );
+    let o = remove_cmd(d.path(), &["--yes"]);
     assert!(o.status.success(), "{}", text(&o));
     assert_eq!(stored(d.path(), "github-main"), None);
     assert!(
@@ -701,6 +735,7 @@ fn check_asks_the_running_daemon_and_prints_only_category_and_counts() {
         "{}",
         text(&o)
     );
+    assert_eq!(o.status.code(), Some(1), "an error exits 1");
 
     // Wizard first (no daemon yet), then the daemon starts from the file it wrote.
     assert!(connect(d.path(), &[], GH_TOKEN).status.success());
@@ -717,6 +752,11 @@ fn check_asks_the_running_daemon_and_prints_only_category_and_counts() {
 
     let locked = ow(d.path(), &["connect", "github", "--check"], "");
     assert_eq!(text(&locked).trim(), "github.prs: locked");
+    assert_eq!(
+        locked.status.code(),
+        Some(2),
+        "a state other than ok exits 2"
+    );
     assert!(
         ow(d.path(), &["vault", "unlock"], &format!("{PASS}\n"))
             .status
@@ -724,12 +764,34 @@ fn check_asks_the_running_daemon_and_prints_only_category_and_counts() {
     );
     let ok = ow(d.path(), &["connect", "github", "--check"], "");
     assert_eq!(text(&ok).trim(), "github.prs: ok open=4 review=2");
+    assert_eq!(ok.status.code(), Some(0));
     // The token reached the (fake) transport, and only there.
     assert_eq!(fake.seen.lock().unwrap().as_slice(), &[true]);
     let mut places = output_places(&locked);
     places.extend(output_places(&ok));
     places.extend(file_places(d.path()));
     assert!(leaks(&places, &[GH_TOKEN, PASS]).is_empty());
+
+    // Changing the vault under an unlocked daemon must lock it: no stale decrypted token may
+    // keep serving after a replace or a remove.
+    let daemon_state = || text(&ow(d.path(), &["vault", "status"], ""));
+    assert!(daemon_state().contains("daemon: unlocked"));
+    assert!(connect(d.path(), &["--yes"], GH_TOKEN).status.success());
+    assert!(
+        daemon_state().contains("daemon: locked"),
+        "connect left the daemon unlocked"
+    );
+    assert!(
+        ow(d.path(), &["vault", "unlock"], &format!("{PASS}\n"))
+            .status
+            .success()
+    );
+    assert!(daemon_state().contains("daemon: unlocked"));
+    assert!(remove_cmd(d.path(), &["--yes"]).status.success());
+    assert!(
+        daemon_state().contains("daemon: locked"),
+        "remove left the daemon unlocked"
+    );
 
     stop.store(true, std::sync::atomic::Ordering::SeqCst);
     let _ = std::os::unix::net::UnixStream::connect(paths.socket());
@@ -739,6 +801,7 @@ fn check_asks_the_running_daemon_and_prints_only_category_and_counts() {
 // ---- the real prompts, on a pseudo-terminal ----
 
 struct Pty {
+    slave: std::fs::File,
     master: std::fs::File,
     out: Arc<Mutex<Vec<u8>>>,
 }
@@ -773,10 +836,10 @@ impl Pty {
             .args(args)
             .stdin(Stdio::from(slave.try_clone().unwrap()))
             .stdout(Stdio::from(slave.try_clone().unwrap()))
-            .stderr(Stdio::from(slave))
+            .stderr(Stdio::from(slave.try_clone().unwrap()))
             .spawn()
             .unwrap();
-        (Pty { master, out }, child)
+        (Pty { slave, master, out }, child)
     }
 
     /// Wait until `needle` has appeared `n` times, then type `line`.
@@ -796,9 +859,12 @@ impl Pty {
             std::thread::sleep(Duration::from_millis(30));
         }
         std::thread::sleep(Duration::from_millis(100));
-        self.master
-            .write_all(format!("{line}\n").as_bytes())
-            .unwrap();
+        // An empty `line` only waits for the prompt; the caller types without a newline.
+        if !line.is_empty() {
+            self.master
+                .write_all(format!("{line}\n").as_bytes())
+                .unwrap();
+        }
     }
 
     fn screen(&self) -> Vec<u8> {
@@ -850,4 +916,370 @@ fn terminal_remove_stops_at_anything_but_yes() {
             .github()
             .is_some()
     );
+}
+
+// ---- ordering and failure behaviour ----
+
+fn set_mode(p: &Path, mode: u32) {
+    std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+#[test]
+fn unusable_directories_stop_connect_and_remove_before_anything_changes() {
+    let _s = serial();
+    // config directory 0755, vault directory 0755: each must stop both verbs up front.
+    for which in ["config", "vault"] {
+        let d = tempfile::tempdir().unwrap();
+        init_vault(d.path());
+        assert!(connect(d.path(), &[], GH_TOKEN).status.success());
+        let p = Paths::under(d.path());
+        let dir = if which == "config" {
+            p.config.clone()
+        } else {
+            p.data.clone()
+        };
+        set_mode(&dir, 0o755);
+        let before = std::fs::read(p.config_file()).unwrap();
+        let o = connect(d.path(), &["--yes"], "github_pat_FAKE-second-token");
+        assert!(
+            !o.status.success() && text(&o).contains("not usable"),
+            "{which}: {}",
+            text(&o)
+        );
+        let o = remove_cmd(d.path(), &["--yes"]);
+        assert!(
+            !o.status.success() && text(&o).contains("not usable"),
+            "{which}: {}",
+            text(&o)
+        );
+        set_mode(&dir, 0o700);
+        // Nothing moved: the secret is still the first token and the binding is intact.
+        assert_eq!(
+            stored(d.path(), "github-main").as_deref(),
+            Some(GH_TOKEN),
+            "{which}"
+        );
+        assert_eq!(std::fs::read(p.config_file()).unwrap(), before, "{which}");
+    }
+    // A config directory that does not exist yet is created private, then used.
+    let d = tempfile::tempdir().unwrap();
+    init_vault(d.path());
+    assert!(connect(d.path(), &[], GH_TOKEN).status.success());
+    assert_eq!(
+        std::fs::metadata(&Paths::under(d.path()).config)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+}
+
+#[test]
+fn a_config_that_would_not_fit_stops_connect_before_the_token_is_stored() {
+    let _s = serial();
+    let d = tempfile::tempdir().unwrap();
+    init_vault(d.path());
+    let p = Paths::under(d.path());
+    ow_core::private_dir(&p.config).unwrap();
+    // A valid file just under the cap, with a comment that the rewrite keeps: the new table
+    // pushes it over 64 KiB.
+    let pad = "#".repeat(ow_core::MAX_CONFIG_FILE as usize - 20);
+    std::fs::write(p.config_file(), format!("{pad}\n")).unwrap();
+    set_mode(&p.config_file(), 0o600);
+    let o = connect(d.path(), &[], GH_TOKEN);
+    assert!(
+        !o.status.success() && text(&o).contains("64 KiB"),
+        "{}",
+        text(&o)
+    );
+    assert_eq!(stored(d.path(), "github-main"), None);
+}
+
+#[test]
+fn a_closed_stdout_after_the_token_is_stored_still_binds_it() {
+    let _s = serial();
+    let d = tempfile::tempdir().unwrap();
+    init_vault(d.path());
+    let mut child = cmd(d.path(), &["connect", "github", "--passphrase-stdin"])
+        .spawn()
+        .unwrap();
+    // Read the guidance, then hang up on stdout before the passphrase and token are sent.
+    let mut out = child.stdout.take().unwrap();
+    let mut seen = Vec::new();
+    let mut b = [0u8; 256];
+    while !String::from_utf8_lossy(&seen).contains("Secret name:") {
+        let n = out.read(&mut b).unwrap();
+        assert!(n > 0, "ow exited early: {}", String::from_utf8_lossy(&seen));
+        seen.extend_from_slice(&b[..n]);
+    }
+    drop(out);
+    let mut stdin = child.stdin.take().unwrap();
+    stdin
+        .write_all(format!("{PASS}\n{GH_TOKEN}\n").as_bytes())
+        .unwrap();
+    drop(stdin);
+    let _ = child.wait_with_output().unwrap();
+    assert_eq!(stored(d.path(), "github-main").as_deref(), Some(GH_TOKEN));
+    let cfg = Config::load(&Paths::under(d.path()).config_file()).unwrap();
+    assert!(cfg.github().is_some(), "stored but never bound");
+}
+
+#[test]
+fn a_config_edited_while_the_prompts_were_open_is_not_overwritten_with_stale_text() {
+    let _s = serial();
+    let d = tempfile::tempdir().unwrap();
+    init_vault(d.path());
+    let p = Paths::under(d.path());
+    let mut child = cmd(d.path(), &["connect", "github", "--passphrase-stdin"])
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(format!("{PASS}\n").as_bytes()).unwrap();
+    std::thread::sleep(Duration::from_millis(1500));
+    // ow is now waiting for the token. Someone edits the file meanwhile.
+    ow_core::private_dir(&p.config).unwrap();
+    std::fs::write(p.config_file(), "# edited meanwhile\n").unwrap();
+    set_mode(&p.config_file(), 0o600);
+    stdin.write_all(format!("{GH_TOKEN}\n").as_bytes()).unwrap();
+    drop(stdin);
+    let o = child.wait_with_output().unwrap();
+    assert!(o.status.success(), "{}", text(&o));
+    let c = std::fs::read_to_string(p.config_file()).unwrap();
+    assert!(
+        c.contains("# edited meanwhile") && c.contains("github-main"),
+        "{c}"
+    );
+    // And a file that became invalid meanwhile is refused, not replaced.
+    let mut child = cmd(
+        d.path(),
+        &["connect", "github", "--passphrase-stdin", "--yes"],
+    )
+    .spawn()
+    .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(format!("{PASS}\n").as_bytes()).unwrap();
+    std::thread::sleep(Duration::from_millis(1500));
+    std::fs::write(p.config_file(), "not [toml").unwrap();
+    stdin.write_all(format!("{GH_TOKEN}\n").as_bytes()).unwrap();
+    drop(stdin);
+    let o = child.wait_with_output().unwrap();
+    assert!(
+        !o.status.success() && text(&o).contains("WAS stored") && text(&o).contains("NOT written"),
+        "{}",
+        text(&o)
+    );
+    assert_eq!(std::fs::read(p.config_file()).unwrap(), b"not [toml");
+}
+
+#[test]
+fn replacing_a_secret_needs_consent_before_the_token_is_asked() {
+    let _s = serial();
+    let d = tempfile::tempdir().unwrap();
+    init_vault(d.path());
+    assert!(connect(d.path(), &[], GH_TOKEN).status.success());
+    let second = "github_pat_FAKE-second-0123456789";
+    let o = connect(d.path(), &[], second);
+    assert!(
+        !o.status.success() && text(&o).contains("replaces it"),
+        "{}",
+        text(&o)
+    );
+    assert_eq!(stored(d.path(), "github-main").as_deref(), Some(GH_TOKEN));
+    let o = connect(d.path(), &["--yes"], second);
+    assert!(
+        o.status.success() && text(&o).contains("replaced the old value"),
+        "{}",
+        text(&o)
+    );
+    assert_eq!(stored(d.path(), "github-main").as_deref(), Some(second));
+    // Binding a different name leaves the old secret in the vault and says how to remove it.
+    let o = connect(d.path(), &["--secret-name", "github-two"], GH_TOKEN);
+    assert!(o.status.success(), "{}", text(&o));
+    assert!(
+        text(&o).contains("ow vault remove github-main"),
+        "{}",
+        text(&o)
+    );
+    assert!(stored(d.path(), "github-main").is_some());
+}
+
+#[test]
+fn remove_refuses_a_name_that_is_not_the_bound_one() {
+    let _s = serial();
+    let d = tempfile::tempdir().unwrap();
+    init_vault(d.path());
+    assert!(
+        connect(d.path(), &["--secret-name", "github-a"], GH_TOKEN)
+            .status
+            .success()
+    );
+    assert!(
+        connect(d.path(), &["--secret-name", "github-b", "--yes"], GH_TOKEN)
+            .status
+            .success()
+    );
+    // Bound to github-b now; github-a is a leftover.
+    let o = remove_cmd(d.path(), &["--secret-name", "github-a", "--yes"]);
+    assert!(
+        !o.status.success() && text(&o).contains("binds github to github-b"),
+        "{}",
+        text(&o)
+    );
+    assert!(stored(d.path(), "github-a").is_some() && stored(d.path(), "github-b").is_some());
+    assert!(
+        Config::load(&Paths::under(d.path()).config_file())
+            .unwrap()
+            .github()
+            .is_some()
+    );
+    let o = remove_cmd(d.path(), &["--secret-name", "github-b", "--yes"]);
+    assert!(o.status.success(), "{}", text(&o));
+    assert_eq!(stored(d.path(), "github-b"), None);
+}
+
+#[test]
+fn a_vault_error_carries_the_same_fixed_text_as_ow_vault() {
+    let _s = serial();
+    let d = tempfile::tempdir().unwrap();
+    init_vault(d.path());
+    let last = |o: &Output| text(o).lines().last().unwrap_or("").to_owned();
+    let wrong = format!("FAKE-wrong-passphrase!!\n{GH_TOKEN}\n");
+    let a = ow(
+        d.path(),
+        &["connect", "github", "--passphrase-stdin"],
+        &wrong,
+    );
+    let b = ow(
+        d.path(),
+        &["vault", "set", "x", "--passphrase-stdin"],
+        &wrong,
+    );
+    assert!(!a.status.success() && !b.status.success());
+    assert_eq!(last(&a), last(&b));
+    assert!(
+        last(&a).starts_with("ow: ") && last(&a).len() < 120,
+        "{}",
+        last(&a)
+    );
+}
+
+// ---- more terminal behaviour ----
+
+#[test]
+fn terminal_refuses_a_non_fine_grained_token_before_asking_a_second_time() {
+    let _s = serial();
+    let d = tempfile::tempdir().unwrap();
+    init_vault(d.path());
+    let (mut pty, mut child) = Pty::spawn(d.path(), &["connect", "github"]);
+    pty.expect_then("Vault passphrase: ", 1, PASS);
+    pty.expect_then("GitHub token: ", 1, "ghp_FAKEclassic0123456789");
+    assert!(!child.wait().unwrap().success());
+    std::thread::sleep(Duration::from_millis(200));
+    let screen = String::from_utf8_lossy(&pty.screen()).into_owned();
+    assert!(screen.contains("github_pat_"), "{screen}");
+    assert!(
+        !screen.contains("Repeat"),
+        "asked again for a refused token: {screen}"
+    );
+    assert!(!screen.contains("FAKEclassic"), "{screen}");
+    assert_eq!(stored(d.path(), "github-main"), None);
+}
+
+#[test]
+fn a_terminating_signal_at_the_token_prompt_restores_the_terminal() {
+    use rustix::termios::{LocalModes, tcgetattr};
+    let _s = serial();
+    for (sig, code) in [
+        (rustix::process::Signal::TERM, 143),
+        (rustix::process::Signal::HUP, 129),
+    ] {
+        let d = tempfile::tempdir().unwrap();
+        init_vault(d.path());
+        let (mut pty, mut child) = Pty::spawn(d.path(), &["connect", "github"]);
+        pty.expect_then("Vault passphrase: ", 1, PASS);
+        pty.expect_then("GitHub token: ", 1, "");
+        // Typed but not submitted: ow is inside the prompt with echo off.
+        pty.master.write_all(b"github_pat_FAKE-half").unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        let modes = tcgetattr(&pty.slave).unwrap().local_modes;
+        assert!(
+            !modes.contains(LocalModes::ECHO),
+            "prompt did not turn echo off: {}",
+            String::from_utf8_lossy(&pty.screen())
+        );
+        let pid = rustix::process::Pid::from_raw(child.id() as i32).unwrap();
+        rustix::process::kill_process(pid, sig).unwrap();
+        let st = child.wait().unwrap();
+        assert_eq!(st.code(), Some(code));
+        let modes = tcgetattr(&pty.slave).unwrap().local_modes;
+        for m in [LocalModes::ECHO, LocalModes::ICANON, LocalModes::ISIG] {
+            assert!(
+                modes.contains(m),
+                "terminal left with {m:?} off after {sig:?}"
+            );
+        }
+        assert_eq!(stored(d.path(), "github-main"), None);
+    }
+}
+
+#[test]
+fn passphrase_from_the_controlling_terminal_while_the_token_is_piped() {
+    let _s = serial();
+    let d = tempfile::tempdir().unwrap();
+    init_vault(d.path());
+    // `setsid -c` makes the pty the controlling terminal, so /dev/tty works for ow while its
+    // stdin is a pipe that carries the token (the same split `ow vault set` supports).
+    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
+    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+    grantpt(&master).unwrap();
+    unlockpt(&master).unwrap();
+    let name = ptsname(&master, Vec::new()).unwrap();
+    let slave = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(name.to_str().unwrap())
+        .unwrap();
+    let mut master = std::fs::File::from(master);
+    let out = Arc::new(Mutex::new(Vec::new()));
+    let (o2, mut r) = (Arc::clone(&out), master.try_clone().unwrap());
+    std::thread::spawn(move || {
+        let mut b = [0u8; 256];
+        while let Ok(n) = r.read(&mut b) {
+            if n == 0 {
+                break;
+            }
+            o2.lock().unwrap().extend_from_slice(&b[..n]);
+        }
+    });
+    let script = format!(
+        "printf '%s\\n' '{GH_TOKEN}' | exec '{}' --config-dir '{}' connect github",
+        env!("CARGO_BIN_EXE_ow"),
+        d.path().display()
+    );
+    let mut child = Command::new("setsid")
+        .args(["-w", "-c", "sh", "-c", &script])
+        .stdin(Stdio::from(slave.try_clone().unwrap()))
+        .stdout(Stdio::from(slave.try_clone().unwrap()))
+        .stderr(Stdio::from(slave))
+        .spawn()
+        .unwrap();
+    let t = Instant::now();
+    while !String::from_utf8_lossy(&out.lock().unwrap()).contains("Vault passphrase: ") {
+        assert!(
+            t.elapsed() < Duration::from_secs(30),
+            "no passphrase prompt on the tty: {}",
+            String::from_utf8_lossy(&out.lock().unwrap())
+        );
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    std::thread::sleep(Duration::from_millis(100));
+    master.write_all(format!("{PASS}\n").as_bytes()).unwrap();
+    let st = child.wait().unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    let screen = out.lock().unwrap().clone();
+    assert!(st.success(), "{}", String::from_utf8_lossy(&screen));
+    assert_eq!(stored(d.path(), "github-main").as_deref(), Some(GH_TOKEN));
+    let found = leaks(&[("pty".into(), screen)], &[PASS]);
+    assert!(found.is_empty(), "echoed: {found:?}");
 }

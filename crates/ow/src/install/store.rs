@@ -339,18 +339,28 @@ pub fn remove_widget_dir(lock: &Lock, id: &str) -> Result<bool, String> {
 /// Replace the grants file atomically: temp file (0600) in the same directory, flush, rename,
 /// flush the directory.
 pub fn write_grants(path: &Path, text: &str) -> Result<(), String> {
-    if text.len() as u64 > ow_core::MAX_GRANTS_FILE {
-        return Err("the grants file would exceed the size the daemon reads".into());
+    write_private_atomic(path, text, ow_core::MAX_GRANTS_FILE, "grants file")
+}
+
+/// Replace a small private text file (`grants.toml`, `config.toml`): the directory is made or
+/// checked private (0700, ours), the text goes to a new temp file in it (`O_EXCL`, 0600, so a
+/// pre-placed link is never followed), is flushed, and is renamed over `path` (a symlink at
+/// `path` is replaced, not followed); then the directory is flushed. `what` names the file in
+/// error text.
+pub fn write_private_atomic(path: &Path, text: &str, cap: u64, what: &str) -> Result<(), String> {
+    if text.len() as u64 > cap {
+        return Err(format!("the {what} would exceed the size the daemon reads"));
     }
-    let dir = path.parent().ok_or("bad grants path")?;
+    let dir = path.parent().ok_or("bad path")?;
     ow_core::private_dir(dir).map_err(|e| io("config directory", e))?;
     let name = path
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or("bad grants path")?;
+        .ok_or("bad path")?;
     let tmp = dir.join(format!("{name}.{}.tmp", unique_suffix()));
-    let r = write_new(&tmp, text.as_bytes())
-        .and_then(|()| fs::rename(&tmp, path).map_err(|e| io("cannot replace the grants file", e)));
+    let r = write_new(&tmp, text.as_bytes()).and_then(|()| {
+        fs::rename(&tmp, path).map_err(|e| io(&format!("cannot replace the {what}"), e))
+    });
     if r.is_err() {
         let _ = fs::remove_file(&tmp);
     }
@@ -373,4 +383,60 @@ pub fn installed_ids(paths: &Paths) -> Vec<String> {
         .collect();
     ids.sort();
     ids
+}
+
+#[cfg(test)]
+mod atomic_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    #[test]
+    fn a_planted_file_or_link_at_the_temp_name_is_never_written_through() {
+        let d = tempfile::tempdir().unwrap();
+        let victim = d.path().join("victim");
+        fs::write(&victim, "keep").unwrap();
+        let planted_file = d.path().join("planted");
+        fs::write(&planted_file, "keep").unwrap();
+        let planted_link = d.path().join("link");
+        symlink(&victim, &planted_link).unwrap();
+        let dangling = d.path().join("dangling");
+        symlink(d.path().join("not-yet"), &dangling).unwrap();
+        for p in [&planted_file, &planted_link, &dangling] {
+            assert!(write_new(p, b"SECRET-TEXT").is_err());
+        }
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "keep");
+        assert_eq!(fs::read_to_string(&planted_file).unwrap(), "keep");
+        assert!(!d.path().join("not-yet").exists());
+    }
+
+    #[test]
+    fn replacing_through_a_symlink_swaps_the_link_and_leaves_its_target_alone() {
+        let d = tempfile::tempdir().unwrap();
+        fs::set_permissions(d.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let victim = d.path().join("victim");
+        fs::write(&victim, "keep").unwrap();
+        let target = d.path().join("config.toml");
+        symlink(&victim, &target).unwrap();
+        write_private_atomic(&target, "new\n", 1024, "file").unwrap();
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "keep");
+        assert!(
+            !fs::symlink_metadata(&target)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let leftovers: Vec<_> = fs::read_dir(d.path())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty());
+        // Over the cap: refused before anything is written.
+        assert!(write_private_atomic(&target, "xxxxx", 4, "file").is_err());
+    }
 }

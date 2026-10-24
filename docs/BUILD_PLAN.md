@@ -47,7 +47,8 @@ Phase 1, epic 1 (daemon core) is largely done ahead of the Phase 0 spikes becaus
 - [x] Local providers for the clock, battery and system-monitor widgets: `system.time`, `system.temp`, `battery.status` (DEP-TIME: jiff)
 - [ ] Step 6 network providers, step 7 hardening/PKGBUILD/outside review
 - [x] Epic 2 and 3, first slice (SHELL-PLUGIN, `plugin/`): bridge, layout.json v0 renderer, widget store, minimal Bottom-layer canvas, offscreen tests and an end-to-end smoke with a real `owd`. Not done: edit mode, Widget Center, settings, code widgets, click pass-through and in-shell behaviour unverified (see `plugin/README.md`)
-- [ ] Epics 4 to 7 (`ow` manager verbs, Widget Center, first widgets, packaging) and the remainder of 2 and 3 (kit components for code widgets, edit overlay, tray with undo, per-monitor layout keyed by monitor set)
+- [x] Epic 5, v0 slice (WIDGET-CENTER-V0): read-only Widget Center overlay in `plugin/` (installed list, grants, health, remove command as text, Escape closes; offscreen tests only; how the shell summons it and the key binding are not verified, `docs/WIDGET_CENTER.md`). Not done: tabs, inspector, settings, install and remove from the panel, audit viewer, bar icon
+- [ ] Epics 4 to 7 (`ow` manager verbs, remainder of Widget Center, first widgets, packaging) and the remainder of 2 and 3 (kit components for code widgets, edit overlay, tray with undo, per-monitor layout keyed by monitor set)
 
 Phase 0 spikes S1, S2, S3, S5, S6, S7, S8, S9, S10 and S13 have recorded results in `docs/SPIKES.md` (S12 not measurable offline, S4 keyring and S11 headless CI not run; all **[Dexter]** tasks untouched). Machine facts: bare metal Omarchy 4.0.6, Quickshell 0.3.2, Hyprland 0.56.2, TPM2 present (see DECISIONS.md).
 
@@ -103,7 +104,7 @@ Release gate for a public alpha: the secure-data checklist in DAEMON_SPEC sectio
 
 ## Phase 2: suite and public beta v0.1 (about 6 weeks)
 
-New providers and widgets: GitHub (fine-grained token; the daemon side exists since 2026-10-24 and is tested against fakes only, see DECISIONS GITHUB-PROVIDER; `ow connect github` and a real-API check are open; device flow later), Gmail (IMAP then BYO-OAuth), Calendar (ICS/CalDAV), Tasks (local file, encrypted), Docker (read-only subset), AI usage (adapters: start with the harnesses that keep local JSONL session logs, such as Claude Code and Codex; verify formats and add fixtures), Music variants. Discover tab reading the registry index. Gate: **public beta v0.1 only after an external review of the vault and protocol.**
+New providers and widgets: GitHub (fine-grained token; the daemon side exists since 2026-10-24 and is tested against fakes only, see DECISIONS GITHUB-PROVIDER; `ow connect github` exists (2026-10-24, DECISIONS CONNECT-GITHUB, fakes only) and a real-API check is open; device flow later), Gmail (IMAP then BYO-OAuth), Calendar (ICS/CalDAV), Tasks (local file, encrypted), Docker (read-only subset), AI usage (adapters: start with the harnesses that keep local JSONL session logs, such as Claude Code and Codex; verify formats and add fixtures), Music variants. Discover tab reading the registry index. Gate: **public beta v0.1 only after an external review of the vault and protocol.**
 
 ## Phase 3: maker (about 8 weeks)
 

@@ -28,8 +28,10 @@ d = make("io.test.empty"); open(f"{d}/widget.json", "w").close()
 d = make("io.test.bomb"); open(f"{d}/layout.json", "w").write("[" * 60000)
 make(".stage-abc"); os.makedirs(f"{w}/Bad Dir"); os.makedirs(f"{w}/UPPER")
 open(f"{w}/.lock", "w").close()
+for i in range(260): make("io.zz.%03d" % i)       # past the store's directory cap (200): never opened
 PY
 unset WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
+export OW_TEST_DIRCOUNT=$(find "$run/w" -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l)
 export XDG_STATE_HOME=$run/state XDG_CACHE_HOME=$run/cache XDG_DATA_HOME=$run/data XDG_RUNTIME_DIR=$run/data QT_QPA_PLATFORM=offscreen OW_TEST_WIDGETS=$run/w
 fx=$here/fixtures; clk=io.github.dexterhere.clock
 timeout -s TERM 30 quickshell -p "$run/cfg" >"$run/qs.log" 2>&1 &

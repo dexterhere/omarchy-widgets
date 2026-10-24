@@ -127,9 +127,15 @@ impl Config {
 
     /// Missing file = no providers configured.
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
+        Self::load_with_text(path).map(|(c, _)| c)
+    }
+
+    /// `load`, plus the file text that was validated (`None` if the file is missing). For
+    /// `ow connect`, which edits the file and must refuse one the daemon would refuse.
+    pub fn load_with_text(path: &Path) -> Result<(Self, Option<String>), ConfigError> {
         match read_private(path, MAX_CONFIG_FILE) {
-            Ok(Some(text)) => Self::parse(&text),
-            Ok(None) => Ok(Self::default()),
+            Ok(Some(text)) => Ok((Self::parse(&text)?, Some(text))),
+            Ok(None) => Ok((Self::default(), None)),
             Err(ReadError::Insecure) => Err(ConfigError::Insecure),
             Err(ReadError::TooLarge) => Err(ConfigError::TooLarge),
             Err(ReadError::Io) => Err(ConfigError::Io),

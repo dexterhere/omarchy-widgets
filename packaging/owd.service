@@ -47,8 +47,9 @@ RuntimeDirectory=owd
 RuntimeDirectoryMode=0700
 StateDirectory=owd
 StateDirectoryMode=0700
-ConfigurationDirectory=owd
-ConfigurationDirectoryMode=0700
+# No ConfigurationDirectory=owd here: with the same name as StateDirectory= systemd makes
+# ~/.local/state/owd a SYMLINK to ~/.config/owd, and owd refuses a symlinked state directory
+# (seen 2026-10-24). The config directory is created outside the unit (install-local.sh, ow).
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only

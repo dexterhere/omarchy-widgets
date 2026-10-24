@@ -61,16 +61,14 @@ pub fn check_private_dir(dir: &std::path::Path) -> io::Result<()> {
     let md = std::fs::symlink_metadata(dir)?;
     if !md.is_dir() {
         return Err(io::Error::other(
-            "socket dir is not a directory (or is a symlink)",
+            "not a real directory (it may be a symlink)",
         ));
     }
     if md.uid() != rustix::process::geteuid().as_raw() {
-        return Err(io::Error::other(
-            "socket dir is not owned by the current user",
-        ));
+        return Err(io::Error::other("not owned by the current user"));
     }
     if md.mode() & 0o077 != 0 {
-        return Err(io::Error::other("socket dir is accessible by group/others"));
+        return Err(io::Error::other("accessible by group or others"));
     }
     Ok(())
 }

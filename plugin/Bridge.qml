@@ -212,6 +212,7 @@ Item {
     case "ok": return onOk(ev)
     case "error": return onError(ev)
     case "push": return onPush(ev)
+    case "state": return onState(ev)
     }
   }
 
@@ -246,7 +247,7 @@ Item {
     if (p.kind !== "sub") return
     const state = ev.code === "denied" ? "denied" : ev.code === "locked" ? "locked"
       : ev.code === "unknown_topic" ? "unknown" : ev.code === "rate_limited" ? "limited" : "error"
-    setEntry(p.key, { state: state })
+    setEntry(p.key, { state: state, health: ev.health })
     // denied, unknown and plain errors are final until the next connection; locked and
     // rate-limited topics are asked again by retryTopics()
     const k = keys[p.key]
@@ -259,7 +260,17 @@ Item {
     const k = keys[key]
     if (k === undefined || k.topic !== ev.topic) return        // a push must match what we asked for
     pushes++
-    setEntry(key, { state: ev.stale ? "stale" : "live", data: ev.data, ts: ev.ts })
+    setEntry(key, { state: ev.stale ? "stale" : "live", data: ev.data, ts: ev.ts, health: ev.health })
+  }
+
+  // A push with a provider state and no data (once per change of state): keep what we have, add the word.
+  function onState(ev) {
+    const key = subs[ev.sub]
+    if (key === undefined) return
+    const k = keys[key]
+    if (k === undefined || k.topic !== ev.topic) return
+    const old = entries[key]
+    setEntry(key, Object.assign({ state: "pending" }, old, { health: ev.state }))
   }
 
   function setEntry(key, value) {

@@ -1,7 +1,7 @@
 //! `ow vault ...`: offline operations on the vault file. Secrets come only from
 //! `input` (terminal prompt or stdin), never from arguments.
+use crate::daemon;
 use crate::input::{secret, secret_confirmed, tty_secret};
-use ow::daemon;
 use ow_core::Paths;
 use ow_vault::{Profile, Vault, VaultError};
 use std::path::Path;
@@ -11,7 +11,7 @@ const UNLOCK_ID: u64 = 1;
 /// The daemon keeps a decrypted copy while unlocked, so after the file changes under it we
 /// tell it to lock (dropping the copy and every cache entry derived from it). Best effort: no
 /// daemon, or one we do not trust, simply means there is no copy to drop.
-fn lock_daemon(paths: &Paths) {
+pub(crate) fn lock_daemon(paths: &Paths) {
     let _ = daemon::call(paths, "{\"v\":0,\"id\":1,\"op\":\"vault.lock\"}\n");
 }
 

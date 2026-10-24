@@ -23,6 +23,9 @@ url='https://github.com/dexterhere/omarchy-widgets'
 license=(MIT)
 depends=(gcc-libs)
 makedepends=(cargo git)
+# makepkg's default LTO flags make the C objects of `ring` unlinkable with rust-lld
+# ("undefined symbol: ring_core_..._x25519_sc_mask"); seen building this package on 2026-10-24.
+options=(!lto)
 provides=(omarchy-widgets)
 conflicts=(omarchy-widgets)
 install=omarchy-widgets-git.install

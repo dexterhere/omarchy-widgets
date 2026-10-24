@@ -8,6 +8,9 @@ url='https://github.com/dexterhere/omarchy-widgets'
 license=(MIT)
 depends=(gcc-libs)
 makedepends=(cargo git)
+# makepkg's default LTO flags make the C objects of `ring` unlinkable with rust-lld
+# ("undefined symbol: ring_core_..._x25519_sc_mask"); seen building this package on 2026-10-24.
+options=(!lto)
 # Release builds verify the maintainer's signature on the tag (`?signed`). NOTE: with an empty
 # validpgpkeys, makepkg accepts a valid signature from ANY key in the builder's keyring, so
 # prepare() refuses to build until a key is pinned. [Maintainer task] put the full 40-hex key

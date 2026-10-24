@@ -1174,7 +1174,19 @@ fn terminal_refuses_a_non_fine_grained_token_before_asking_a_second_time() {
     let (mut pty, mut child) = Pty::spawn(d.path(), &["connect", "github"]);
     pty.expect_then("Vault passphrase: ", 1, PASS);
     pty.expect_then("GitHub token: ", 1, "ghp_FAKEclassic0123456789");
-    assert!(!child.wait().unwrap().success());
+    // Bounded: if the refusal were skipped ow would wait at a second prompt forever.
+    let t = Instant::now();
+    let status = loop {
+        if let Some(st) = child.try_wait().unwrap() {
+            break st;
+        }
+        if t.elapsed() > Duration::from_secs(20) {
+            child.kill().unwrap();
+            panic!("ow did not refuse the token at the first entry");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(!status.success());
     std::thread::sleep(Duration::from_millis(200));
     let screen = String::from_utf8_lossy(&pty.screen()).into_owned();
     assert!(screen.contains("github_pat_"), "{screen}");

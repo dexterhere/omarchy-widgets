@@ -93,6 +93,12 @@ const AUDITED: &[(&str, &[&str])] = &[
         "crates/ow/tests/install_reload.rs",
         &["UnixListener", "UnixStream"],
     ),
+    // `ow doctor` tests: run the freshly built `ow` against throwaway trees; one test binds a fake
+    // daemon on a Unix-domain socket in a temp dir to prove hostile replies are sanitised.
+    (
+        "crates/ow/tests/doctor_cli.rs",
+        &["Command::new", "UnixListener"],
+    ),
     // Tests of the unlock path: local Unix-domain sockets and fake listeners, and child processes
     // that run the freshly built binaries. No internet sockets.
     (

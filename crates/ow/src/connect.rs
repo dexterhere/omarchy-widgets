@@ -9,9 +9,9 @@
 //!   is fixed text: nothing typed (token, passphrase, a mistyped option) is echoed back.
 //! - Nothing is restarted or executed. The restart commands are printed as text.
 //! - `config.toml` is only replaced after the daemon's own loader accepted the old one, and the
-//!   new text is checked with that loader before it is written.
+//!   whole new text is checked with that loader before it is written.
 use crate::daemon;
-use crate::input::{secret, secret_confirmed, tty_secret};
+use crate::input::{secret, tty_secret};
 use crate::install::{Ui, store::write_private_atomic};
 use crate::vault_cmd;
 use ow_core::{
@@ -23,7 +23,7 @@ use ow_vault::{MAX_VALUE, Vault, VaultError};
 use serde_json::{Map, Value, json};
 use std::io::Write;
 
-pub const USAGE: &str = "usage:\n  ow connect github [--secret-name NAME] [--interval SECS] [--passphrase-stdin]\n  ow connect github --check\n  ow connect github --remove [--yes]\nNAME must match github-[a-z0-9-]{1,40} (default github-main). SECS is clamped to 60..3600 (default 120).";
+pub const USAGE: &str = "usage:\n  ow connect github [--secret-name NAME] [--interval SECS] [--passphrase-stdin] [--yes]\n  ow connect github --check\n  ow connect github --remove [--yes]\nNAME must match github-[a-z0-9-]{1,40} (default github-main). SECS is clamped to 60..3600 (default 120). --yes answers the replace-secret question without a terminal. --check exits 0 for ok, 2 for any other state, 1 for an error.";
 
 const TOPIC: &str = "github.prs";
 const DEFAULT_NAME: &str = "github-main";
@@ -91,7 +91,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         }
     }
     let ok = match o.mode {
-        Mode::Connect => !o.yes,
+        Mode::Connect => true,
         Mode::Check => o.name.is_none() && o.interval.is_none() && !o.pass_stdin && !o.yes,
         Mode::Remove => o.interval.is_none(),
     };
@@ -103,7 +103,8 @@ fn parse(args: &[String]) -> Result<Opts, String> {
 }
 
 /// Accept a token only if it is non-empty, printable ASCII without spaces, within the vault's
-/// value limit, and not a classic token. Messages never include any part of the input.
+/// value limit, and a fine-grained token (`github_pat_` prefix). Classic and other GitHub token
+/// kinds cannot be limited to read-only pull requests. Messages never include any of the input.
 pub fn token_str(b: &[u8]) -> Result<&str, &'static str> {
     if b.is_empty() {
         return Err("the token is empty");
@@ -116,9 +117,9 @@ pub fn token_str(b: &[u8]) -> Result<&str, &'static str> {
             "the token must be printable ASCII with no spaces or line breaks; check the paste",
         );
     }
-    if b.starts_with(b"ghp_") {
+    if !b.starts_with(b"github_pat_") {
         return Err(
-            "this looks like a classic token, which cannot be limited to read-only pull requests; create a fine-grained token (use `ow vault set` if you really want this one)",
+            "this does not start with github_pat_, so it is not a fine-grained token. Classic and other GitHub tokens (ghp_, gho_, ghs_, ghu_, ghr_, 40 hex digits) cannot be limited to read-only pull requests, so ow refuses them here. Create a fine-grained token; `ow vault set <name>` stores any value if you insist",
         );
     }
     std::str::from_utf8(b).map_err(|_| "the token must be printable ASCII")
@@ -294,17 +295,100 @@ fn ensure_vault(paths: &Paths, out: &mut dyn Write, ui: &mut dyn Ui) -> Result<(
     }
 }
 
+/// Directory and file checks that must pass before anything is asked or changed: the config and
+/// vault directories (0700, ours, not symlinks; the same check `ow vault` runs) and a
+/// `config.toml` the daemon's loader accepts.
+fn precheck(paths: &Paths) -> Result<(Config, Option<String>), String> {
+    ow_core::private_dir(&paths.config).map_err(|e| {
+        format!(
+            "config directory {} is not usable: {e}",
+            paths.config.display()
+        )
+    })?;
+    if let Some(dir) = paths.vault().parent() {
+        ow_core::private_dir(dir)
+            .map_err(|e| format!("vault directory {} is not usable: {e}", dir.display()))?;
+    }
+    Config::load_with_text(&paths.config_file()).map_err(config_err)
+}
+
+/// Whole-file check with the daemon's loader: the text loads, and binds exactly this (or nothing).
+fn verified(text: String, want: Option<(&str, u64)>) -> Result<String, String> {
+    let ok = match (Config::parse(&text), want) {
+        (Ok(c), Some((n, s))) => c
+            .github()
+            .is_some_and(|g| g.secret() == n && g.interval().as_secs() == s),
+        (Ok(c), None) => c.github().is_none(),
+        (Err(_), _) => false,
+    };
+    if !ok {
+        return Err(
+            "internal error: the new config.toml would not load; nothing was written".into(),
+        );
+    }
+    if text.len() as u64 > MAX_CONFIG_FILE {
+        return Err("config.toml would exceed the 64 KiB limit the daemon reads".into());
+    }
+    Ok(text)
+}
+
+fn plan_binding(old: Option<&str>, name: &str, secs: u64) -> Result<String, String> {
+    verified(edit_config(old, name, secs), Some((name, secs)))
+}
+
+fn plan_removal(old: &str) -> Result<String, String> {
+    verified(remove_binding(old), None)
+}
+
+/// Re-read `config.toml` now (it may have changed while the prompts were open), re-validate it
+/// with the loader and replace it. A change between this read and the rename is still possible
+/// and would be overwritten: that window is a few microseconds and needs another process of
+/// yours editing the file at that moment.
+fn write_config(
+    paths: &Paths,
+    plan: impl Fn(Option<&str>) -> Result<String, String>,
+) -> Result<(), String> {
+    let (_, fresh) = Config::load_with_text(&paths.config_file()).map_err(config_err)?;
+    let text = plan(fresh.as_deref())?;
+    write_private_atomic(&paths.config_file(), &text, MAX_CONFIG_FILE, "config file")
+}
+
+/// A typed `yes` on a terminal, or `--yes`.
+fn consent(yes: bool, ui: &mut dyn Ui, prompt: &str) -> Result<(), String> {
+    if yes {
+        return Ok(());
+    }
+    if !ui.interactive() {
+        return Err("not a terminal: run this in a terminal, or add --yes".into());
+    }
+    if ui.ask(prompt)? != "yes" {
+        return Err("cancelled; nothing was changed".into());
+    }
+    Ok(())
+}
+
+/// The token, checked after the FIRST entry so a refusal does not make anyone type it twice.
+fn read_token() -> Result<zeroize::Zeroizing<Vec<u8>>, String> {
+    let first = secret("GitHub token")?;
+    token_str(&first)?;
+    if rustix::termios::isatty(rustix::stdio::stdin()) && *first != *secret("Repeat")? {
+        return Err("entries do not match".into());
+    }
+    Ok(first)
+}
+
 fn connect(paths: &Paths, o: &Opts, out: &mut dyn Write, ui: &mut dyn Ui) -> Result<(), String> {
     let w = |e: std::io::Error| e.to_string();
-    let cfg_path = paths.config_file();
-    // Fail closed before asking for anything: a config we cannot safely edit stops us here.
-    let (cfg, old) = Config::load_with_text(&cfg_path).map_err(config_err)?;
+    // Fail closed before asking for anything: nothing below may fail for a reason we could have
+    // seen now, because the token is stored before the binding is written.
+    let (cfg, old) = precheck(paths)?;
     let name = o.name.as_deref().unwrap_or(DEFAULT_NAME);
     let wanted = o
         .interval
         .or_else(|| cfg.github().map(|g| g.interval().as_secs()))
         .unwrap_or(DEFAULT_INTERVAL_SECS);
     let secs = wanted.clamp(MIN_INTERVAL_SECS, MAX_INTERVAL_SECS);
+    plan_binding(old.as_deref(), name, secs)?;
     print_instructions(out, name).map_err(w)?;
     if secs != wanted {
         writeln!(
@@ -313,9 +397,11 @@ fn connect(paths: &Paths, o: &Opts, out: &mut dyn Write, ui: &mut dyn Ui) -> Res
         )
         .map_err(w)?;
     }
-    if let Some(g) = cfg.github()
-        && g.secret() != name
-    {
+    let old_name = cfg
+        .github()
+        .map(|g| g.secret().to_owned())
+        .filter(|b| b != name);
+    if old_name.is_some() {
         writeln!(
             out,
             "NOTE: config.toml already binds github to another secret name; this replaces that binding."
@@ -327,12 +413,28 @@ fn connect(paths: &Paths, o: &Opts, out: &mut dyn Write, ui: &mut dyn Ui) -> Res
     let mut vault = Vault::open(&paths.vault(), &pass).map_err(vault_err)?;
     drop(pass);
     let replaced = vault.get(name).is_some();
-    let token = secret_confirmed("GitHub token")?;
+    if replaced {
+        writeln!(
+            out,
+            "The vault already holds a secret named {name}; storing the new token replaces it."
+        )
+        .map_err(w)?;
+        consent(o.yes, ui, "Type yes to replace it: ")?;
+    }
+    let token = read_token()?;
     let value = token_str(&token)?;
     vault.set(name, value).map_err(vault_err)?;
     drop(token);
     vault_cmd::lock_daemon(paths);
-    writeln!(
+    // From here to the end of the config write nothing may return early: the token is stored, and
+    // an output error (a closed pipe) must not leave it stored but unbound.
+    let bound = write_config(paths, |old| plan_binding(old, name, secs));
+    if let Err(e) = bound {
+        return Err(format!(
+            "the token WAS stored in the vault as {name}, but config.toml was NOT written ({e}). The daemon is not bound to it. Fix the cause and run this command again."
+        ));
+    }
+    let _ = writeln!(
         out,
         "Stored the token in the vault as {name}{}.",
         if replaced {
@@ -340,57 +442,77 @@ fn connect(paths: &Paths, o: &Opts, out: &mut dyn Write, ui: &mut dyn Ui) -> Res
         } else {
             ""
         }
-    )
-    .map_err(w)?;
-    let text = edit_config(old.as_deref(), name, secs);
-    write_private_atomic(&cfg_path, &text, MAX_CONFIG_FILE, "config file").map_err(|e| {
-        format!(
-            "the token is stored, but config.toml was not written ({e}). Run this command again."
-        )
-    })?;
-    writeln!(
+    );
+    let _ = writeln!(
         out,
         "Wrote {} (mode 0600): [providers.github] secret = \"{name}\", interval_secs = {secs}.\nThe loader accepts only the github provider today, so that table is all the file holds.\n",
-        cfg_path.display()
-    )
-    .map_err(w)?;
-    restart_advice(
+        paths.config_file().display()
+    );
+    if let Some(old_name) = old_name {
+        let _ = writeln!(
+            out,
+            "The old secret {old_name} is still in the vault. Remove it with: ow vault remove {old_name}\n"
+        );
+    }
+    let _ = restart_advice(
         out,
         "  ow connect github --check     (or look at a github widget)\nThe check asks the daemon, which then makes the one audited request to api.github.com.",
-    )
-    .map_err(w)
+    );
+    Ok(())
 }
 
 fn remove(paths: &Paths, o: &Opts, out: &mut dyn Write, ui: &mut dyn Ui) -> Result<(), String> {
     let w = |e: std::io::Error| e.to_string();
-    let cfg_path = paths.config_file();
-    let (cfg, old) = Config::load_with_text(&cfg_path).map_err(config_err)?;
-    let name = o
-        .name
-        .clone()
-        .or_else(|| cfg.github().map(|g| g.secret().to_owned()))
-        .unwrap_or_else(|| DEFAULT_NAME.to_owned());
+    let (cfg, old) = precheck(paths)?;
+    let bound = cfg.github().map(|g| g.secret().to_owned());
+    let name = match (&o.name, &bound) {
+        (Some(n), Some(b)) if n != b => {
+            return Err(format!(
+                "config.toml binds github to {b}, not {n}. Remove the binding without --secret-name, or use `ow vault remove {n}` for that secret."
+            ));
+        }
+        (Some(n), _) => n.clone(),
+        (None, Some(b)) => b.clone(),
+        (None, None) => DEFAULT_NAME.to_owned(),
+    };
+    // Size and syntax of the new file are settled before any change is made.
+    if bound.is_some() {
+        plan_removal(old.as_deref().unwrap_or_default())?;
+    }
     writeln!(
         out,
         "This removes the github binding from config.toml and the secret {name} from the vault."
     )
     .map_err(w)?;
-    if !o.yes {
-        if !ui.interactive() {
-            return Err("not a terminal: run this in a terminal, or add --yes".into());
-        }
-        if ui.ask("Type yes to remove them: ")? != "yes" {
-            return Err("cancelled; nothing was changed".into());
-        }
-    }
-    match ow_vault::inspect(&paths.vault()) {
+    consent(o.yes, ui, "Type yes to remove them: ")?;
+    let mut vault = match ow_vault::inspect(&paths.vault()) {
         Ok(_) => {
             let pass = ask_passphrase(o.pass_stdin)?;
-            let mut v = Vault::open(&paths.vault(), &pass).map_err(vault_err)?;
+            let v = Vault::open(&paths.vault(), &pass).map_err(vault_err)?;
             drop(pass);
-            let gone = v.remove(&name).map_err(vault_err)?;
-            vault_cmd::lock_daemon(paths);
-            writeln!(
+            Some(v)
+        }
+        Err(VaultError::NotFound) => None,
+        Err(e) => return Err(vault_err(e)),
+    };
+    // Binding first: if this fails nothing has changed. A secret with no binding is inert.
+    if bound.is_some() {
+        write_config(paths, |old| plan_removal(old.unwrap_or_default()))
+            .map_err(|e| format!("nothing was changed ({e})"))?;
+        let _ = writeln!(out, "Removed the github binding from config.toml.");
+    } else {
+        let _ = writeln!(out, "config.toml had no github binding.");
+    }
+    let Some(v) = vault.as_mut() else {
+        let _ = writeln!(out, "There is no vault.");
+        let _ = restart_advice(out, "The github.prs topic then answers no_credential.");
+        return Ok(());
+    };
+    let removed = v.remove(&name);
+    vault_cmd::lock_daemon(paths);
+    match removed {
+        Ok(gone) => {
+            let _ = writeln!(
                 out,
                 "{}",
                 if gone {
@@ -398,20 +520,17 @@ fn remove(paths: &Paths, o: &Opts, out: &mut dyn Write, ui: &mut dyn Ui) -> Resu
                 } else {
                     "The vault had no secret with that name."
                 }
-            )
-            .map_err(w)?;
+            );
         }
-        Err(VaultError::NotFound) => writeln!(out, "There is no vault.").map_err(w)?,
-        Err(e) => return Err(vault_err(e)),
+        Err(e) => {
+            return Err(format!(
+                "the binding WAS removed from config.toml, but the secret {name} was NOT removed from the vault ({}). Remove it with: ow vault remove {name}",
+                vault_err(e)
+            ));
+        }
     }
-    if cfg.github().is_some() {
-        let text = remove_binding(old.as_deref().unwrap_or_default());
-        write_private_atomic(&cfg_path, &text, MAX_CONFIG_FILE, "config file")?;
-        writeln!(out, "Removed the github binding from config.toml.").map_err(w)?;
-    } else {
-        writeln!(out, "config.toml had no github binding.").map_err(w)?;
-    }
-    restart_advice(out, "The github.prs topic then answers no_credential.").map_err(w)
+    let _ = restart_advice(out, "The github.prs topic then answers no_credential.");
+    Ok(())
 }
 
 /// One line for a snapshot reply: the state category and the two counts, nothing else. The
@@ -466,7 +585,19 @@ pub fn render_check(reply: &str) -> String {
     line
 }
 
-fn check(paths: &Paths, out: &mut dyn Write) -> Result<(), String> {
+/// Exit code for a check line: 0 for `ok`, 1 for an error, 2 for any other state.
+pub fn check_exit(line: &str) -> u8 {
+    let rest = line.strip_prefix("github.prs: ").unwrap_or("error");
+    if rest == "ok" || rest.starts_with("ok ") {
+        0
+    } else if rest.starts_with("error") {
+        1
+    } else {
+        2
+    }
+}
+
+fn check(paths: &Paths, out: &mut dyn Write) -> Result<u8, String> {
     // The daemon answers a snapshot only for a widget holding a grant, so borrow the id of an
     // installed widget that has one. No new protocol op (see docs/OPEN_QUESTIONS.md).
     let grants = Grants::load(&paths.grants())
@@ -484,20 +615,24 @@ fn check(paths: &Paths, out: &mut dyn Write) -> Result<(), String> {
         json!({"v": 0, "id": 1, "op": "snapshot", "widget": widget, "topic": TOPIC})
     );
     let reply = daemon::call(paths, &req)?;
-    writeln!(out, "{}", render_check(&reply)).map_err(|e| e.to_string())
+    let line = render_check(&reply);
+    writeln!(out, "{line}").map_err(|e| e.to_string())?;
+    Ok(check_exit(&line))
 }
 
+/// Runs the verb. `Ok(code)` is the process exit code (only `--check` returns non-zero here);
+/// `Err` is a failure (exit 1).
 pub fn run(
     paths: &Paths,
     args: &[String],
     out: &mut dyn Write,
     ui: &mut dyn Ui,
-) -> Result<(), String> {
+) -> Result<u8, String> {
     let o = parse(args)?;
     match o.mode {
-        Mode::Connect => connect(paths, &o, out, ui),
+        Mode::Connect => connect(paths, &o, out, ui).map(|()| 0),
         Mode::Check => check(paths, out),
-        Mode::Remove => remove(paths, &o, out, ui),
+        Mode::Remove => remove(paths, &o, out, ui).map(|()| 0),
     }
 }
 
@@ -531,7 +666,7 @@ mod tests {
             s(&["gitlab"]),
             s(&["github", "--check", "--remove"]),
             s(&["github", "--check", "--interval", "60"]),
-            s(&["github", "--yes"]),
+            s(&["github", "--check", "--yes"]),
             s(&["github", "--interval"]),
             s(&["github", "--interval", "60", "--interval", "70"]),
         ] {
@@ -558,8 +693,22 @@ mod tests {
             let e = token_str(bad).unwrap_err();
             assert!(!e.contains("FAKE") && !e.contains("caf"), "{e}");
         }
-        assert!(token_str(&vec![b'a'; MAX_VALUE]).is_ok());
-        assert!(token_str(&vec![b'a'; MAX_VALUE + 1]).is_err());
+        let big = |n: usize| [b"github_pat_".as_slice(), &vec![b'a'; n - 11]].concat();
+        assert!(token_str(&big(MAX_VALUE)).is_ok());
+        assert!(token_str(&big(MAX_VALUE + 1)).is_err());
+        // Only the fine-grained prefix is accepted; every other kind is refused with the reason.
+        for other in [
+            "ghp_FAKE0123",
+            "gho_FAKE0123",
+            "ghs_FAKE0123",
+            "ghu_FAKE0123",
+            "ghr_FAKE0123",
+            "0123456789abcdef0123456789abcdef01234567",
+            "FAKE-whatever",
+        ] {
+            let e = token_str(other.as_bytes()).unwrap_err();
+            assert!(e.contains("github_pat_") && e.contains("ow vault set") && !e.contains("FAKE"));
+        }
     }
 
     fn secret_and_secs(t: &str) -> (String, u64) {
@@ -599,6 +748,23 @@ mod tests {
         assert!(t.contains("# keep") && !t.contains("github-x"));
         let t = remove_binding("providers.github.secret = \"github-x\"\n");
         assert!(Config::parse(&t).unwrap().github().is_none());
+    }
+
+    #[test]
+    fn check_exit_codes() {
+        assert_eq!(check_exit("github.prs: ok open=1 review=2"), 0);
+        assert_eq!(check_exit("github.prs: ok"), 0);
+        for st in [
+            "locked",
+            "no_credential",
+            "unauthorized",
+            "rate_limited",
+            "expired_soon",
+        ] {
+            assert_eq!(check_exit(&format!("github.prs: {st} open=1")), 2, "{st}");
+        }
+        assert_eq!(check_exit("github.prs: error denied"), 1);
+        assert_eq!(check_exit("something else"), 1);
     }
 
     #[test]

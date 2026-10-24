@@ -33,12 +33,18 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         Some("vault") => vault_cmd::run(&paths, &args[1..], &mut std::io::stdout()),
-        Some("connect") => connect::run(
-            &paths,
-            &args[1..],
-            &mut std::io::stdout(),
-            &mut install::TtyUi,
-        ),
+        Some("connect") => {
+            let code = connect::run(
+                &paths,
+                &args[1..],
+                &mut std::io::stdout(),
+                &mut install::TtyUi,
+            )?;
+            if code != 0 {
+                std::process::exit(i32::from(code));
+            }
+            Ok(())
+        }
         Some("install") => install::install(
             &paths,
             &args[1..],

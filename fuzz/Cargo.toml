@@ -12,6 +12,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 ow-proto = { path = "../crates/ow-proto" }
 ow-core = { path = "../crates/ow-core" }
+ow-providers = { path = "../crates/ow-providers" }
 ow-vault = { path = "../crates/ow-vault" }
 ow = { path = "../crates/ow" }
 serde_json = "1"
@@ -58,5 +59,23 @@ doc = false
 [[bin]]
 name = "install_files"
 path = "fuzz_targets/install_files.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "config_parse"
+path = "fuzz_targets/config_parse.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "github_response"
+path = "fuzz_targets/github_response.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "state_fields"
+path = "fuzz_targets/state_fields.rs"
 test = false
 doc = false

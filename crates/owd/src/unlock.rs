@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
 use std::time::Duration;
+use zeroize::Zeroizing;
 
 /// Locks itself when no secret has been resolved for this long. A visible widget whose
 /// provider polls keeps the vault open, by design: idle means "nothing is using it".
@@ -219,9 +220,12 @@ impl SecretSource for VaultState {
         let Some(v) = g.vault.as_ref() else {
             return Err(ProviderError::Locked);
         };
-        let value = v.get(name).ok_or(ProviderError::NoSecret)?;
-        f(value);
+        // Copy, release the lock, then call `f`: it may run a whole HTTPS request, and holding
+        // the vault mutex that long would stall lock, status, the scheduler and every fetch.
+        let value = Zeroizing::new(v.get(name).ok_or(ProviderError::NoSecret)?.to_owned());
         g.last_use = now;
+        drop(g);
+        f(&value);
         Ok(())
     }
 }

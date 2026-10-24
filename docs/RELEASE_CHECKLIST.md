@@ -24,7 +24,7 @@ States: **DONE** (shown by a command or a measurement), **PARTIAL**, **OPEN** (n
 | B3 | The unit file is valid and tight | DONE | 2026-10-24: `systemd-analyze --user security --offline=yes packaging/owd.service` -> **2.3 OK** (before and after the data-directory fix); `systemd-analyze --user verify` -> only `/usr/bin/owd is not executable` (expected before install). The header comment now states the measured score, the data-directory mechanism and every deliberately absent directive. Both commands only read the file. This says nothing about behaviour as an installed unit: that is B4. |
 | B4 | The unit works as an **installed** unit | OPEN, PERSON | Verified so far only as a transient unit with throwaway directories. Safe way to verify, by the maintainer, once: (1) install the package from B2 on a spare machine or VM, not the daily desktop; (2) `systemctl --user start owd` then `ow status` must answer and `journalctl --user -u owd` must show `listening`; (3) `systemctl --user stop owd` must remove `$XDG_RUNTIME_DIR/owd/owd.sock`; (4) confirm the daemon can still read `~/.config/owd/grants.toml` and that `ow install` while it runs reloads grants (`ReadWritePaths` and `ProtectHome=read-only` could block this); (5) create `~/.local/share/owd` first (`install -d -m 0700`, or `packaging/install-local.sh`): the unit now lists it in `ReadWritePaths=` WITHOUT a `-` prefix, so a missing directory fails the start with 226/NAMESPACE; (6) run `ow doctor`. Items (1) to (6) have still not been done by anyone. |
 | B5 | The daemon starts by itself with the session | PARTIAL | Decided: a package does not enable services or touch `$HOME`; the `.install` message and `docs/PACKAGING.md` tell the person to run `systemctl --user enable --now owd.service`, and `ow doctor` warns when the enable link is missing (file check only). Not verified on a real session (B4). |
-| B6 | Plugin loadable from its own repo | OPEN, PERSON | See section D. `omarchy plugin add` clones the default-branch root of a repo (S7, read from the Omarchy scripts, not run). The plugin sits in `plugin/` of this repo, so it cannot be added today. |
+| B6 | Plugin loadable from its own repo | PARTIAL, PERSON | Done: `scripts/mirror-plugin.sh` exports `plugin/` (minus tests and scratch) from a git ref plus README, LICENSE and `MIRROR.md`; it validates with `omarchy plugin validate` and the static check, and `scripts/tests/mirror-plugin.test.sh` covers its refusals. Recipe, one-time repo setup and retraction: `docs/PLUGIN_RELEASE.md`. Left: create `dexterhere/omarchy-widget-shell` with the protections, push the first tagged release, and run `omarchy plugin add` on it once (nobody has: the command in the mirror README is untested). |
 | B7 | In-shell enable test with the person present | OPEN, PERSON | Never run in the real shell. See section E. |
 | B8 | Escape and keyboard focus on an overlay surface | DONE | 2026-10-24, measured by a person: a click gives an `OnDemand` overlay surface the keyboard and Escape reaches it (SPIKES S2). Procedure: TRY_IT step 10c. |
 | B9 | Security review pass | OPEN | CLAUDE.md and `docs/HANDOFF.md`: an external review of the vault and the protocol is a gate for public beta. Not started. Before that, the maintainer should run the in-repo pass in section F. |
@@ -46,7 +46,9 @@ States: **DONE** (shown by a command or a measurement), **PARTIAL**, **OPEN** (n
 | C6 | Catalog snapshot matches the website | PARTIAL | `crates/ow/data/providers.json` already lists the `serving` fields for `system` and `battery`, so no false "not served" warning appeared for these three. The website does not publish `providers.json` at a URL (404), so drift cannot be detected from `ow`; add a version to the catalog (web change) and a CI check. |
 | C7 | Docker widget stays `planned` | DONE | The summary already warns "The daemon does not serve yet: docker.containers.*"; the tile says `not served`. |
 
-## D. Plugin in its own repo (proposal, nothing created)
+## D. Plugin in its own repo (script done, repo not created)
+
+State: built as a manual script, not a workflow (DECISIONS PLUGIN-MIRROR); see `docs/PLUGIN_RELEASE.md`. The proposal below is kept for the reasoning; where it says "mirror workflow" and "deploy key", the decision is the opposite.
 
 **Why.** `omarchy plugin add <url>` runs `git clone`, requires `manifest.json` at the clone root, and always follows the default branch (S7). Our plugin's manifest is `plugin/manifest.json` inside the main repo, so it cannot be installed that way. It also cannot be pinned, so `omarchy plugin update` moves users to the latest default branch.
 
@@ -89,5 +91,5 @@ Never done. Do it once, on the real desktop, with the maintainer at the keyboard
 1. Everything in B marked DONE or consciously deferred in the release notes.
 2. `git tag -s v0.1.0`, push the tag (human action).
 3. Build the package from the tag, check contents (B2), install on a spare machine (B4).
-4. Mirror the plugin (D), run section E.
+4. Mirror the plugin with `scripts/mirror-plugin.sh` (`docs/PLUGIN_RELEASE.md`), run section E.
 5. Web repo: add file hashes (C3), flip the three entries to `alpha` (C4), refresh `crates/ow/data/providers.json` if the catalog changed.

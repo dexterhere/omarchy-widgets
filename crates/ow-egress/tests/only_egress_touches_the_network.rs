@@ -115,7 +115,16 @@ const AUDITED: &[(&str, &[&str])] = &[
         "crates/owd/tests/provider_leak.rs",
         &["Command::new", "UnixStream"],
     ),
+    // Same search for the `github` provider: the test binary re-runs itself as a daemon built
+    // from the real config, vault and provider code with a scripted `Http`. Unix-domain sockets
+    // and a child process only; the upstream is a script, there is no internet socket.
+    (
+        "crates/owd/tests/github_leak.rs",
+        &["Command::new", "UnixStream"],
+    ),
     ("crates/owd/tests/unlock.rs", &["UnixStream"]),
+    // Provider state tests over the daemon socket (scripted provider). Unix-domain only.
+    ("crates/owd/tests/states.rs", &["UnixStream"]),
 ];
 
 fn root() -> PathBuf {
@@ -274,9 +283,14 @@ fn no_other_crate_opens_a_socket_or_starts_a_program_unaudited() {
 }
 
 /// Crates allowed to depend on `ow-egress` (the one network door). A new user is a security
-/// decision: add it here with the reason. `ow`: `ow install` fetches the registry index and the
-/// widget files (two fixed hosts, https, no redirects, size caps) through it.
-const EGRESS_USERS: &[&str] = &["crates/ow/Cargo.toml"];
+/// decision: add it here with the reason.
+/// - `ow`: `ow install` fetches the registry index and the widget files (two fixed hosts, https,
+///   no redirects, size caps) through it.
+/// - `owd`: the daemon's network providers (the first is `github`, host `api.github.com`) reach
+///   the network only through `owd::EgressHttp`, an adapter over `ow-egress` that implements the
+///   `ow_core::Http` trait; providers themselves (`ow-providers`) depend on neither. `owd` needs
+///   no `deny.toml` wrapper: it names `ow-egress` only, never `ureq` or `rustls`.
+const EGRESS_USERS: &[&str] = &["crates/ow/Cargo.toml", "crates/owd/Cargo.toml"];
 
 #[test]
 fn only_listed_crates_depend_on_ow_egress() {

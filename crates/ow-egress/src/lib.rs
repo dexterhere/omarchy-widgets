@@ -18,7 +18,10 @@
 //!
 //! - It cannot stop another process of the same user from reading daemon memory.
 //! - The HTTP library copies the header value into buffers that `Zeroizing` cannot reach, so the
-//!   token can outlive its `Credential` in freed memory.
+//!   token can outlive its `Credential` in freed memory. Two known copies: the `HeaderValue`
+//!   built by `HeaderValue::from_bytes` (it owns its bytes and is not wiped on drop) and ureq's
+//!   request and connection buffers. The daemon is non-dumpable, so this matters for root, swap
+//!   and crash tooling, not for other same-uid processes.
 //! - No certificate pinning (decided): any CA in the bundled Mozilla root set can issue for an
 //!   allow-listed host.
 //! - DNS is not trusted or checked; the TLS name check is the protection. Resolved private or

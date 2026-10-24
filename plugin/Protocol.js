@@ -74,6 +74,7 @@ function isUint(n) { return typeof n === "number" && isFinite(n) && Math.floor(n
 //   { kind: "ok", id, sub?, daemonVersion?, protocol? }
 //   { kind: "error", id, code, topic }
 //   { kind: "push", sub, topic, ts, stale, data }
+//   { kind: "state", sub, topic, state }            push with a state and no data: not an update
 function parseLine(line) {
   if (typeof line !== "string") return { kind: "malformed" }
   if (line.length === 0) return { kind: "ignore" }
@@ -86,6 +87,10 @@ function parseLine(line) {
   if (id === undefined && isUint(sub) && typeof topic === "string") {
     if (!L.TOPIC.test(topic)) return { kind: "malformed" }
     var ts = J.own(m, "ts")
+    // A push with a state and no data key says why there is no value (DAEMON_SPEC "States"). It
+    // is not an empty update: the bridge must keep what it has.
+    if (J.own(m, "data") === undefined && typeof J.own(m, "state") === "string")
+      return { kind: "state", sub: sub, topic: topic, state: J.own(m, "state") }
     return { kind: "push", sub: sub, topic: topic, ts: isUint(ts) ? ts : 0,
              stale: J.own(m, "stale") === true, data: cleanData(J.own(m, "data")) }
   }

@@ -26,7 +26,7 @@ States: **DONE** (shown by a command or a measurement), **PARTIAL**, **OPEN** (n
 | B5 | The daemon starts by itself with the session | OPEN | Needs `systemctl --user enable owd` (a person's choice) or a package hook. Without it the plugin shows a "daemon offline" tile until someone starts `owd`. Decide and document. |
 | B6 | Plugin loadable from its own repo | OPEN, PERSON | See section D. `omarchy plugin add` clones the default-branch root of a repo (S7, read from the Omarchy scripts, not run). The plugin sits in `plugin/` of this repo, so it cannot be added today. |
 | B7 | In-shell enable test with the person present | OPEN, PERSON | Never run in the real shell. See section E. |
-| B8 | Escape and keyboard focus on an overlay surface | OPEN, PERSON | S2 first run did not show `S2 ESCAPE -> exit`; unresolved. Needed before the Widget Center can be built, not for the first read-only release. Procedure: TRY_IT step 10c. |
+| B8 | Escape and keyboard focus on an overlay surface | DONE | 2026-10-24, measured by a person: a click gives an `OnDemand` overlay surface the keyboard and Escape reaches it (SPIKES S2). Procedure: TRY_IT step 10c. |
 | B9 | Security review pass | OPEN | CLAUDE.md and `docs/HANDOFF.md`: an external review of the vault and the protocol is a gate for public beta. Not started. Before that, the maintainer should run the in-repo pass in section F. |
 | B10 | `cargo deny check` and `cargo audit` green on the tagged commit | PARTIAL | Both run in CI; not run in this check. Run them on the release commit. |
 | B11 | Actions pinned | PARTIAL | `ci.yml` pins cargo-deny-action by SHA; `docs/HANDOFF.md` says other actions use tags. Pin all of them before a release workflow handles a signing key. |

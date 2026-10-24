@@ -6,8 +6,12 @@ const PASS: &str = "correct horse battery";
 const NEW_PASS: &str = "new passphrase long";
 const SECRET: &str = "FAKE-SECRET-VALUE-9f3a";
 
+/// Runs `ow` in a new session, so it has no controlling terminal even when the developer runs
+/// the tests from one: a prompt must never reach (or wait on) the real terminal.
 fn ow(dir: &std::path::Path, args: &[&str], stdin: &str) -> Output {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_ow"))
+    let mut c = Command::new("setsid")
+        .arg("-w")
+        .arg(env!("CARGO_BIN_EXE_ow"))
         .arg("--config-dir")
         .arg(dir)
         .args(args)
@@ -50,7 +54,7 @@ fn full_session_never_prints_or_stores_secrets_outside_the_vault() {
         ow(d.path(), &["vault", "status"], ""),
         ow(
             d.path(),
-            &["vault", "set", "github-main"],
+            &["vault", "set", "github-main", "--passphrase-stdin"],
             &format!("{PASS}\n{SECRET}\n"),
         ),
         ow(d.path(), &["vault", "list"], &format!("{PASS}\n")),
@@ -64,7 +68,11 @@ fn full_session_never_prints_or_stores_secrets_outside_the_vault() {
             &["vault", "remove", "github-main"],
             &format!("{NEW_PASS}\n"),
         ),
-        ow(d.path(), &["vault", "set", "x"], "wrong passphrase!!\nv\n"),
+        ow(
+            d.path(),
+            &["vault", "set", "x", "--passphrase-stdin"],
+            "wrong passphrase!!\nv\n",
+        ),
     ];
     for o in &all[..6] {
         assert!(o.status.success(), "{}", text(o));
@@ -164,7 +172,7 @@ fn truncated_empty_and_crlf_input() {
     // EOF mid-line: no trailing newline must not become a secret.
     let o = ow(
         d.path(),
-        &["vault", "set", "a"],
+        &["vault", "set", "a", "--passphrase-stdin"],
         &format!("{PASS}\nhalf-written"),
     );
     assert!(
@@ -174,12 +182,20 @@ fn truncated_empty_and_crlf_input() {
     );
     // Passphrase line only, value missing.
     assert!(
-        !ow(d.path(), &["vault", "set", "a"], &format!("{PASS}\n"))
-            .status
-            .success()
+        !ow(
+            d.path(),
+            &["vault", "set", "a", "--passphrase-stdin"],
+            &format!("{PASS}\n")
+        )
+        .status
+        .success()
     );
     // Empty value.
-    let o = ow(d.path(), &["vault", "set", "a"], &format!("{PASS}\n\n"));
+    let o = ow(
+        d.path(),
+        &["vault", "set", "a", "--passphrase-stdin"],
+        &format!("{PASS}\n\n"),
+    );
     assert!(
         !o.status.success() && text(&o).contains("empty"),
         "{}",
@@ -311,7 +327,7 @@ fn every_vault_command_refuses_a_loose_vault_dir() {
     for args in [
         &["vault", "status"][..],
         &["vault", "list"],
-        &["vault", "set", "x"],
+        &["vault", "set", "x", "--passphrase-stdin"],
         &["vault", "remove", "x"],
         &["vault", "rotate"],
         &["vault", "wipe", "--yes"],
@@ -323,4 +339,129 @@ fn every_vault_command_refuses_a_loose_vault_dir() {
             text(&o)
         );
     }
+}
+
+// ---- `vault set`: passphrase from the terminal, value from a pipe ----
+
+fn init(d: &std::path::Path) {
+    assert!(
+        ow(d, &["vault", "init"], &format!("{PASS}\n"))
+            .status
+            .success()
+    );
+}
+
+#[test]
+fn set_without_a_terminal_fails_instead_of_reading_the_passphrase_from_the_pipe() {
+    let d = tempfile::tempdir().unwrap();
+    init(d.path());
+    // `ow` runs in a new session here: no controlling terminal. The pipe holds only a value.
+    let o = ow(d.path(), &["vault", "set", "tok"], &format!("{SECRET}\n"));
+    assert!(!o.status.success());
+    let t = text(&o);
+    assert!(
+        t.contains("no terminal available") && t.contains("--passphrase-stdin"),
+        "{t}"
+    );
+    assert!(!t.contains(SECRET));
+    // Nothing was stored, and the value was not tried as a passphrase.
+    let l = ow(d.path(), &["vault", "list"], &format!("{PASS}\n"));
+    assert!(!text(&l).contains("tok"));
+}
+
+/// Real pseudo-terminal: the child's controlling terminal is the pty (setsid -c), its stdin is a
+/// file holding the value. The passphrase is typed at the prompt; the value comes from stdin.
+#[test]
+fn set_takes_the_passphrase_from_the_tty_and_the_value_from_stdin() {
+    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
+    use std::io::Read;
+    use std::os::unix::ffi::OsStrExt;
+    let d = tempfile::tempdir().unwrap();
+    init(d.path());
+    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+    grantpt(&master).unwrap();
+    unlockpt(&master).unwrap();
+    let name = ptsname(&master, Vec::new()).unwrap();
+    let slave = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(std::ffi::OsStr::from_bytes(name.to_bytes()))
+        .unwrap();
+    let valdir = tempfile::tempdir().unwrap();
+    let valfile = valdir.path().join("value");
+    std::fs::write(&valfile, format!("{SECRET}\n")).unwrap();
+    let child = Command::new("setsid")
+        .args([
+            "-c",
+            "-w",
+            "sh",
+            "-c",
+            r#"exec "$0" "$@" < "$OW_VALUE_FILE""#,
+        ])
+        .arg(env!("CARGO_BIN_EXE_ow"))
+        .arg("--config-dir")
+        .arg(d.path())
+        .args(["vault", "set", "tok"])
+        .env("OW_VALUE_FILE", &valfile)
+        .stdin(slave.try_clone().unwrap())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut master = std::fs::File::from(master);
+    let mut writer = master.try_clone().unwrap();
+    // Terminal output arrives on a thread so a misbehaving child fails the test, not hangs it.
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 256];
+        while let Ok(n) = master.read(&mut buf) {
+            if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    let wait = std::time::Duration::from_secs(10);
+    let mut seen = Vec::new();
+    while !String::from_utf8_lossy(&seen).contains("Vault passphrase: ") {
+        seen.extend(rx.recv_timeout(wait).unwrap_or_else(|_| {
+            panic!(
+                "prompt never appeared: {:?}",
+                String::from_utf8_lossy(&seen)
+            )
+        }));
+    }
+    // Ctrl-U is refused with a message and the prompt comes back; nothing is submitted.
+    writer.write_all(b"abc\x15").unwrap();
+    while String::from_utf8_lossy(&seen)
+        .matches("Vault passphrase: ")
+        .count()
+        < 2
+    {
+        seen.extend(
+            rx.recv_timeout(wait)
+                .unwrap_or_else(|_| panic!("no re-prompt: {:?}", String::from_utf8_lossy(&seen))),
+        );
+    }
+    assert!(String::from_utf8_lossy(&seen).contains("Try again"));
+    writer.write_all(format!("{PASS}\n").as_bytes()).unwrap();
+    let o = child.wait_with_output().unwrap();
+    while let Ok(more) = rx.recv_timeout(std::time::Duration::from_millis(300)) {
+        seen.extend(more);
+    }
+    assert!(
+        o.status.success(),
+        "{} / {:?}",
+        text(&o),
+        String::from_utf8_lossy(&seen)
+    );
+    assert!(text(&o).contains("stored tok"));
+    // No echo of what was typed, and the value never touched the terminal or the output.
+    let term = String::from_utf8_lossy(&seen).into_owned();
+    for needle in [PASS, SECRET] {
+        assert!(!term.contains(needle) && !text(&o).contains(needle));
+    }
+    drop(slave);
+    // Stored: list shows the name, using the explicit stdin alternative for the passphrase.
+    let l = ow(d.path(), &["vault", "list"], &format!("{PASS}\n"));
+    assert!(text(&l).contains("tok"));
 }

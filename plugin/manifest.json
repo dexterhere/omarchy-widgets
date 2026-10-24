@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.dexterhere.widget-shell",
+  "name": "Widget Layer (preview)",
+  "version": "0.1.0",
+  "author": "dexterhere",
+  "license": "MIT",
+  "description": "Draws installed no-code spec widgets on the desktop with live data from the owd daemon. Spec widgets are JSON only; nothing from a widget file is ever executed.",
+  "kinds": ["service", "overlay"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "overlay": "Center.qml"
+  },
+  "ow": {
+    "schemaVersion": 0,
+    "role": "renderer",
+    "layoutVersion": 0,
+    "protocol": 0
+  }
+}

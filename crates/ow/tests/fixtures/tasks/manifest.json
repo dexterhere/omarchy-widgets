@@ -1,0 +1,7 @@
+{
+  "id": "io.github.dexterhere.tasks",
+  "name": "Tasks",
+  "version": "0.1.0",
+  "description": "Open tasks, tasks due today and a short task list as a list, counts, chip, minimal or detailed card. Spec widget: JSON only, no code.",
+  "license": "MIT"
+}

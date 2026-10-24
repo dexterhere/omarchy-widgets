@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use ow_core::Paths;
-use ow_providers::System;
+use ow_providers::{Battery, System};
 use owd::Server;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -17,10 +17,14 @@ fn paths_from_args() -> Result<Paths, String> {
 }
 
 fn run() -> Result<(), String> {
+    owd::check_tz(std::env::var_os("TZ").as_deref())?;
     let paths = paths_from_args()?;
     ow_core::harden_process().map_err(|e| format!("hardening failed: {e}"))?;
-    let server = Server::bind(&paths, vec![Arc::new(System::new())])
-        .map_err(|e| format!("cannot start: {e}"))?;
+    let server = Server::bind(
+        &paths,
+        vec![Arc::new(System::new()), Arc::new(Battery::new())],
+    )
+    .map_err(|e| format!("cannot start: {e}"))?;
     let stop = Arc::new(AtomicBool::new(false));
     for sig in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         signal_hook::flag::register(sig, Arc::clone(&stop)).map_err(|e| e.to_string())?;
@@ -39,7 +43,7 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("owd: {e}");
-            ExitCode::FAILURE
+            ExitCode::from(if e.starts_with("TZ ") { 2 } else { 1 })
         }
     }
 }

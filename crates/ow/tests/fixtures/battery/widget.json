@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 0,
+  "id": "io.github.dexterhere.battery",
+  "tier": "spec",
+  "category": "system",
+  "surfaces": ["desktop", "bar"],
+  "sizeClasses": [
+    { "name": "chip", "min": [48, 24], "max": [140, 40], "aspectLock": null },
+    { "name": "compact", "min": [120, 80], "max": [240, 160], "aspectLock": null },
+    { "name": "wide", "min": [240, 100], "max": [480, 240], "aspectLock": null }
+  ],
+  "variants": ["ring", "bar", "percent", "chip", "timeleft", "detailed"],
+  "providers": [
+    {
+      "name": "battery",
+      "topics": ["battery.status"],
+      "fields": ["percent", "state", "timeLeft"],
+      "auth": "none"
+    }
+  ],
+  "capabilities": { "network": [], "files": [], "spawn": [] },
+  "interactiveRegions": [],
+  "settings": [],
+  "compat": { "omarchy": ">=4.0", "widgetsKit": "^1" },
+  "sampleData": {
+    "battery.status": { "percent": 72, "state": "Discharging", "timeLeft": "3h 20m" }
+  }
+}

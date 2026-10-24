@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 0,
+  "root": {
+    "type": "stack",
+    "gap": "sm",
+    "children": [
+      { "type": "value", "bind": { "topic": "system.time", "field": "hm" }, "size": "xl", "color": "accent" },
+      { "type": "text", "bind": { "topic": "system.time", "field": "date" }, "size": "sm", "color": "muted" }
+    ]
+  },
+  "variants": {
+    "digital": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        { "type": "value", "bind": { "topic": "system.time", "field": "hm" }, "size": "xl", "color": "accent" },
+        { "type": "text", "bind": { "topic": "system.time", "field": "date" }, "size": "sm", "color": "muted" }
+      ]
+    },
+    "digital-seconds": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        { "type": "value", "bind": { "topic": "system.time", "field": "hms" }, "size": "xl", "color": "accent" },
+        { "type": "text", "bind": { "topic": "system.time", "field": "date" }, "size": "sm", "color": "muted" }
+      ]
+    },
+    "minimal": {
+      "type": "value",
+      "bind": { "topic": "system.time", "field": "hm" },
+      "size": "xl",
+      "color": "foreground"
+    },
+    "date-focus": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        { "type": "text", "bind": { "topic": "system.time", "field": "date" }, "size": "xl", "color": "accent" },
+        { "type": "value", "bind": { "topic": "system.time", "field": "hm" }, "size": "md", "color": "secondary" }
+      ]
+    },
+    "chip": {
+      "type": "row",
+      "gap": "sm",
+      "children": [
+        { "type": "icon", "name": "clock", "size": "sm", "color": "secondary" },
+        { "type": "value", "bind": { "topic": "system.time", "field": "hm" }, "size": "sm", "color": "foreground" }
+      ]
+    },
+    "stacked": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        { "type": "value", "bind": { "topic": "system.time", "field": "hm" }, "size": "xl", "color": "accent" },
+        { "type": "divider" },
+        { "type": "text", "bind": { "topic": "system.time", "field": "date" }, "size": "md", "color": "foreground" },
+        { "type": "badge", "bind": { "topic": "system.time", "field": "tz" }, "size": "sm", "color": "secondary" }
+      ]
+    }
+  }
+}

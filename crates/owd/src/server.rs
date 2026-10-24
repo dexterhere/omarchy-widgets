@@ -1,5 +1,6 @@
 use crate::conn::{self, Shared};
 use crate::hub::{self, Hub};
+use crate::unlock::{VaultPolicy, VaultState};
 use ow_core::{AuditLog, Grants, Paths, Provider, RateLimiter};
 use rustix::fs::FileType;
 use std::fs::{DirBuilder, File, OpenOptions};
@@ -37,47 +38,39 @@ pub struct Server {
     next_conn: AtomicU64,
 }
 
-fn check_dir(dir: &std::path::Path) -> io::Result<()> {
-    let md = std::fs::symlink_metadata(dir)?;
-    let euid = rustix::process::geteuid().as_raw();
-    if !md.is_dir() {
-        return Err(io::Error::other(
-            "socket dir is not a directory (or is a symlink)",
-        ));
-    }
-    if md.uid() != euid {
-        return Err(io::Error::other(
-            "socket dir is not owned by the current user",
-        ));
-    }
-    if md.mode() & 0o077 != 0 {
-        return Err(io::Error::other("socket dir is accessible by group/others"));
-    }
-    Ok(())
-}
-
 impl Server {
     /// Create the socket directory (0700), refuse unsafe ones, replace a stale socket,
     /// refuse to start if another daemon is alive, bind, and chmod the socket 0600.
     pub fn bind(paths: &Paths, providers: Vec<Arc<dyn Provider>>) -> io::Result<Server> {
+        Self::bind_with(paths, providers, VaultPolicy::default())
+    }
+
+    /// `bind` with an explicit vault policy (idle timeout and clock), for tests.
+    pub fn bind_with(
+        paths: &Paths,
+        providers: Vec<Arc<dyn Provider>>,
+        vault_policy: VaultPolicy,
+    ) -> io::Result<Server> {
         let mut b = DirBuilder::new();
         b.recursive(true).mode(0o700);
         b.create(&paths.runtime)?;
-        check_dir(&paths.runtime)?;
+        ow_core::check_private_dir(&paths.runtime)?;
         // Fail closed: a bad grants file stops startup rather than allowing everything.
         let grants =
             Grants::load(&paths.grants()).map_err(|e| io::Error::other(format!("grants: {e}")))?;
         let mut sb = DirBuilder::new();
         sb.recursive(true).mode(0o700);
         sb.create(&paths.state)?;
-        check_dir(&paths.state)?;
+        ow_core::check_private_dir(&paths.state)?;
         let audit = AuditLog::open(&paths.audit())?;
+        let vault = Arc::new(VaultState::new(paths.vault(), vault_policy));
         let shared = Arc::new(Shared {
             grants: RwLock::new(grants),
             grants_path: paths.grants(),
             audit: Mutex::new(audit),
             limiter: Mutex::new(RateLimiter::new(RATE_BURST, RATE_PER_SEC)),
-            hub: Hub::new(providers),
+            hub: Hub::new(providers, Arc::clone(&vault)),
+            vault,
         });
         // Exclusive lock first, so two concurrent starts cannot both pass the stale check.
         let lock = OpenOptions::new()

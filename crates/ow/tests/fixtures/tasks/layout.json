@@ -1,0 +1,282 @@
+{
+  "schemaVersion": 0,
+  "root": {
+    "type": "stack",
+    "gap": "sm",
+    "children": [
+      {
+        "type": "row",
+        "gap": "sm",
+        "children": [
+          {
+            "type": "icon",
+            "name": "check",
+            "size": "md",
+            "color": "accent"
+          },
+          {
+            "type": "text",
+            "text": "Tasks",
+            "size": "sm",
+            "color": "secondary"
+          }
+        ]
+      },
+      {
+        "type": "row",
+        "gap": "lg",
+        "children": [
+          {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "tasks.list",
+                  "field": "open"
+                },
+                "size": "lg",
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "text": "open",
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          },
+          {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "tasks.list",
+                  "field": "dueToday"
+                },
+                "size": "lg",
+                "color": "foreground"
+              },
+              {
+                "type": "text",
+                "text": "due today",
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "divider"
+      },
+      {
+        "type": "list",
+        "bind": {
+          "topic": "tasks.list",
+          "field": "titles"
+        },
+        "max": 5,
+        "size": "md",
+        "color": "foreground"
+      }
+    ]
+  },
+  "variants": {
+    "list": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "icon",
+              "name": "check",
+              "size": "md",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "Tasks",
+              "size": "sm",
+              "color": "secondary"
+            }
+          ]
+        },
+        {
+          "type": "list",
+          "bind": {
+            "topic": "tasks.list",
+            "field": "titles"
+          },
+          "max": 5,
+          "size": "md",
+          "color": "foreground"
+        }
+      ]
+    },
+    "count": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "value",
+          "bind": {
+            "topic": "tasks.list",
+            "field": "open"
+          },
+          "size": "xl",
+          "color": "accent"
+        },
+        {
+          "type": "text",
+          "text": "open",
+          "size": "sm",
+          "color": "muted"
+        }
+      ]
+    },
+    "due": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "value",
+          "bind": {
+            "topic": "tasks.list",
+            "field": "dueToday"
+          },
+          "size": "xl",
+          "color": "accent"
+        },
+        {
+          "type": "text",
+          "text": "due today",
+          "size": "sm",
+          "color": "muted"
+        }
+      ]
+    },
+    "chip": {
+      "type": "row",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "icon",
+          "name": "check",
+          "size": "sm",
+          "color": "accent"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "tasks.list",
+            "field": "open"
+          },
+          "size": "sm",
+          "color": "foreground"
+        }
+      ]
+    },
+    "minimal": {
+      "type": "list",
+      "bind": {
+        "topic": "tasks.list",
+        "field": "titles"
+      },
+      "max": 3,
+      "size": "sm",
+      "color": "foreground"
+    },
+    "detailed": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "icon",
+              "name": "check",
+              "size": "md",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "Tasks",
+              "size": "sm",
+              "color": "secondary"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "gap": "lg",
+          "children": [
+            {
+              "type": "stack",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "tasks.list",
+                    "field": "open"
+                  },
+                  "size": "lg",
+                  "color": "accent"
+                },
+                {
+                  "type": "text",
+                  "text": "open",
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            },
+            {
+              "type": "stack",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "tasks.list",
+                    "field": "dueToday"
+                  },
+                  "size": "lg",
+                  "color": "foreground"
+                },
+                {
+                  "type": "text",
+                  "text": "due today",
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "list",
+          "bind": {
+            "topic": "tasks.list",
+            "field": "titles"
+          },
+          "max": 5,
+          "size": "md",
+          "color": "foreground"
+        }
+      ]
+    }
+  }
+}

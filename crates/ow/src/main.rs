@@ -4,22 +4,9 @@
 mod input;
 mod vault_cmd;
 
+use ow::{daemon, install};
 use ow_core::Paths;
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::process::ExitCode;
-
-fn status(paths: &Paths) -> Result<String, String> {
-    let mut s =
-        UnixStream::connect(paths.socket()).map_err(|e| format!("daemon not reachable: {e}"))?;
-    s.write_all(b"{\"v\":0,\"id\":1,\"op\":\"status\"}\n")
-        .map_err(|e| e.to_string())?;
-    let mut line = String::new();
-    BufReader::new(s)
-        .read_line(&mut line)
-        .map_err(|e| e.to_string())?;
-    Ok(line.trim_end().to_string())
-}
 
 fn run() -> Result<(), String> {
     ow_core::harden_process().map_err(|e| format!("hardening failed: {e}"))?;
@@ -33,11 +20,31 @@ fn run() -> Result<(), String> {
     };
     match args.first().map(String::as_str) {
         Some("status") => {
-            println!("{}", status(&paths)?);
+            println!(
+                "{}",
+                daemon::call(&paths, "{\"v\":0,\"id\":1,\"op\":\"status\"}\n")?
+            );
             Ok(())
         }
         Some("vault") => vault_cmd::run(&paths, &args[1..], &mut std::io::stdout()),
-        _ => Err("usage: ow [--config-dir DIR] status | vault ...".into()),
+        Some("install") => install::install(
+            &paths,
+            &args[1..],
+            &mut std::io::stdout(),
+            &|host| Box::new(install::NetSource::new(host)),
+            &mut install::TtyUi,
+        ),
+        Some("list") if args.len() == 1 => install::list(&paths, &mut std::io::stdout()),
+        Some("remove") => install::remove(
+            &paths,
+            &args[1..],
+            &mut std::io::stdout(),
+            &mut install::TtyUi,
+        ),
+        _ => Err(format!(
+            "usage: ow [--config-dir DIR] status | vault ... | install | list | remove\n{}",
+            install::USAGE
+        )),
     }
 }
 

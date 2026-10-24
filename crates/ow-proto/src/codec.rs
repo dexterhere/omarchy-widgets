@@ -1,3 +1,5 @@
+use zeroize::{Zeroize, Zeroizing};
+
 /// Maximum bytes in one line, excluding the newline.
 pub const MAX_LINE: usize = 64 * 1024;
 
@@ -16,14 +18,28 @@ const MAX_BUFFERED: usize = 2 * (MAX_LINE + 1);
 
 /// Incremental newline splitter with hard size bounds.
 ///
+/// Frames may carry a passphrase (`vault.unlock`), so consumed bytes are wiped as soon as a
+/// frame is handed out, the buffer is allocated once at full size (a growing `Vec` would leave
+/// unwiped copies behind) and frames are returned as `Zeroizing<String>`.
+///
 /// Contract: feed chunks of at most `MAX_LINE + 1` bytes and call `next_frame` until
 /// it returns `Ok(None)` before the next `feed`. Violations fail with `Oversize`.
-#[derive(Default)]
 pub struct LineDecoder {
-    buf: Vec<u8>,
+    buf: Zeroizing<Vec<u8>>,
     head: usize,
     scanned: usize,
     overflow: bool,
+}
+
+impl Default for LineDecoder {
+    fn default() -> Self {
+        Self {
+            buf: Zeroizing::new(Vec::with_capacity(MAX_BUFFERED)),
+            head: 0,
+            scanned: 0,
+            overflow: false,
+        }
+    }
 }
 
 impl LineDecoder {
@@ -36,7 +52,11 @@ impl LineDecoder {
             return Err(FrameError::Oversize);
         }
         if self.head > 0 {
-            self.buf.drain(..self.head);
+            let n = self.buf.len();
+            self.buf.copy_within(self.head..n, 0);
+            let kept = n - self.head;
+            self.buf[kept..n].zeroize();
+            self.buf.truncate(kept);
             self.head = 0;
         }
         if self.buf.len() + bytes.len() > MAX_BUFFERED {
@@ -49,7 +69,7 @@ impl LineDecoder {
 
     /// Next non-empty complete line, `Ok(None)` if more bytes are needed.
     /// Empty lines are skipped so they cannot be used to force replies.
-    pub fn next_frame(&mut self) -> Result<Option<String>, FrameError> {
+    pub fn next_frame(&mut self) -> Result<Option<Zeroizing<String>>, FrameError> {
         loop {
             if self.overflow {
                 return Err(FrameError::Oversize);
@@ -64,7 +84,8 @@ impl LineDecoder {
                 return Ok(None);
             };
             let end = start + off;
-            let mut line = &self.buf[self.head..end];
+            let from = self.head;
+            let mut line = &self.buf[from..end];
             self.head = end + 1;
             self.scanned = 0;
             if line.len() > MAX_LINE {
@@ -77,15 +98,17 @@ impl LineDecoder {
             if line.is_empty() {
                 continue;
             }
-            return String::from_utf8(line.to_vec())
-                .map(Some)
+            let frame = std::str::from_utf8(line)
+                .map(|s| Some(Zeroizing::new(s.to_owned())))
                 .map_err(|_| FrameError::InvalidUtf8);
+            self.buf[from..=end].zeroize();
+            return frame;
         }
     }
 
     fn fail(&mut self) {
         self.overflow = true;
-        self.buf = Vec::new();
+        self.buf.zeroize();
         self.head = 0;
         self.scanned = 0;
     }
@@ -99,10 +122,16 @@ mod tests {
     fn splits_and_buffers_partial() {
         let mut d = LineDecoder::new();
         d.feed(b"{\"a\":1}\n{\"b\"").unwrap();
-        assert_eq!(d.next_frame().unwrap().as_deref(), Some("{\"a\":1}"));
+        assert_eq!(
+            d.next_frame().unwrap().as_deref().map(String::as_str),
+            Some("{\"a\":1}")
+        );
         assert_eq!(d.next_frame().unwrap(), None);
         d.feed(b":2}\r\n").unwrap();
-        assert_eq!(d.next_frame().unwrap().as_deref(), Some("{\"b\":2}"));
+        assert_eq!(
+            d.next_frame().unwrap().as_deref().map(String::as_str),
+            Some("{\"b\":2}")
+        );
     }
 
     #[test]
@@ -137,7 +166,10 @@ mod tests {
         let mut d = LineDecoder::new();
         d.feed(b"\xff\xfe\n{}\n").unwrap();
         assert_eq!(d.next_frame(), Err(FrameError::InvalidUtf8));
-        assert_eq!(d.next_frame().unwrap().as_deref(), Some("{}"));
+        assert_eq!(
+            d.next_frame().unwrap().as_deref().map(String::as_str),
+            Some("{}")
+        );
     }
 
     #[test]
@@ -165,5 +197,19 @@ mod tests {
         }
         d.feed(b"\n").unwrap();
         assert_eq!(d.next_frame().unwrap().map(|s| s.len()), Some(MAX_LINE));
+    }
+
+    /// Consumed frames (which may hold a passphrase) must not linger in the buffer.
+    #[test]
+    fn consumed_bytes_are_wiped() {
+        let mut d = LineDecoder::new();
+        d.feed(b"hunter2-hunter2\n{\"x\"").unwrap();
+        assert!(d.next_frame().unwrap().is_some());
+        assert!(d.buf[..d.head].iter().all(|&b| b == 0));
+        // Compaction on the next feed leaves only the unconsumed partial line.
+        d.feed(b":1}\n").unwrap();
+        assert_eq!(&d.buf[..], b"{\"x\":1}\n");
+        assert!(d.next_frame().unwrap().is_some());
+        assert!(d.buf[..d.head].iter().all(|&b| b == 0));
     }
 }

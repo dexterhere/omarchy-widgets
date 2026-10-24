@@ -1,0 +1,7 @@
+pinned: 2e4e9a8  upstream: 2f29266
+after update logic: 2f29266  (pin lost)
+url#sha form: and the repository exists.
+git-url-check 'ext::sh -c id': refused
+git-url-check '--upload-pack=x': refused
+git-url-check 'file:///tmp/x': accepted
+git-url-check 'git@github.com:a/b.git': accepted

@@ -5,7 +5,7 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 plugin=$(cd "$here/.." && pwd)
-scenarios=("$@"); [ ${#scenarios[@]} -eq 0 ] && scenarios=(normal caps fragment garbage oversize flood floodpre burst drop silent reject refuse unsupported badproto noproto locked late defaultpath nopath)
+scenarios=("$@"); [ ${#scenarios[@]} -eq 0 ] && scenarios=(normal caps fragment garbage oversize flood floodpre burst drop silent reject refuse unsupported badproto noproto locked late defaultpath nopath relpath)
 rc=0
 cleanup_pids=()
 trap 'for p in "${cleanup_pids[@]}"; do kill -0 "$p" 2>/dev/null && kill "$p" 2>/dev/null; done' EXIT
@@ -20,13 +20,14 @@ for sc in "${scenarios[@]}"; do
   export XDG_STATE_HOME=$run/state XDG_CACHE_HOME=$run/cache XDG_DATA_HOME=$run/data QT_QPA_PLATFORM=offscreen
   export OW_TEST_SCENARIO=$sc OW_TEST_SOCK=$sock XDG_RUNTIME_DIR=$run/rt
   [ "$sc" = defaultpath ] && export OW_TEST_SOCK=""
+  [ "$sc" = relpath ] && { export OW_TEST_SOCK=""; export XDG_RUNTIME_DIR=relative/dir; }
   [ "$sc" = nopath ] && { export OW_TEST_SOCK=""; unset XDG_RUNTIME_DIR; }
   srv=""
   srv_scenario=$sc
-  case "$sc" in defaultpath|late|nopath|caps) srv_scenario=normal;; esac
+  case "$sc" in defaultpath|late|nopath|caps|relpath) srv_scenario=normal;; esac
   if [ "$sc" = late ]; then
     ( sleep 3; exec python3 "$here/fake_owd.py" "$sock" normal "$log" ) & srv=$!
-  elif [ "$sc" != nopath ]; then
+  elif [ "$sc" != nopath ] && [ "$sc" != relpath ]; then
     python3 "$here/fake_owd.py" "$sock" "$srv_scenario" "$log" & srv=$!
   fi
   [ -n "$srv" ] && cleanup_pids+=("$srv")

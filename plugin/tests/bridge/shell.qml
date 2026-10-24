@@ -30,7 +30,7 @@ ShellRoot {
 
   Bridge {
     id: b
-    socketPath: h.scenario === "defaultpath" || h.scenario === "nopath" ? b.defaultSocketPath : Quickshell.env("OW_TEST_SOCK")
+    socketPath: h.scenario === "defaultpath" || h.scenario === "nopath" || h.scenario === "relpath" ? b.defaultSocketPath : Quickshell.env("OW_TEST_SOCK")
     wanted: h.scenario === "normal" ? h.normalWanted : (h.scenario === "caps" ? h.capsWanted : h.base)
     retryLockedMs: 1000
     onLinkChanged: h.history = h.history.concat([{ t: h.t, link: link }])
@@ -139,12 +139,15 @@ ShellRoot {
     defaultpath: [
       [1500, "socket path came from XDG_RUNTIME_DIR", function () { return [b.socketPath === Quickshell.env("XDG_RUNTIME_DIR") + "/owd/owd.sock" && b.socketPath === b.defaultSocketPath && b.link === "connected", b.socketPath + " " + b.link] }]
     ],
+    relpath: [
+      [1500, "a relative XDG_RUNTIME_DIR is treated as unset", function () { return [b.defaultSocketPath === "" && b.link === "unavailable", b.defaultSocketPath + " " + b.link] }]
+    ],
     nopath: [
       [1500, "no runtime dir: unavailable, no crash", function () { return [b.socketPath === "" && b.link === "unavailable", b.socketPath + b.link] }]
     ]
   })
   property var endAt: ({ normal: 4600, fragment: 3000, garbage: 2800, oversize: 4800, caps: 5400, floodpre: 7800, flood: 7800, burst: 3800, drop: 6300, silent: 8300, reject: 7300, refuse: 1800, badproto: 1900, noproto: 1900,
-                         unsupported: 1800, locked: 4500, late: 9300, defaultpath: 1800, nopath: 1800 })
+                         unsupported: 1800, locked: 4500, late: 9300, defaultpath: 1800, nopath: 1800, relpath: 1800 })
 
   // sample for facts a single end-of-run check would miss
   function sample() {

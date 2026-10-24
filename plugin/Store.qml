@@ -17,7 +17,8 @@ import "Layout.js" as L
 Item {
   id: store
 
-  readonly property string dataHome: Quickshell.env("XDG_DATA_HOME") || (Quickshell.env("HOME") + "/.local/share")
+  // a relative XDG path is ignored, as the XDG spec says
+  readonly property string dataHome: Quickshell.env("XDG_DATA_HOME").charAt(0) === "/" ? Quickshell.env("XDG_DATA_HOME") : (Quickshell.env("HOME") + "/.local/share")
   property string widgetsDir: dataHome + "/owd/widgets"
 
   property var records: ({})                 // id -> record

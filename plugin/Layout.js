@@ -19,7 +19,7 @@ var FIELD = /^[a-zA-Z][a-zA-Z0-9_.-]{0,39}$/
 var WIDGET_ID = /^[a-z0-9][a-z0-9.-]{0,99}$/
 var CLASS_NAME = /^[a-z0-9][a-z0-9-]{0,19}$/
 var VARIANT_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}$/
-var HTMLISH = /<\s*\/?\s*[a-z!?]/i
+var HTMLISH = /<\s{0,8}\/?\s{0,8}[a-z!?]/i
 
 var KEYS = {
   stack: ["type", "gap", "children"],
@@ -48,13 +48,21 @@ function oneOf(list, v) { return list.indexOf(v) >= 0 }
 // separators, characters that render blank, variation selectors (except U+FE0F),
 // and the astral tag block. Unpaired surrogates are handled by the caller.
 function badUnit(c) {
-  return c < 0x20 || (c >= 0x7f && c <= 0x9f) || c === 0xad || c === 0x34f || c === 0x61c
+  return c < 0x20 || (c >= 0x600 && c <= 0x605) || c === 0x6dd || c === 0x70f || c === 0x8e2 || c === 0xfffc || (c >= 0x7f && c <= 0x9f) || c === 0xad || c === 0x34f || c === 0x61c
     || c === 0x115f || c === 0x1160 || c === 0x17b4 || c === 0x17b5
     || (c >= 0x180b && c <= 0x180f) || (c >= 0x200b && c <= 0x200f)
     || (c >= 0x2028 && c <= 0x202e) || (c >= 0x2060 && c <= 0x206f)
     || c === 0x2800 || c === 0x3164 || (c >= 0xfe00 && c <= 0xfe0e) || c === 0xfeff
     || c === 0xffa0 || (c >= 0xfff0 && c <= 0xfffb) || (c >= 0xe000 && c <= 0xf8ff)
 }
+// Format characters outside the BMP (musical, Brahmi, Egyptian and shorthand format controls) and the
+// tag block, given as code points; also private-use planes 15 and 16.
+function badAstral(cp) {
+  return (cp >= 0x1d173 && cp <= 0x1d17a) || cp === 0x110bd || cp === 0x110cd || (cp >= 0x13430 && cp <= 0x1343f)
+    || (cp >= 0x1bca0 && cp <= 0x1bca3) || (cp >= 0xe0000 && cp <= 0xe0fff) || cp >= 0xf0000
+}
+function pairCode(hi, lo) { return (hi - 0xd800) * 0x400 + (lo - 0xdc00) + 0x10000 }
+
 function isCombining(c) {
   return (c >= 0x300 && c <= 0x36f) || (c >= 0x1ab0 && c <= 0x1aff) || (c >= 0x1dc0 && c <= 0x1dff)
     || (c >= 0x20d0 && c <= 0x20ff) || (c >= 0xfe20 && c <= 0xfe2f)
@@ -71,7 +79,7 @@ function isPlain(s) {
     if (c >= 0xd800 && c <= 0xdbff) {
       var d = i + 1 < s.length ? s.charCodeAt(i + 1) : 0
       if (d < 0xdc00 || d > 0xdfff) return false
-      if (c >= 0xdb40) return false           // tag characters and planes 15, 16 (private use)
+      if (badAstral(pairCode(c, d))) return false
       i++; run = 0; continue
     }
     if (c >= 0xdc00 && c <= 0xdfff) return false
@@ -91,17 +99,18 @@ function plainText(v, max) {
   if (typeof v !== "string") return ""
   var lim = max > 0 ? max : LIMITS.string
   var s = v.length > lim * 4 ? v.substring(0, lim * 4) : v
-  var out = ""
+  var out = "", run = 0
   for (var i = 0; i < s.length && out.length < lim; i++) {
     var c = s.charCodeAt(i)
-    if (c === 9 || c === 10 || c === 13) { out += " "; continue }
+    if (c === 9 || c === 10 || c === 13) { out += " "; run = 0; continue }
     if (badUnit(c)) continue
     if (c >= 0xd800 && c <= 0xdbff) {
       var d = i + 1 < s.length ? s.charCodeAt(i + 1) : 0
-      if (d >= 0xdc00 && d <= 0xdfff) { if (c < 0xdb40) out += s.charAt(i) + s.charAt(i + 1); i++ }
+      if (d >= 0xdc00 && d <= 0xdfff) { if (!badAstral(pairCode(c, d))) { out += s.charAt(i) + s.charAt(i + 1); run = 0 } i++ }
       continue
     }
     if (c >= 0xdc00 && c <= 0xdfff) continue
+    if (isCombining(c)) { if (++run > 3) continue } else run = 0       // at most 3 stacked marks (the registry refuses 4)
     out += s.charAt(i)
   }
   return out

@@ -214,6 +214,9 @@ TestCase {
     compare(L.plainText("😀 ok", 50), "😀 ok")           // a real emoji pair survives
     compare(L.plainText("a\ud800b", 50), "ab")                                // lone surrogate dropped
     compare(L.plainText("a󠀁b", 50), "ab")
+    compare(L.plainText("a\u0600b\u06ddc\ufffcd", 50), "abcd")
+    compare(L.plainText("a\ud834\udd73b\udb40\udc01c\ud804\udcbdd", 50), "abcd")
+    compare(L.plainText("e\u0301\u0301\u0301\u0301\u0301x", 50), "e\u0301\u0301\u0301x")
     compare(L.plainText(42, 50), "")
     compare(L.plainText(null, 50), "")
     compare(L.plainText({}, 50), "")
@@ -389,6 +392,10 @@ TestCase {
     verify(L.isPlain("नमस्ते"))       // Devanagari with marks
     verify(!L.isPlain(5))
     verify(!L.isPlain("a<x"))
+    verify(!L.isPlain("a\u0600b"))
+    verify(!L.isPlain("a\ud834\udd73b"))
+    verify(!L.isPlain("a<   b"))
+    verify(L.isPlain("a<" + new Array(20).join(" ") + "1"))
     verify(!L.isPlain("a < b"))      // same as the registry: "<" followed by a letter looks like markup
   }
 }

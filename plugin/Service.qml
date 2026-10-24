@@ -19,7 +19,7 @@ Item {
   readonly property alias bridge: link
 
   // plugin-owned placement state, NOT under ~/.config: $XDG_STATE_HOME/ow-shell/canvas.json
-  readonly property string stateHome: Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")
+  readonly property string stateHome: Quickshell.env("XDG_STATE_HOME").charAt(0) === "/" ? Quickshell.env("XDG_STATE_HOME") : (Quickshell.env("HOME") + "/.local/state")
   property string placementPath: stateHome + "/ow-shell/canvas.json"
   property var placement: ({})
 

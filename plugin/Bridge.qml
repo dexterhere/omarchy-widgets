@@ -20,7 +20,7 @@ Item {
   // Never taken from a widget file. (`socketPath` is overridable only so tests can point at a fake.)
   readonly property string defaultSocketPath: {
     const dir = Quickshell.env("XDG_RUNTIME_DIR")
-    return dir && dir.length > 0 ? dir + "/owd/owd.sock" : ""
+    return dir && dir.charAt(0) === "/" ? dir + "/owd/owd.sock" : ""
   }
   property string socketPath: defaultSocketPath
   property var wanted: []                       // [{widget, topic}] chosen by the store, from validated records

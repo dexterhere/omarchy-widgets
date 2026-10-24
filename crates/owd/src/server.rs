@@ -54,14 +54,21 @@ impl Server {
         let mut b = DirBuilder::new();
         b.recursive(true).mode(0o700);
         b.create(&paths.runtime)?;
-        ow_core::check_private_dir(&paths.runtime)?;
+        ow_core::check_private_dir(&paths.runtime).map_err(|e| {
+            io::Error::other(format!(
+                "runtime directory {}: {e}",
+                paths.runtime.display()
+            ))
+        })?;
         // Fail closed: a bad grants file stops startup rather than allowing everything.
         let grants =
             Grants::load(&paths.grants()).map_err(|e| io::Error::other(format!("grants: {e}")))?;
         let mut sb = DirBuilder::new();
         sb.recursive(true).mode(0o700);
         sb.create(&paths.state)?;
-        ow_core::check_private_dir(&paths.state)?;
+        ow_core::check_private_dir(&paths.state).map_err(|e| {
+            io::Error::other(format!("state directory {}: {e}", paths.state.display()))
+        })?;
         let audit = AuditLog::open(&paths.audit())?;
         let vault = Arc::new(VaultState::new(paths.vault(), vault_policy));
         let shared = Arc::new(Shared {

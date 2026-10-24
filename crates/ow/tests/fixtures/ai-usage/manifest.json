@@ -1,0 +1,7 @@
+{
+  "id": "io.github.dexterhere.ai-usage",
+  "name": "AI Usage",
+  "version": "0.1.0",
+  "description": "A no-code widget showing how many AI sessions, requests and active minutes you have, in six variants. Three numbers only, never prompts or content.",
+  "license": "MIT"
+}

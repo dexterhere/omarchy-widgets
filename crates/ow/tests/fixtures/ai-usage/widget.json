@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 0,
+  "id": "io.github.dexterhere.ai-usage",
+  "tier": "spec",
+  "category": "ai-agents",
+  "surfaces": ["desktop", "bar"],
+  "sizeClasses": [
+    { "name": "chip", "min": [60, 24], "max": [160, 40], "aspectLock": null },
+    { "name": "compact", "min": [140, 80], "max": [240, 160], "aspectLock": null },
+    { "name": "wide", "min": [240, 100], "max": [480, 220], "aspectLock": null }
+  ],
+  "variants": ["counts", "sessions-only", "activity", "chip", "minimal", "detailed"],
+  "providers": [
+    {
+      "name": "ai-usage",
+      "topics": ["ai-usage.sessions"],
+      "fields": ["sessions", "requests", "activeMinutes"],
+      "auth": "none"
+    }
+  ],
+  "capabilities": { "network": [], "files": [], "spawn": [] },
+  "interactiveRegions": [],
+  "settings": [],
+  "compat": { "omarchy": ">=4.0", "widgetsKit": "^1" },
+  "sampleData": {
+    "ai-usage.sessions": { "sessions": 12, "requests": 340, "activeMinutes": 95 }
+  }
+}

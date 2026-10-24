@@ -777,6 +777,69 @@ fn oversized_provider_output_is_rejected() {
 }
 
 #[test]
+fn grants_reload_applies_the_file_without_a_signal_and_fails_closed() {
+    let h = Harness::start_with(None, vec![Arc::new(Fake::default())]);
+    assert!(snap(&h, 1, "w1", "github.prs").contains("denied"));
+    // Same private-file rules as a normal install: 0600, ours.
+    std::fs::create_dir_all(&h.paths.config).unwrap();
+    let p = h.paths.grants();
+    std::fs::write(&p, GRANTS).unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let r = h.ask("{\"v\":0,\"id\":7,\"op\":\"grants.reload\"}\n");
+    assert_eq!(r, "{\"v\":0,\"id\":7,\"ok\":true,\"state\":\"reloaded\"}\n");
+    assert!(snap(&h, 2, "w1", "github.prs").contains("\"open\":3"));
+    // A widget-shaped frame (any `widget` key) is refused and the file is not re-read.
+    std::fs::write(&p, "").unwrap();
+    for w in ["\"w1\"", "null"] {
+        let r = h.ask(&format!(
+            "{{\"v\":0,\"id\":8,\"op\":\"grants.reload\",\"widget\":{w}}}\n"
+        ));
+        assert!(r.contains("\"denied\""), "{r}");
+    }
+    assert!(snap(&h, 3, "w1", "github.prs").contains("\"open\":3"));
+    // A broken file: the reload reports an error and everything is denied afterwards.
+    std::fs::write(&p, "not [toml").unwrap();
+    let r = h.ask("{\"v\":0,\"id\":9,\"op\":\"grants.reload\"}\n");
+    assert!(r.contains("\"internal\""), "{r}");
+    assert!(snap(&h, 4, "w1", "github.prs").contains("denied"));
+    // An insecure mode is refused too.
+    std::fs::write(&p, GRANTS).unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(
+        h.ask("{\"v\":0,\"id\":10,\"op\":\"grants.reload\"}\n")
+            .contains("\"internal\"")
+    );
+    assert!(snap(&h, 5, "w1", "github.prs").contains("denied"));
+    // Audited by name, with no payload; the refused widget-shaped frames are audited too.
+    let a = audit(&h);
+    assert!(
+        a.contains("\"widget\":\"admin\",\"topic\":\"grants\",\"op\":\"reload\""),
+        "{a}"
+    );
+    assert!(
+        a.contains("\"op\":\"grants.reload\",\"decision\":\"deny\""),
+        "{a}"
+    );
+}
+
+#[test]
+fn grants_reload_is_rate_limited() {
+    let h = Harness::start();
+    let replies: Vec<String> = (0..40)
+        .map(|i| {
+            h.ask(&format!(
+                "{{\"v\":0,\"id\":{i},\"op\":\"grants.reload\"}}\n"
+            ))
+        })
+        .collect();
+    assert!(replies[0].contains("\"ok\":true"));
+    assert!(
+        replies.iter().any(|r| r.contains("rate_limited")),
+        "no limit hit"
+    );
+}
+
+#[test]
 fn system_time_reaches_granted_widget_only() {
     let g = "[[grant]]\nwidget=\"clock\"\ntopics=[\"system.time\"]\nfields=[\"hm\",\"hms\",\"date\",\"tz\"]\n\n[[grant]]\nwidget=\"partial\"\ntopics=[\"system.time\"]\nfields=[\"hm\"]\n";
     let real: Vec<Arc<dyn Provider>> = vec![

@@ -10,6 +10,9 @@ const MAX_REPLY: u64 = 64 * 1024;
 /// Generous: an unlock runs Argon2 on the daemon side.
 const TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Prefix of the error `call` returns when nothing is listening; `reload_grants` keys on it.
+const UNREACHABLE: &str = "daemon not reachable";
+
 /// Send one request line (newline included) and return the raw reply line.
 pub fn call(paths: &Paths, request: &str) -> Result<String, String> {
     // Nothing is written until both checks pass, so a squatter on the socket path gets no bytes.
@@ -25,7 +28,7 @@ pub fn call(paths: &Paths, request: &str) -> Result<String, String> {
             );
         }
     }
-    let mut s = UnixStream::connect(&sock).map_err(|e| format!("daemon not reachable: {e}"))?;
+    let mut s = UnixStream::connect(&sock).map_err(|e| format!("{UNREACHABLE}: {e}"))?;
     if !ow_core::peer_is_self(&s) {
         return Err("refusing to use the daemon socket: it is not served by your user".into());
     }
@@ -64,4 +67,40 @@ pub fn call_ok(paths: &Paths, request: &str) -> Result<Value, String> {
         Some("bad_request") => Err("the daemon refused the request as malformed".into()),
         Some(_) => Err("the daemon reported an error".into()),
     }
+}
+
+/// How a `grants.reload` request ended.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Reload {
+    /// The daemon re-read the file.
+    Applied,
+    /// No daemon is listening: the grants apply at its next start.
+    NotRunning,
+    /// The daemon refused for now (its small admin rate limit): the file is NOT applied yet.
+    RateLimited,
+    /// The daemon tried and could not load the file, so it now denies every widget.
+    LoadFailed,
+    /// Any other answer (its error code, or "unreadable").
+    Other(String),
+}
+
+/// Tell a running daemon to re-read `grants.toml`. `Err` only for a socket we do not trust.
+pub fn reload_grants(paths: &Paths) -> Result<Reload, String> {
+    let line = match call(paths, "{\"v\":0,\"id\":1,\"op\":\"grants.reload\"}\n") {
+        Err(e) if e.starts_with(UNREACHABLE) => return Ok(Reload::NotRunning),
+        Err(e) => return Err(e),
+        Ok(line) => line,
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&line) else {
+        return Ok(Reload::Other("unreadable reply".into()));
+    };
+    if v["ok"] == true {
+        return Ok(Reload::Applied);
+    }
+    Ok(match v["error"]["code"].as_str() {
+        Some("rate_limited") => Reload::RateLimited,
+        Some("internal") => Reload::LoadFailed,
+        Some(c) => Reload::Other(c.chars().take(24).collect()),
+        None => Reload::Other("no result".into()),
+    })
 }

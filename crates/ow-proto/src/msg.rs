@@ -134,12 +134,20 @@ pub enum Op {
     VaultLock,
     #[serde(rename = "vault.status")]
     VaultStatus,
+    /// Re-read `grants.toml` (what SIGHUP does). No payload.
+    #[serde(rename = "grants.reload")]
+    GrantsReload,
     #[serde(other)]
     Unknown,
 }
 
 /// Wire names of the admin ops; widget-facing ops are never in this list.
-const ADMIN_OPS: [&str; 3] = ["vault.unlock", "vault.lock", "vault.status"];
+const ADMIN_OPS: [&str; 4] = [
+    "vault.unlock",
+    "vault.lock",
+    "vault.status",
+    "grants.reload",
+];
 
 impl Op {
     /// Audit/log name for admin ops, `None` for everything else.
@@ -148,6 +156,7 @@ impl Op {
             Op::VaultUnlock { .. } => Some(ADMIN_OPS[0]),
             Op::VaultLock => Some(ADMIN_OPS[1]),
             Op::VaultStatus => Some(ADMIN_OPS[2]),
+            Op::GrantsReload => Some(ADMIN_OPS[3]),
             _ => None,
         }
     }
@@ -422,10 +431,49 @@ mod tests {
         for (op, want) in [
             ("vault.lock", Op::VaultLock),
             ("vault.status", Op::VaultStatus),
+            ("grants.reload", Op::GrantsReload),
         ] {
             let r = Request::parse(&format!(r#"{{"v":0,"id":2,"op":"{op}"}}"#)).unwrap();
             assert_eq!(r.op, want);
         }
+    }
+
+    #[test]
+    fn grants_reload_is_an_admin_op_that_never_comes_from_a_widget_shaped_frame() {
+        let r = Request::parse(r#"{"v":0,"id":9,"op":"grants.reload"}"#).unwrap();
+        assert_eq!((r.id, r.op.admin_name()), (9, Some("grants.reload")));
+        // Wrong version and near-miss names are not admin ops.
+        assert_eq!(
+            code(r#"{"v":1,"id":9,"op":"grants.reload"}"#),
+            (Some(9), ErrorCode::UnsupportedVersion)
+        );
+        for near in [
+            "grants.reloa",
+            "Grants.reload",
+            "grants.reload ",
+            "grants.set",
+            "grants.",
+        ] {
+            let l = format!(r#"{{"v":0,"id":9,"op":"{near}"}}"#);
+            assert_eq!(code(&l), (Some(9), ErrorCode::BadRequest), "{near}");
+        }
+        // A widget claim of any shape is refused and named, as for the vault ops.
+        for w in ["\"w\"", "null", "{}", "[]", "0"] {
+            let e = Request::parse(&format!(
+                r#"{{"v":0,"id":9,"op":"grants.reload","widget":{w}}}"#
+            ))
+            .unwrap_err();
+            assert_eq!(
+                (e.code, e.admin_op),
+                (ErrorCode::Denied, Some("grants.reload"))
+            );
+        }
+        // Not reachable through a data op's topic either.
+        let r = Request::parse(
+            r#"{"v":0,"id":9,"op":"snapshot","widget":"w","topic":"grants.reload"}"#,
+        )
+        .unwrap();
+        assert!(r.op.admin_name().is_none());
     }
 
     /// Nothing that formats a request or a parse failure may show the passphrase, in either
@@ -477,7 +525,12 @@ mod tests {
     #[test]
     fn null_or_odd_widget_values_still_count_as_a_claim() {
         for w in ["null", "\"\"", "0", "[]", "{}", "false"] {
-            for op in ["vault.unlock", "vault.lock", "vault.status"] {
+            for op in [
+                "vault.unlock",
+                "vault.lock",
+                "vault.status",
+                "grants.reload",
+            ] {
                 let l = format!(
                     r#"{{"v":0,"id":4,"op":"{op}","widget":{w},"passphrase":"{}"}}"#,
                     hex(PW)
@@ -520,7 +573,12 @@ mod tests {
 
     #[test]
     fn duplicate_keys_cannot_smuggle_an_admin_op_past_the_widget_rule() {
-        for op in ["vault.unlock", "vault.lock", "vault.status"] {
+        for op in [
+            "vault.unlock",
+            "vault.lock",
+            "vault.status",
+            "grants.reload",
+        ] {
             let pw = hex(PW);
             let lines = [
                 format!(
@@ -554,7 +612,12 @@ mod tests {
 
     #[test]
     fn admin_ops_claiming_a_widget_are_denied_and_named() {
-        for op in ["vault.unlock", "vault.lock", "vault.status"] {
+        for op in [
+            "vault.unlock",
+            "vault.lock",
+            "vault.status",
+            "grants.reload",
+        ] {
             let e = Request::parse(&format!(
                 r#"{{"v":0,"id":4,"op":"{op}","widget":"evil","passphrase":"{}"}}"#,
                 hex(PW)

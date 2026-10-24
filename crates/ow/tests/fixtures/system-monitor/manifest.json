@@ -1,0 +1,7 @@
+{
+  "id": "io.github.dexterhere.system-monitor",
+  "name": "System monitor",
+  "version": "0.1.0",
+  "description": "CPU, memory and load at a glance. Spec widget with no code and eight layout variants: rings, bars, a two-bar view, a full view with load averages, a numbers-only view, a bar chip, and one separate variant that needs the not-yet-served temperature field.",
+  "license": "MIT"
+}

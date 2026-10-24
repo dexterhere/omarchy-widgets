@@ -16,7 +16,11 @@
 # systemd has no DataDirectory= directive, and an ExecStartPre= creating it would run inside the
 # same read-only sandbox, so the directory is created OUTSIDE the unit, by whoever installs:
 #   install -d -m 0700 ~/.local/share/owd      (`ow vault init` and packaging/install-local.sh do this)
-# `ow doctor` checks that it exists and is 0700. If you move XDG_DATA_HOME, change the path below
+# Installed widgets (the widgets/ subdirectory) are made read-only again with ReadOnlyPaths=: the
+# daemon only reads them, `ow install` writes them from outside this sandbox. The "-" lets the
+# service start before the first widget is installed (then that subdirectory is not locked until
+# the next start). Unverified under a real unit: mount ordering of the nested read-only path.
+# `ow doctor` checks that the data directory exists and is 0700. If you move XDG_DATA_HOME, change the path below
 # with a drop-in (systemctl --user edit owd.service) and run owd with the same XDG_DATA_HOME.
 #
 # Deliberately NOT set:
@@ -49,6 +53,7 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=%h/.local/share/owd
+ReadOnlyPaths=-%h/.local/share/owd/widgets
 PrivateTmp=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallFilter=@system-service

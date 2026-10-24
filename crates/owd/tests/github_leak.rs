@@ -26,8 +26,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod common;
@@ -169,7 +169,13 @@ fn child_daemon() {
     server.run(&stop, &AtomicBool::new(false));
 }
 
+/// Held while a vault file is open for writing and while the child daemon is forked. A fork in
+/// one test thread copies the vault lock descriptor another thread has open, and the copy keeps
+/// the flock alive until the child execs, so the other thread's next lock failed with `Busy`.
+static FORK: Mutex<()> = Mutex::new(());
+
 fn tree(vault_secret: Option<&str>) -> (tempfile::TempDir, Paths) {
+    let _fork = FORK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tempfile::Builder::new()
         .prefix("owd.")
         .tempdir_in("/tmp")
@@ -235,14 +241,17 @@ fn a_full_session_never_leaks_the_fake_token_or_passphrase() {
         return; // inside the child: only `child_daemon` runs
     }
     let (dir, paths) = tree(Some("github-main"));
-    let mut child = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "child_daemon", "--nocapture", "--test-threads=1"])
-        .env_clear()
-        .env(CHILD_ENV, dir.path())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child = {
+        let _fork = FORK.lock().unwrap_or_else(|e| e.into_inner());
+        Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "child_daemon", "--nocapture", "--test-threads=1"])
+            .env_clear()
+            .env(CHILD_ENV, dir.path())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
     let out = drain(child.stdout.take().unwrap());
     let err = drain(child.stderr.take().unwrap());
     for _ in 0..200 {
@@ -486,9 +495,11 @@ fn removing_the_secret_and_unlocking_again_stops_serving_the_cached_counts() {
     let h = start(Some("github-main"), Some(CONFIG));
     assert_eq!(unlock(&h.paths, PASS)["state"], "unlocked");
     assert_eq!(snap(&h.paths).1["data"]["open"], 4);
-    let mut v = Vault::open(&h.paths.vault(), PASS.as_bytes()).unwrap();
-    v.remove("github-main").unwrap();
-    drop(v);
+    {
+        let _fork = FORK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut v = Vault::open(&h.paths.vault(), PASS.as_bytes()).unwrap();
+        v.remove("github-main").unwrap();
+    }
     // Still unlocked and cached until the lock (`ow vault remove` locks the daemon afterwards).
     lock(&h.paths);
     assert_eq!(unlock(&h.paths, PASS)["state"], "unlocked");

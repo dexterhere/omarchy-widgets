@@ -70,6 +70,14 @@ owd 0.0.0 listening
 {"v":0,"id":1,"ok":true,"daemonVersion":"0.0.0","protocol":0}
 ```
 
+Now ask `ow` to check the wiring (it only reads and prints):
+
+```bash
+./target/release/ow doctor
+```
+
+Expect `OK` for `state-dir`, `socket-dir`, `daemon`, `version` and `vault-state`, and `WARN` for the things this guide deliberately does not set up: the data and config directories (they appear at step 4), `vault-file`, `unit` and `plugin`. Each `WARN` line has a `fix:` line; none of them is needed here. `ow doctor` exits 0 as long as nothing says `FAIL`. It shows only how many secrets the vault holds; add `--names` if you want the names, and think before pasting that into a bug report. (The `plugin` line looks at the plugin folder under your real home, read-only; it changes nothing.)
+
 This proves the daemon runs and answers on a private socket inside the sandbox. The vault (encrypted password store) is not needed for these widgets, so we do not create one.
 
 ## 4. Install the clock
@@ -114,6 +122,8 @@ How to read it: the line starting `It will be allowed to read` is the whole perm
 Installed io.github.dexterhere.clock 0.1.0.
 The running daemon reloaded the grants.
 ```
+
+Run `./target/release/ow doctor` again: the data directory, `grants` and the widget line (`OK    widget io.github.dexterhere.clock   Files are intact and valid.`) now appear, and nothing says `FAIL`.
 
 This proves: the real download from the website and GitHub works, the files pass the checks, you were asked before any access was given, and the running daemon picked up the new permission without a restart. Typing anything other than `yes` prints `Not installed.` and changes nothing.
 

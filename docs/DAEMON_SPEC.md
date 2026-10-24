@@ -61,8 +61,8 @@ deny.toml
 - `ow-core`: `grants`, `audit`, `ratelimit`, `paths`, `harden`, and the synchronous `Provider` trait (`provider.rs`). The cache and scheduler are not here; they live in `owd/src/hub.rs`. There is no HTTP client.
 - `ow-providers`: only `system`.
 - `owd`: socket server, connection handling, hub (cache and scheduler), SIGHUP grants reload, `sd_notify`. No config file.
-- `ow`: `status`, `vault init|status|unlock|lock|list|set|remove|rotate|wipe`, and `install <id>`, `list`, `remove <id>` for spec widgets (CLI verbs below). No `grants`, `audit` or `change-mode` verbs. `ow` is also a library (`crates/ow/src/lib.rs`) so tests can drive the install code in-process; it is the only crate that depends on `ow-egress`.
-- `packaging/owd.service` exists; no PKGBUILD was checked here.
+- `ow`: `status`, `doctor [--json]`, `vault init|status|unlock|lock|list|set|remove|rotate|wipe`, and `install <id>`, `list`, `remove <id>` for spec widgets (CLI verbs below). No `grants`, `audit` or `change-mode` verbs. `ow` is also a library (`crates/ow/src/lib.rs`) so tests can drive the install code in-process; it is the only crate that depends on `ow-egress`.
+- `packaging/` holds the unit, the release `PKGBUILD` (signed tags only), `PKGBUILD-git` (developer preview), a local installer and its test; see `docs/PACKAGING.md`.
 
 All crates `#![forbid(unsafe_code)]`. If `prctl`, `mlock` or `setrlimit` need syscalls, use `rustix` or `nix`; if a truly unsafe block remains, isolate it in one audited module with a comment explaining why.
 
@@ -213,6 +213,18 @@ approved_at = "2026-10-17T12:00:00Z"
 
 Not implemented: `audit.tail`, `ow audit tail`, any `ow grants` command. Grants are still plain file edits, except that `ow install <id>` appends the entries of a spec widget and `ow remove <id>` deletes every entry whose `widget` equals the id (text edit that keeps other entries and comments, proven with the daemon's own parser; atomic replace, mode 0600).
 
+### `ow doctor`
+
+```
+ow [--config-dir DIR] doctor [--json] [--names]
+```
+
+Read-only diagnostics; the only "verb" added for it is the CLI command, there is **no new wire op** (it sends the existing `status` and `vault.status` through the same trusted client as every other verb: socket directory private and yours, peer uid checked, one request line, reply capped at 64 KiB). It never writes, never runs `systemctl` or any program, never uses the network, and never reads the vault file (mode and owner only). Each check prints `OK`, `WARN`, `FAIL` or `SKIP` (not checked, with the reason), one plain sentence, and a `fix:` line where there is one. Exit code 1 if any check is `FAIL`, otherwise 0; the vault check prints the secret COUNT only, and secret names just with `--names` (reports get pasted); `--json` prints `{"ok":bool,"checks":[{"id","level","message","fix"}]}`.
+
+Checks: data/config/state directories (0700, yours, not a symlink), socket directory and socket (0700 / 0600), daemon answers `status`, daemon version equals `ow` version, vault state (locked, or unlocked with secret NAMES, never values), vault file (present, regular, yours, no group/other access), `grants.toml` (loaded with the daemon's own loader: mode, owner, size, parse, duplicates), every installed widget (files unchanged since install by SHA-256, then the install validators), `owd.service` installed for the user (files only: the user's `systemd/user`, `/etc/systemd/user`, `/usr/lib/systemd/user`; its `ExecStart` binary exists) and enabled (a link in `default.target.wants`), and the plugin folder. Text that came from the daemon or from files is cut and cleaned before printing, and `fix:` commands quote the path (POSIX single quotes) or are omitted when it holds control characters. Each of the two daemon questions waits at most 4 s, so a mute daemon is a `FAIL` within seconds (other verbs keep their 60 s). If `HOME` or `XDG_RUNTIME_DIR` is unset or relative, the checks that need them are `SKIP` with the reason and the rest still run. A symlinked unit file is followed once and its target reported; `owd.service.d/*.conf` drop-ins are read (bounded) and an `ExecStart` override is honoured; `%h`, `%t` and `%%` are expanded, any other specifier makes the `ExecStart` check a `WARN` (not checked). In `--config-dir` mode only the sandbox is searched for the unit, and the plugin folder is `SKIP`: its location is known only for a normal session (`~/.config/omarchy/plugins`, SPIKES S5, Omarchy 4.0.6; whether the shell honours `XDG_CONFIG_HOME` there is not verified). Whether the shell has the plugin enabled is not checked.
+
+**Status:** implemented and tested (unit tests with hostile fixtures in `crates/ow/src/doctor.rs`; the real binary against a throwaway in-process daemon in `crates/ow/tests/doctor_cli.rs`). A missing data directory is a `WARN`, because a daemon started by hand works without it; the systemd unit does not.
+
 ### CLI verbs for spec widgets
 
 ```
@@ -285,9 +297,9 @@ trait Provider: Send + Sync {
 
 ## 10. systemd user unit (verify with `systemd-analyze --user security owd`)
 
-The unit lives in `packaging/owd.service`; read that file rather than a copy here. It is a `Type=notify` user service with `UMask=0077`, `RuntimeDirectory=owd`, `StateDirectory=owd` and `ConfigurationDirectory=owd` (all mode 0700), `ProtectSystem=strict`, `ProtectHome=read-only` with `ReadWritePaths=-%h/.local/share/owd`, `ProtectProc=invisible`, `NoNewPrivileges`, `PrivateTmp`, `MemoryDenyWriteExecute`, an empty `CapabilityBoundingSet`, `SystemCallFilter=@system-service`, `RestrictAddressFamilies` for unix/inet/inet6, `KeyringMode=private`, and kernel and cgroup protections. `ProcSubset=pid`, `IPAddressDeny` and `PrivateUsers` are deliberately not set (reasons are in the file's header comments).
+The unit lives in `packaging/owd.service`; read that file rather than a copy here. It is a `Type=notify` user service with `UMask=0077`, `RuntimeDirectory=owd`, `StateDirectory=owd` and `ConfigurationDirectory=owd` (all mode 0700), `ProtectSystem=strict`, `ProtectHome=read-only` with `ReadWritePaths=%h/.local/share/owd` plus `ReadOnlyPaths=-%h/.local/share/owd/widgets` (the daemon only reads installed widgets; no `-` prefix: a missing directory stops the service with a clear error instead of leaving the vault directory read-only), `ProtectProc=invisible`, `NoNewPrivileges`, `PrivateTmp`, `MemoryDenyWriteExecute`, an empty `CapabilityBoundingSet`, `SystemCallFilter=@system-service`, `RestrictAddressFamilies` for unix/inet/inet6, `KeyringMode=private`, and kernel and cgroup protections. `ProcSubset=pid`, `IPAddressDeny` and `PrivateUsers` are deliberately not set (reasons are in the file's header comments).
 
-**Status:** Verified 2026-10-17 only offline (`systemd-analyze --user security --offline`) and as a transient unit with throwaway directories. It has not been run as an installed unit against the real home directories. Open: there is no `DataDirectory=`, so `~/.local/share/owd` must exist before start. A low exposure score does not make code widgets sandboxed; the unit confines `owd`, not widgets. Docker and D-Bus allowances are not needed yet because those providers do not exist.
+**Status:** `systemd-analyze --user security --offline=yes` reports exposure 2.3 OK (2026-10-24), `verify` complains only that the binary is not installed yet. Verified 2026-10-17 as a transient unit with throwaway directories. It has not been run as an installed unit against the real home directories. The data directory `~/.local/share/owd` is created outside the unit (systemd has no `DataDirectory=`; an `ExecStartPre=` would run inside the same read-only sandbox) by `ow vault init`, the installer, or `install -d -m 0700`; `ow doctor` checks it. A low exposure score does not make code widgets sandboxed; the unit confines `owd`, not widgets. Docker and D-Bus allowances are not needed yet because those providers do not exist.
 
 ## 11. Testing and CI
 

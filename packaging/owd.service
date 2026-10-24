@@ -1,14 +1,40 @@
 # Sandboxed user service for owd (docs/DAEMON_SPEC.md section 10).
-# Verified 2026-10-17: `systemd-analyze --user security --offline` exposure 2.5 OK, and the same
-# directives (as a transient unit, throwaway dirs) start with Type=notify, answer `ow status`,
-# log to the journal and remove the socket on stop. Not yet run as an installed unit against the
-# real home directories.
-# Deliberately NOT set: ProcSubset=pid (the system provider reads /proc/stat, /proc/meminfo,
-# /proc/loadavg), IPAddressDeny (network providers need egress; use per-provider allow-lists),
-# PrivateUsers.
-# Open: there is no DataDirectory= directive, so ~/.local/share/owd must exist before start
-# (the "-" prefix tolerates absence, but then the vault dir is read-only). The package
-# post-install step or `ow` must create it.
+#
+# Measured 2026-10-24 (read-only, offline, this file only):
+#   systemd-analyze --user security --offline=yes packaging/owd.service -> exposure 2.3 OK
+#   systemd-analyze --user verify packaging/owd.service -> only "/usr/bin/owd is not executable"
+#   (expected before the package or installer puts the binary in place).
+# Earlier (2026-10-17) the same directives, as a transient unit with throwaway directories,
+# started with Type=notify, answered `ow status`, logged to the journal and removed the socket on
+# stop. NOT verified: this file has never been run as an installed unit against the real home
+# directories (docs/RELEASE_CHECKLIST.md B4). No systemctl was used to produce the numbers above.
+#
+# Data directory: owd needs write access to ~/.local/share/owd (the vault). ProtectHome=read-only
+# makes all of $HOME read-only, so that one directory is opened with ReadWritePaths=. It has NO
+# "-" prefix on purpose: if the directory is missing the service fails to start with a namespace
+# error (status 226/NAMESPACE) instead of starting with a silently read-only vault directory.
+# systemd has no DataDirectory= directive, and an ExecStartPre= creating it would run inside the
+# same read-only sandbox, so the directory is created OUTSIDE the unit, by whoever installs:
+#   install -d -m 0700 ~/.local/share/owd      (`ow vault init` and packaging/install-local.sh do this)
+# Installed widgets (the widgets/ subdirectory) are made read-only again with ReadOnlyPaths=: the
+# daemon only reads them, `ow install` writes them from outside this sandbox. The "-" lets the
+# service start before the first widget is installed (then that subdirectory is not locked until
+# the next start). Unverified under a real unit: mount ordering of the nested read-only path.
+# `ow doctor` checks that the data directory exists and is 0700. If you move XDG_DATA_HOME, change the path below
+# with a drop-in (systemctl --user edit owd.service) and run owd with the same XDG_DATA_HOME.
+#
+# Deliberately NOT set:
+#  - ProcSubset=pid: the system provider reads /proc/stat, /proc/meminfo, /proc/loadavg.
+#  - IPAddressDeny / PrivateNetwork: network providers need egress; they use per-provider
+#    allow-lists in ow-egress instead. RestrictAddressFamilies keeps unix, inet, inet6 only.
+#  - PrivateUsers: would remap the uids the socket peer check compares (not tested, so avoided).
+#  - PrivateDevices, DeviceAllow, ProtectClock, ProtectKernelLogs, ProtectHostname,
+#    RestrictRealtime, RootDirectory: each would lower the score by 0.1 to 0.2 only; left out until
+#    the unit has been run installed once (B4), to keep the unverified surface small.
+#  - After= / Wants=: the daemon needs no other unit. Its socket is in the runtime directory, the
+#    vault is a file, and providers retry when the network is missing.
+#  - Environment=: owd takes its paths from the user manager's environment (HOME, XDG_*,
+#    XDG_RUNTIME_DIR); secrets are never passed through the environment.
 [Unit]
 Description=Widget provider daemon
 
@@ -26,7 +52,8 @@ ConfigurationDirectoryMode=0700
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=-%h/.local/share/owd
+ReadWritePaths=%h/.local/share/owd
+ReadOnlyPaths=-%h/.local/share/owd/widgets
 PrivateTmp=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallFilter=@system-service

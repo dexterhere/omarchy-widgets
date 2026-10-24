@@ -1,0 +1,28 @@
+# Packages must not touch $HOME, so this script creates nothing there. It only prints what the
+# person installing should run themselves.
+_msg() {
+  cat <<'MSG'
+==> omarchy-widgets-git installed. Nothing was started and nothing was created in your home.
+==> Run these as your normal user (not root), one at a time:
+      install -d -m 0700 ~/.local/share/owd
+      systemctl --user enable --now owd.service
+      ow doctor
+==> `ow doctor` only reads and prints; it tells you what, if anything, is still missing.
+==> Developer preview: unsigned build from a branch. Guide: /usr/share/doc/omarchy-widgets-git/TRY_IT.md
+MSG
+}
+
+post_install() { _msg; }
+
+post_upgrade() {
+  echo '==> omarchy-widgets-git upgraded. Restart the daemon yourself: systemctl --user restart owd.service'
+  echo '==> then run: ow doctor'
+}
+
+pre_remove() {
+  echo '==> If the daemon is enabled, stop it yourself: systemctl --user disable --now owd.service'
+}
+
+post_remove() {
+  echo '==> Your data was left alone. To delete it yourself: ~/.local/share/owd ~/.config/owd ~/.local/state/owd'
+}

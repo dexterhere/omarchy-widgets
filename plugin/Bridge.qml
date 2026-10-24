@@ -218,6 +218,7 @@ Item {
   function onOk(ev) {
     const p = pending[ev.id]
     if (ev.id === 1 && !helloOk) {
+      if (ev.protocol !== 0) { drop("unavailable"); return }     // a daemon that does not speak protocol 0
       helloOk = true
       daemonVersion = ev.daemonVersion !== undefined ? ev.daemonVersion : ""
       helloTimer.stop()
@@ -271,36 +272,54 @@ Item {
   onWantedChanged: reconcile()
   onEnabledChanged: { if (enabled) connectNow(); else drop("unavailable") }
 
+  readonly property int maxPerWidget: 16          // daemon: 16 subscriptions per widget, 32 per connection, 256 in all
+
+  // Decide which (widget, topic) pairs to subscribe to. Deterministic and fair: topics are taken
+  // round-robin across widgets in declared order, at most maxPerWidget per widget and maxSubs in all,
+  // so one widget declaring 128 topics cannot starve the others. Pairs that do not fit are shown as
+  // "limited" and tried again by retryTopics(). Entries for pairs no longer wanted are deleted.
   function reconcile() {
-    const want = {}
-    let count = 0
+    const byWidget = {}
+    const order = []
     for (let i = 0; i < wanted.length; i++) {
       const w = wanted[i]
       if (typeof w !== "object" || w === null) continue
       if (!L.validId(w.widget) || typeof w.topic !== "string" || !L.TOPIC.test(w.topic)) continue
-      const key = L.entryKey(w.widget, w.topic)
-      if (want[key] !== undefined) continue
-      want[key] = { widget: w.widget, topic: w.topic }
-      count++
+      if (byWidget[w.widget] === undefined) { byWidget[w.widget] = []; order.push(w.widget) }
+      const list = byWidget[w.widget]
+      if (list.indexOf(w.topic) < 0) list.push(w.topic)
     }
-    // drop what is no longer wanted
-    const copy = Object.assign({}, entries)
-    for (const key in keys) {
-      if (want[key] === undefined) {
-        if (keys[key].sub >= 0) send(P.unsubscribe(nextId++, keys[key].sub))
-        delete subs[keys[key].sub]
-        delete keys[key]
-        delete copy[key]
+    const admit = {}                  // key -> {widget, topic}
+    const overflow = []
+    let total = 0
+    let more = true
+    for (let round = 0; more; round++) {
+      more = false
+      for (const widget of order) {
+        const list = byWidget[widget]
+        if (round >= list.length) continue
+        more = true
+        const key = L.entryKey(widget, list[round])
+        if (round < maxPerWidget && total < maxSubs) { admit[key] = { widget: widget, topic: list[round] }; total++ }
+        else overflow.push(key)
       }
     }
-    let n = Object.keys(keys).length
-    for (const key in want) {
-      if (keys[key] !== undefined) continue
-      if (n >= maxSubs) { copy[key] = { state: "limited" }; continue }
-      keys[key] = { widget: want[key].widget, topic: want[key].topic, sub: -1, asked: false }
-      copy[key] = { state: "pending" }
-      n++
+    // drop what is not admitted any more
+    for (const key in keys) {
+      if (admit[key] === undefined) {
+        if (keys[key].sub >= 0) send(P.unsubscribe(nextId++, keys[key].sub))
+        if (keys[key].sub >= 0) delete subs[keys[key].sub]
+        delete keys[key]
+      }
     }
+    const copy = {}
+    for (const key in admit) {
+      if (keys[key] === undefined) {
+        keys[key] = { widget: admit[key].widget, topic: admit[key].topic, sub: -1, asked: false }
+        copy[key] = { state: "pending" }
+      } else copy[key] = entries[key] !== undefined ? entries[key] : { state: "pending" }
+    }
+    for (const key of overflow) copy[key] = { state: "limited" }
     entries = copy
     if (helloOk) askAll()
   }
@@ -315,6 +334,9 @@ Item {
   }
 
   function retryTopics() {
+    let anyLimited = false
+    for (const key in entries) if (keys[key] === undefined && entries[key].state === "limited") anyLimited = true
+    if (anyLimited) reconcile()              // room may have appeared (a widget went away)
     for (const key in keys) {
       const e = entries[key]
       if (e !== undefined && (e.state === "locked" || e.state === "limited")) keys[key].asked = false

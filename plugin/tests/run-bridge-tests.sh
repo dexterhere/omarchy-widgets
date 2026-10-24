@@ -5,7 +5,7 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 plugin=$(cd "$here/.." && pwd)
-scenarios=("$@"); [ ${#scenarios[@]} -eq 0 ] && scenarios=(normal fragment garbage oversize flood floodpre burst drop silent reject refuse unsupported locked late defaultpath nopath)
+scenarios=("$@"); [ ${#scenarios[@]} -eq 0 ] && scenarios=(normal caps fragment garbage oversize flood floodpre burst drop silent reject refuse unsupported badproto noproto locked late defaultpath nopath)
 rc=0
 cleanup_pids=()
 trap 'for p in "${cleanup_pids[@]}"; do kill -0 "$p" 2>/dev/null && kill "$p" 2>/dev/null; done' EXIT
@@ -23,7 +23,7 @@ for sc in "${scenarios[@]}"; do
   [ "$sc" = nopath ] && { export OW_TEST_SOCK=""; unset XDG_RUNTIME_DIR; }
   srv=""
   srv_scenario=$sc
-  case "$sc" in defaultpath|late|nopath) srv_scenario=normal;; esac
+  case "$sc" in defaultpath|late|nopath|caps) srv_scenario=normal;; esac
   if [ "$sc" = late ]; then
     ( sleep 3; exec python3 "$here/fake_owd.py" "$sock" normal "$log" ) & srv=$!
   elif [ "$sc" != nopath ]; then
@@ -89,6 +89,10 @@ if sc in ("flood", "floodpre") and not (2 <= conns <= 5): msgs.append("FAIL %s: 
 if sc in ("flood", "floodpre", "burst"):
     sent = [int(l.split()[1]) for l in open(log) if l.startswith("SENT_MIB")]
     msgs.append("PASS %s: peer managed to send only %s MiB before being dropped" % (sc, sent)) if sent and max(sent) < 3000 else msgs.append("FAIL %s: peer sent %s MiB" % (sc, sent))
+if sc == "caps":
+    big = [t for t in per_topic if t[3:].isdigit() and t.startswith("x.t")]
+    if len(big) > 20: msgs.append("FAIL caps: %d distinct big-widget topics were ever subscribed (16 at once, then the retry admitted up to 4 more)" % len(big))
+    if per_topic.get("x.one", 0) < 2: msgs.append("FAIL caps: the other widgets' topics were never subscribed: %s" % per_topic)
 if sc == "silent" and not (2 <= conns <= 6): msgs.append("FAIL silent: %d connections in 8s (backoff expected 2 to 6)" % conns)
 if sc == "reject" and not (3 <= conns <= 7): msgs.append("FAIL reject: %d connections in 7s (backoff expected 3 to 7)" % conns)
 if sc == "locked" and subs < 6: msgs.append("FAIL locked: locked topics should be re-asked, subscribes=%d" % subs)

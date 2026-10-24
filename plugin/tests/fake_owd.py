@@ -119,6 +119,10 @@ def serve(c, state):
                     continue
                 if scenario == "refuse":
                     send(c, {"v": 0, "id": rid, "error": {"code": "denied"}})
+                elif scenario == "badproto":
+                    send(c, {"v": 0, "id": rid, "ok": True, "daemonVersion": "9.9", "protocol": 7})
+                elif scenario == "noproto":
+                    send(c, {"v": 0, "id": rid, "ok": True, "daemonVersion": "9.9"})
                 elif scenario == "unsupported":
                     send(c, {"v": 0, "id": rid, "error": {"code": "unsupported_version"}})
                 else:

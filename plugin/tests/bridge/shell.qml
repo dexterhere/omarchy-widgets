@@ -19,10 +19,19 @@ ShellRoot {
     { widget: "io.test.ok", topic: "x.unknown" }, { widget: "Bad Id", topic: "x.one" }, { widget: "io.test.ok", topic: "NOT A TOPIC" },
     { widget: "io.test.ok", topic: "x.one" }, null, "str", { widget: "io.test.ok\n", topic: "x.one" }])
 
+  property var capsWanted: {
+    const out = []
+    for (let i = 0; i < 128; i++) out.push({ widget: "io.test.big", topic: "x.t" + i })
+    out.push({ widget: "io.test.ok", topic: "x.one" }, { widget: "io.test.ok", topic: "x.two" }, { widget: "io.test.b", topic: "x.one" })
+    return out
+  }
+  function count(state) { let n = 0; for (const k in b.entries) if (b.entries[k].state === state) n++; return n }
+  function countFor(widget, notState) { let n = 0; for (const k in b.entries) if (k.indexOf(widget + " ") === 0 && b.entries[k].state !== notState) n++; return n }
+
   Bridge {
     id: b
     socketPath: h.scenario === "defaultpath" || h.scenario === "nopath" ? b.defaultSocketPath : Quickshell.env("OW_TEST_SOCK")
-    wanted: h.scenario === "normal" ? h.normalWanted : h.base
+    wanted: h.scenario === "normal" ? h.normalWanted : (h.scenario === "caps" ? h.capsWanted : h.base)
     retryLockedMs: 1000
     onLinkChanged: h.history = h.history.concat([{ t: h.t, link: link }])
   }
@@ -48,6 +57,17 @@ ShellRoot {
       [3000, "wanted changes: drop x.two, add x.three", function () { b.wanted = [{ widget: "io.test.ok", topic: "x.one" }, { widget: "io.test.ok", topic: "x.three" }]; return [true, ""] }],
       [4200, "removed topic is gone, new topic live", function () { return [e("io.test.ok", "x.two") === undefined && e("io.test.ok", "x.three") && e("io.test.ok", "x.three").data !== undefined, JSON.stringify(b.entries)] }],
       [4200, "no malformed counted for a clean stream", function () { return [b.malformed === 0 && b.oversize === 0, b.malformed + "/" + b.oversize] }]
+    ],
+    caps: [
+      [1800, "one widget with 128 topics is held to 16", function () { return [h.countFor("io.test.big", "limited") === 16 && h.countFor("io.test.big", "") === 128, h.countFor("io.test.big", "limited") + "/" + h.countFor("io.test.big", "")] }],
+      [1800, "the other widgets are not starved", function () { const a = e("io.test.ok", "x.one"), c = e("io.test.b", "x.one"), d = e("io.test.ok", "x.two"); return [a && c && d && a.state !== "limited" && c.state !== "limited" && d.state !== "limited" && a.data !== undefined && c.data !== undefined, JSON.stringify([a, c, d])] }],
+      [1800, "at most 30 subscriptions", function () { return [b.link === "connected" && Object.keys(b.keys).length <= 30 && Object.keys(b.keys).length === 19, "keys=" + Object.keys(b.keys).length] }],
+      [2000, "widget goes away: its entries, limited ones included, are deleted", function () { b.wanted = [{ widget: "io.test.ok", topic: "x.one" }]; return [true, ""] }],
+      [3200, "no orphan entries remain", function () { return [Object.keys(b.entries).join() === "io.test.ok x.one" && Object.keys(b.keys).length === 1, Object.keys(b.entries).length + " entries " + Object.keys(b.keys).length + " keys"] }],
+      [3300, "room appears: previously limited topics are admitted by the retry", function () { b.wanted = h.capsWanted.slice(0, 20); return [true, ""] }],
+      [3400, "20 wanted for one widget: 16 admitted, 4 limited", function () { return [h.countFor("io.test.big", "limited") === 16 && h.countFor("io.test.big", "") === 20, "" + h.count("limited")] }],
+      [3500, "drop 8 of them", function () { b.wanted = h.capsWanted.slice(0, 20).filter(function (x, i) { return i >= 8 }); return [true, ""] }],
+      [5200, "limited topics are retried and admitted once there is room", function () { return [h.count("limited") === 0 && h.countFor("io.test.big", "") === 12, "limited=" + h.count("limited")] }]
     ],
     fragment: [
       [2800, "partial lines and coalesced lines are reassembled", function () { return [b.pushes >= 8, "pushes=" + b.pushes] }],
@@ -101,6 +121,12 @@ ShellRoot {
     unsupported: [
       [1500, "unsupported version is unavailable, not connected", function () { return [b.link !== "connected" && b.connects === 0, h.links()] }]
     ],
+    badproto: [
+      [1800, "hello answered with another protocol number is refused", function () { return [b.connects === 0 && b.link !== "connected", b.connects + " " + h.links()] }]
+    ],
+    noproto: [
+      [1800, "hello answered without a protocol number is refused", function () { return [b.connects === 0 && b.link !== "connected", b.connects + " " + h.links()] }]
+    ],
     locked: [
       [1500, "locked state", function () { return [e("io.test.ok", "x.one").state === "locked", JSON.stringify(e("io.test.ok", "x.one"))] }],
       [4200, "locked topics are asked for again", function () { return [b.link === "connected", b.link] }]
@@ -117,7 +143,7 @@ ShellRoot {
       [1500, "no runtime dir: unavailable, no crash", function () { return [b.socketPath === "" && b.link === "unavailable", b.socketPath + b.link] }]
     ]
   })
-  property var endAt: ({ normal: 4600, fragment: 3000, garbage: 2800, oversize: 4800, floodpre: 7800, flood: 7800, burst: 3800, drop: 6300, silent: 8300, reject: 7300, refuse: 1800,
+  property var endAt: ({ normal: 4600, fragment: 3000, garbage: 2800, oversize: 4800, caps: 5400, floodpre: 7800, flood: 7800, burst: 3800, drop: 6300, silent: 8300, reject: 7300, refuse: 1800, badproto: 1900, noproto: 1900,
                          unsupported: 1800, locked: 4500, late: 9300, defaultpath: 1800, nopath: 1800 })
 
   // sample for facts a single end-of-run check would miss

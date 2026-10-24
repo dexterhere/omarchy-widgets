@@ -268,7 +268,7 @@ fn restart_advice(out: &mut dyn Write, tail: &str) -> std::io::Result<()> {
         out,
         "\
 The daemon reads config.toml only when it starts, so it does not know yet. ow does not restart
-anything. When you are ready, run these yourself:
+anything and does not run these. When you are ready, run these yourself:
   systemctl --user restart owd.service
   ow vault unlock
 {tail}"
@@ -356,7 +356,7 @@ fn connect(paths: &Paths, o: &Opts, out: &mut dyn Write, ui: &mut dyn Ui) -> Res
     .map_err(w)?;
     restart_advice(
         out,
-        "  ow connect github --check     (or `ow status`, or look at the widget)\nThe check asks the daemon, which then makes the one audited request to api.github.com.",
+        "  ow connect github --check     (or look at a github widget)\nThe check asks the daemon, which then makes the one audited request to api.github.com.",
     )
     .map_err(w)
 }

@@ -17,6 +17,42 @@ PLUGIN = os.path.dirname(HERE)
 THEME = {"Theme.qml"}
 
 
+REGEX_AFTER_WORD = ("return", "typeof", "case", "in", "of", "void", "delete", "throw", "else")
+
+
+def regex_end(text, i):
+    """If text[i] == '/' starts a JS regex literal (judged by the previous token), return the index just past
+    it and its flags; else -1. A regex such as /"/ would otherwise open a string to the comment stripper."""
+    j = i - 1
+    while j >= 0 and text[j] in " \t\r\n":
+        j -= 1
+    if j >= 0 and text[j] not in "(,=:[!&|?{};+-*%<>~^":
+        k = j
+        while k >= 0 and (text[k].isalnum() or text[k] == "_"):
+            k -= 1
+        if text[k + 1:j + 1] not in REGEX_AFTER_WORD:
+            return -1
+    n, k, cls = len(text), i + 1, False
+    while k < n:
+        ch = text[k]
+        if ch == "\n":
+            return -1
+        if ch == "\\":
+            k += 2
+            continue
+        if ch == "[":
+            cls = True
+        elif ch == "]":
+            cls = False
+        elif ch == "/" and not cls:
+            k += 1
+            while k < n and text[k].isalpha():
+                k += 1
+            return k
+        k += 1
+    return -1
+
+
 def strip_comments(text):
     """Remove // and /* */ comments but leave string literals alone."""
     out, i, n = [], 0, len(text)
@@ -32,6 +68,8 @@ def strip_comments(text):
         elif text.startswith("/*", i):
             j = text.find("*/", i + 2); j = n if j < 0 else j + 2
             out.append("\n" * text.count("\n", i, j)); i = j
+        elif c == "/" and regex_end(text, i) > 0:
+            j = regex_end(text, i); out.append(text[i:j]); i = j
         else:
             out.append(c); i += 1
     return "".join(out)
@@ -47,6 +85,8 @@ def blank_strings(text):
             while j < n and text[j] != c:
                 j += 2 if text[j] == "\\" else 1
             out.append(c + " " * (j - i - 1) + (text[j] if j < n else "")); i = j + 1
+        elif c == "/" and regex_end(text, i) > 0:
+            j = regex_end(text, i); out.append("/" + " " * (j - i - 1)); i = j
         else:
             out.append(c); i += 1
     return "".join(out)
@@ -107,6 +147,36 @@ CENTER_SURFACE = [
 ]
 KEYBOARD_RULE = "keyboard input items"
 KEYBOARD_OK = {"CenterPanel.qml": r"\b(Keys|focus)\b"}     # only Escape handling; no text input anywhere
+ESCAPE_ONLY = re.compile(r"\s*\.\s*onEscapePressed\s*:")  # the one Keys handler CenterPanel may have
+CENTER_FILES = {"Center.qml", "CenterState.qml", "CenterPanel.qml", "CenterModel.js"}
+# What the Widget Center may not touch: anything that writes, sends, copies, rescans or starts something.
+CENTER_FORBIDDEN = r"clipboardText|setText\s*\(|\.write\s*\(|\.flush\s*\(|\.send\b|\brescan\w*|\bgeneration\b|\.connected\s*=(?!=)|\bFileView\b|\bSocket\b|\bSocketServer\b|execDetached"
+# Presence, not just value: each surface line must exist exactly once, the window exactly once.
+REQUIRED = {
+    "Center.qml": [
+        ("PanelWindow instances", r"(?<![\w.])PanelWindow\s*\{"),
+        ("WlrLayershell.layer: WlrLayer.Overlay", r"WlrLayershell\s*\.\s*layer\s*:\s*WlrLayer\.Overlay\b"),
+        ("WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand", r"WlrLayershell\s*\.\s*keyboardFocus\s*:\s*WlrKeyboardFocus\.OnDemand\b"),
+        ("exclusionMode: ExclusionMode.Ignore", r"exclusionMode\s*:\s*ExclusionMode\.Ignore\b"),
+        ("onCloseRequested: root.hide()", r"onCloseRequested\s*:\s*root\.hide\(\)"),
+        ("active: root.open", r"\bactive\s*:\s*root\.open\b"),
+    ],
+    "DesktopCanvas.qml": [
+        ("PanelWindow instances", r"(?<![\w.])PanelWindow\s*\{"),
+        ("WlrLayershell.layer: WlrLayer.Bottom", r"WlrLayershell\s*\.\s*layer\s*:\s*WlrLayer\.Bottom\b"),
+        ("WlrLayershell.keyboardFocus: WlrKeyboardFocus.None", r"WlrLayershell\s*\.\s*keyboardFocus\s*:\s*WlrKeyboardFocus\.None\b"),
+        ("exclusionMode: ExclusionMode.Ignore", r"exclusionMode\s*:\s*ExclusionMode\.Ignore\b"),
+    ],
+    "CenterState.qml": [
+        ("rows computed only while open", r"\brows\s*:\s*open\s*\?"),
+    ],
+}
+SURFACE_WRITES = [
+    ("surface property assigned instead of declared", r"WlrLayershell\s*\.\s*\w+\s*=(?!=)|\.\s*(layer|keyboardFocus|exclusionMode|namespace)\s*=(?!=)"),
+    ("surface property set by computed access or Binding", r"\[\s*[\"'`](layer|keyboardFocus|exclusionMode|namespace)[\"'`]\s*\]|property\s*:\s*[\"'`](layer|keyboardFocus|exclusionMode|namespace)[\"'`]"),
+    ("clipboard access", r"clipboardText"),
+    ("setText call", r"\bsetText\s*\("),
+]
 ONLY_IN = {   # type -> files that may instantiate it
     "FileView": {"Store.qml", "Service.qml"},
     "FolderListModel": {"Store.qml"},
@@ -174,6 +244,31 @@ def check_text(name, text):
         for m in re.finditer(r"^\s*\.import\s+\"([^\"]*)\"", clean, re.M):
             if not re.fullmatch(r"[A-Za-z]+\.js", m.group(1)):
                 add(m.start(), ".import of something other than a sibling .js", m.group(1))
+    # ---- presence rules and write rules
+    for rule, rx in SURFACE_WRITES:
+        for m in re.finditer(rx, clean):
+            add(m.start(), rule, m.group(0))
+    if base != "Bridge.qml":
+        for m in re.finditer(r"\.\s*write\s*\(", clean):
+            add(m.start(), "socket or file write outside Bridge.qml", m.group(0))
+    if base in CENTER_FILES:
+        for m in re.finditer(CENTER_FORBIDDEN, clean):
+            add(m.start(), "Widget Center touching a write, send, rescan or process path", m.group(0))
+    if base not in ("Center.qml", "DesktopCanvas.qml"):
+        for m in re.finditer(r"\bWlrLayershell\b", clean):
+            add(m.start(), "WlrLayershell used outside the two surface files", m.group(0))
+    else:
+        for m in re.finditer(r"WlrLayershell\s*\.\s*(\w+)", clean):
+            if m.group(1) not in ("namespace", "layer", "keyboardFocus"):
+                add(m.start(), "unexpected WlrLayershell property", m.group(0))
+    if base == "CenterPanel.qml":
+        for m in re.finditer(r"\bKeys\b", clean):
+            if not ESCAPE_ONLY.match(clean, m.end()):
+                add(m.start(), "keyboard input items: CenterPanel may only handle Escape (Keys.onEscapePressed)")
+    for rule, rx in REQUIRED.get(base, []):
+        n = len(re.findall(rx, clean))
+        if n != 1:
+            found.append("%s:1: required line missing or repeated (%d, need exactly 1): %s" % (name, n, rule))
     return found
 
 
@@ -270,6 +365,15 @@ BAD = {
     "focus policy in the panel": ("keyboard input", "CenterPanel.qml", "Item { activeFocusOnTab: true }"),
     "process in the panel": ("process", "CenterPanel.qml", "Item { Process { command: [\"ow\", \"remove\", id] } }"),
     "file view in the panel": ("FileView instantiated", "CenterPanel.qml", "Item { FileView { path: x } }"),
+    "regex with a double quote hides eval": ("eval", "x.js", "var r = /\"/; var x = eval(s)"),
+    "regex with a single quote hides eval": ("eval", "x.js", "var r = /'/g; var x = eval(s)"),
+    "regex with a quote after return": ("eval", "x.js", "function f(s) { return /\"/.test(s) && eval(s) }"),
+    "regex with a quote hides a Process": ("process", "x.qml", "Item { property var r: /'/; Process { command: [\"sh\"] } }"),
+    "write outside bridge": ("write outside", "Tile.qml", "Item { Component.onCompleted: s.write(\"x\") }"),
+    "setText anywhere": ("setText", "Tile.qml", "Item { Component.onCompleted: f.setText(\"x\") }"),
+    "clipboard anywhere": ("clipboard", "Tile.qml", "Item { Component.onCompleted: Quickshell.clipboardText = \"x\" }"),
+    "FileView in Center.qml": ("FileView instantiated", "Center.qml", "Item { FileView { path: \"/etc/passwd\" } }"),
+    "keys other than escape in panel": ("only handle Escape", "CenterPanel.qml", "Item { focus: true; Keys.onPressed: x }"),
     "overlay layer elsewhere": ("layer-shell layer used", "Service.qml", "Item { property var l: WlrLayer.Overlay }"),
 }
 GOOD = {
@@ -285,15 +389,67 @@ GOOD = {
     "text with nested item": ("x.qml", "Text { textFormat: Text.PlainText; Item { } }"),
     "canvas ok": ("DesktopCanvas.qml", "PanelWindow { exclusionMode: ExclusionMode.Ignore; WlrLayershell.layer: WlrLayer.Bottom; WlrLayershell.keyboardFocus: WlrKeyboardFocus.None }"),
     "store file urls": ("Store.qml", "Item { FileView { path: x } FolderListModel { folder: \"file://\" + x } }"),
-    "center surface": ("Center.qml", "PanelWindow { exclusionMode: ExclusionMode.Ignore; WlrLayershell.layer: WlrLayer.Overlay; WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand }"),
+    "regexes and divisions": ("x.js", "var r = /\"/g, s = a / 2, t = b / 3; var u = /[/\"]/.test(s) // eval("),
     "panel escape": ("CenterPanel.qml", "Item { focus: true; Keys.onEscapePressed: panel.closeRequested() }"),
     "bridge socket": ("Bridge.qml", "Item { Socket { path: x } }"),
     "word quit in prose string": ("x.qml", "Item { property string s: \"do not quit\" }"),
 }
 
 
+def real(name):
+    return open(os.path.join(PLUGIN, name), encoding="utf-8").read()
+
+
+def drop(rx):
+    return lambda t: re.sub(rx, "", t, count=1)
+
+
+def add_to_window(extra):
+    return lambda t: t.replace("PanelWindow {", "PanelWindow {\n      " + extra, 1)
+
+
+# Mutations of the real surface files: each must be reported (the audit's surviving mutants).
+MUTATIONS = {
+    "center: layer line deleted": ("required line", "Center.qml", drop(r"WlrLayershell\.layer: WlrLayer\.Overlay")),
+    "center: keyboard line deleted": ("required line", "Center.qml", drop(r"WlrLayershell\.keyboardFocus: [\w.]+")),
+    "center: exclusion line deleted": ("required line", "Center.qml", drop(r"exclusionMode: [\w.]+")),
+    "center: keyboard assigned in a handler": ("assigned", "Center.qml", add_to_window("Component.onCompleted: WlrLayershell.keyboardFocus = WlrKeyboardFocus.Exclusive")),
+    "center: layer assigned in a handler": ("assigned", "Center.qml", add_to_window("Component.onCompleted: WlrLayershell.layer = WlrLayer.Top")),
+    "center: close wiring deleted": ("required line", "Center.qml", drop(r"onCloseRequested: root\.hide\(\)")),
+    "center: window always loaded": ("required line", "Center.qml", lambda t: t.replace("active: root.open", "active: true")),
+    "center: second window without a layer": ("required line", "Center.qml", lambda t: t.replace("  LazyLoader {", "  PanelWindow { visible: true }\n  LazyLoader {", 1)),
+    "center: second window with a layer": ("required line", "Center.qml", lambda t: t.rstrip()[:-1] + "  PanelWindow { WlrLayershell.layer: WlrLayer.Overlay }\n}\n"),
+    "center: binding on the surface": ("computed access or Binding", "Center.qml", add_to_window("Binding { target: win; property: \"keyboardFocus\"; value: 1 }")),
+    "center: clipboard": ("clipboard", "Center.qml", add_to_window("Component.onCompleted: Quickshell.clipboardText = \"x\"")),
+    "center: file view": ("FileView", "Center.qml", add_to_window("FileView { path: \"/tmp/x\" }")),
+    "center: setText": ("setText", "CenterState.qml", lambda t: t.replace("function hide()", "function hide() { f.setText(\"x\") }\n  function hide2()", 1)),
+    "state: bridge send": ("write, send", "CenterState.qml", lambda t: t.replace("function hide()", "function poke() { service.bridge.send(\"x\") }\n  function hide()", 1)),
+    "state: store rescan": ("write, send", "CenterState.qml", lambda t: t.replace("function hide()", "function poke() { store.rescan() }\n  function hide()", 1)),
+    "state: rows always computed": ("required line", "CenterState.qml", lambda t: t.replace("rows: open ?", "rows: true ?", 1)),
+    "panel: other key handler": ("CenterPanel may only", "CenterPanel.qml", lambda t: t.replace("Keys.onEscapePressed: panel.closeRequested()", "Keys.onEscapePressed: panel.closeRequested()\n  Keys.onReturnPressed: x", 1)),
+    "panel: socket write": ("write", "CenterModel.js", lambda t: t + "\nfunction go(s) { s.write(\"x\") }\n"),
+    "canvas: layer line deleted": ("required line", "DesktopCanvas.qml", drop(r"WlrLayershell\.layer: WlrLayer\.Bottom")),
+    "canvas: keyboard line deleted": ("required line", "DesktopCanvas.qml", drop(r"WlrLayershell\.keyboardFocus: [\w.]+")),
+    "canvas: keyboard assigned": ("assigned", "DesktopCanvas.qml", add_to_window("Component.onCompleted: WlrLayershell.keyboardFocus = WlrKeyboardFocus.Exclusive")),
+    "canvas: second window": ("required line", "DesktopCanvas.qml", lambda t: t.rstrip()[:-1] + "  PanelWindow { }\n}\n"),
+    "canvas: other file touching WlrLayershell": ("outside the two surface", "Tile.qml", lambda t: t + "\nItem { Component.onCompleted: WlrLayershell.layer = 1 }\n"),
+}
+
+
 def selftest():
     bad = 0
+    for name, (needle, fname, fn) in MUTATIONS.items():
+        base = real(fname)
+        if check_text(fname, base):
+            print("FAIL selftest: the real %s is not clean, mutation '%s' proves nothing" % (fname, name)); bad += 1
+            continue
+        mutated = fn(base)
+        if mutated == base:
+            print("FAIL selftest: mutation '%s' did not change %s" % (name, fname)); bad += 1
+            continue
+        r = check_text(fname, mutated)
+        if not any(needle.lower() in x.lower() for x in r):
+            print("FAIL selftest: mutation '%s' was not caught (got %s)" % (name, r)); bad += 1
     for name, (needle, fname, snippet) in BAD.items():
         r = check_text(fname, snippet)
         if not any(needle.lower() in x.lower() for x in r):
@@ -306,7 +462,7 @@ def selftest():
         print("FAIL selftest: Theme.qml should be allowed hex, Qt.rgba and qs.Commons"); bad += 1
     if not check_text("Theme.qml", "Item { Component.onCompleted: Qt.quit() }"):
         print("FAIL selftest: Theme.qml is not exempt from the other rules"); bad += 1
-    print("selftest: %d bad snippets, %d good snippets, %s" % (len(BAD), len(GOOD), "FAILED" if bad else "ok"))
+    print("selftest: %d mutations of the real files, %d bad snippets, %d good snippets, %s" % (len(MUTATIONS), len(BAD), len(GOOD), "FAILED" if bad else "ok"))
     return 1 if bad else 0
 
 

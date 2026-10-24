@@ -4,3 +4,4 @@ LayoutNode 1.0 LayoutNode.qml
 Kids 1.0 Kids.qml
 Tile 1.0 Tile.qml
 Bridge 1.0 Bridge.qml
+Store 1.0 Store.qml

@@ -48,10 +48,12 @@ echo "theme tokens: $tokens"
 export XDG_RUNTIME_DIR=$D/run XDG_DATA_HOME=$D/data XDG_STATE_HOME=$run/state XDG_CACHE_HOME=$run/cache OW_E2E_PNG=$png
 if [ "${OW_E2E_LIVE:-0}" = 1 ]; then
   # a few seconds of a real Bottom-layer surface on the live compositor (like spikes/s1); read-only hyprctl probes
+  realrt=${XDG_RUNTIME_DIR_REAL:-/run/user/$(id -u)}
+  case "$WAYLAND_DISPLAY" in /*) ;; *) export WAYLAND_DISPLAY=$realrt/$WAYLAND_DISPLAY;; esac   # our XDG_RUNTIME_DIR is the throwaway one
   timeout -s TERM 12 quickshell -p "$run/cfg" >"$run/qs.log" 2>&1 &
   qs=$!; pids+=("$qs")
   python3 -c 'import time;time.sleep(3)'
-  echo "--- hyprctl layers (owd-canvas only)"; hyprctl layers -j 2>/dev/null | python3 -c '
+  echo "--- hyprctl layers (owd-canvas only)"; XDG_RUNTIME_DIR=$realrt hyprctl layers -j 2>/dev/null | python3 -c '
 import json,sys
 d=json.load(sys.stdin)
 for mon,lv in d.items():

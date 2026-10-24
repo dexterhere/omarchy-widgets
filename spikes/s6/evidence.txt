@@ -1,0 +1,10 @@
+# S6 evidence, 2026-10-23: OW_EXT=/tmp/ow-spike-ext spikes/run-safe.sh spikes/s6 5
+ DEBUG qml: S6 host(plugins/pluginA) stamp=0.9064495793924496 n=1
+ DEBUG qml: S6 createComponent status=1 (1=Ready) url=qs:@/qs/data/widgets/x/Widget.qml
+ DEBUG qml: S6 data-dir widget loaded via Qt.createComponent(file url)
+ DEBUG qml: S6 external createComponent status=1 
+ DEBUG qml: S6 OUTSIDE-config widget loaded from absolute file URL
+ DEBUG qml: S6 B2(../../plugins/pluginA) stamp=0.9064495793924496 n=1
+ DEBUG qml: S6 B(relative ../pluginA) stamp=0.9064495793924496 n=11
+# same Counter.stamp in host, B (../pluginA) and B2 (../../plugins/pluginA) = one shared singleton instance
+# live proof of cross-plugin relative import on this machine: ~/.config/omarchy/plugins/buggybuck.desk/Desk.qml line 7: import "../buggybuck.tasks/TaskModel.js" as T

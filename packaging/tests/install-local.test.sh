@@ -59,7 +59,7 @@ check "data dir is 0700" test "$(mode "$H/.local/share/owd")" = 700
 check "config dir is 0700" test "$(mode "$H/.config/owd")" = 700
 check "ExecStart points at the prefix" grep -qx "ExecStart=\"$H/.local/bin/owd\"" "$H/.config/systemd/user/owd.service"
 check "unit differs from the source only in rewritten lines" test \
-  "$(diff <(cat "$unit_src") "$H/.config/systemd/user/owd.service" | grep -c '^>')" -eq 2
+  "$(diff <(cat "$unit_src") "$H/.config/systemd/user/owd.service" | grep -c '^>')" -eq 3
 check "manifest exists" test -f "$H/.local/share/omarchy-widgets/install-manifest"
 
 # ---- 3. reinstall is idempotent ---------------------------------------------------------------
@@ -160,6 +160,128 @@ newhome h9
 check "relative prefix refused" bash -c "! '$script' --from '$T/build' --prefix rel >/dev/null 2>&1"
 check "missing binaries refused" bash -c "! '$script' --from '$T/nothing' >/dev/null 2>&1"
 check "unknown option refused" bash -c "! '$script' --bogus >/dev/null 2>&1"
+
+# ---- F1: a refused re-install must not damage the manifest ------------------------------------
+newhome h10
+run --yes >/dev/null 2>&1
+mf="$H/.local/share/omarchy-widgets/install-manifest"
+cp "$mf" "$T/mf.before"
+cp "$H/.local/bin/owd" "$T/owd.good"
+echo edit >>"$H/.local/bin/owd"
+out=$(run --yes 2>&1); rc=$?
+check "refused reinstall: exit nonzero" test $rc -ne 0
+check "refused reinstall: manifest byte-unchanged" cmp -s "$mf" "$T/mf.before"
+cp "$T/owd.good" "$H/.local/bin/owd"
+run --uninstall --yes >/dev/null 2>&1
+check "after a refusal, uninstall still removes every file" test ! -e "$H/.local/bin/owd" -a ! -e "$H/.local/bin/ow" -a ! -e "$H/.config/systemd/user/owd.service"
+
+newhome h11
+run --yes --prefix "$H/A" >/dev/null 2>&1
+run --yes --prefix "$H/B" >/dev/null 2>&1
+check "two prefixes: both installed" test -x "$H/A/bin/owd" -a -x "$H/B/bin/owd"
+run --uninstall --yes >/dev/null 2>&1
+check "two prefixes: uninstall removes both" test ! -e "$H/A/bin/owd" -a ! -e "$H/A/bin/ow" -a ! -e "$H/B/bin/owd" -a ! -e "$H/B/bin/ow"
+check "two prefixes: unit removed" test ! -e "$H/.config/systemd/user/owd.service"
+
+# ---- dry run over an EXISTING install changes nothing ------------------------------------------
+newhome h12
+run --yes >/dev/null 2>&1
+before=$(snap "$H")
+out=$(run 2>&1); rc=$?
+check "dry run over an install: exit 0" test $rc -eq 0
+check "dry run over an install: nothing changed" test "$before" = "$(snap "$H")"
+printf '#!/bin/sh\necho newer\n' >"$T/build/owd"; chmod 755 "$T/build/owd"
+out=$(run 2>&1)
+check "dry run of an upgrade says it would replace" grep -q "would replace" <<<"$out"
+check "dry run of an upgrade changed nothing" test "$before" = "$(snap "$H")"
+printf '#!/bin/sh\necho fake owd\n' >"$T/build/owd"
+
+# ---- F2: no copy-paste hazard in the printed commands ------------------------------------------
+newhome h13
+out=$(run --yes --prefix "$H/$(printf 'e\033[31mvil')" 2>&1); rc=$?
+check "control characters in a path: refused" test $rc -ne 0
+check "control characters in a path: nothing printed raw" bash -c '! grep -q $'"'"'\033'"'"' <<<"$1"' _ "$out"
+P="$H/q'; touch PWNED #"
+out=$(run --yes --prefix "$P" 2>&1); rc=$?
+check "quote/semicolon path: install ok" test $rc -eq 0
+line=$(grep ' doctor$' <<<"$out")
+cd "$H" && eval "arr=($line)"; cd - >/dev/null
+check "quoted command round-trips to the real path" test "${arr[0]}" = "$P/bin/ow"
+check "evaluating the printed line created nothing" test ! -e "$H/PWNED" -a ! -e PWNED
+run --uninstall --yes --prefix "$P" >/dev/null 2>&1
+
+# ---- unit_quote: % and $ -----------------------------------------------------------------------
+newhome h14
+export XDG_DATA_HOME="$H/d%h"'$x'
+out=$(run --yes --prefix "$H/p%t"'$y' 2>&1); rc=$?
+u="$H/.config/systemd/user/owd.service"
+check "% and \$ in paths: install ok" test $rc -eq 0
+check "% doubled and \$ doubled in ExecStart" grep -qxF 'ExecStart="'"$H"'/p%%t$$y/bin/owd"' "$u"
+check "% doubled, \$ NOT doubled in ReadWritePaths" grep -qxF 'ReadWritePaths="'"$H"'/d%%h$x/owd"' "$u"
+check "% doubled in ReadOnlyPaths, with the - prefix inside the quotes" grep -qxF 'ReadOnlyPaths="-'"$H"'/d%%h$x/owd/widgets"' "$u"
+run --uninstall --yes >/dev/null 2>&1
+
+# ---- '..' in a path argument -----------------------------------------------------------------
+newhome h15
+check "'..' in --prefix refused" bash -c "! '$script' --from '$T/build' --prefix '$H/a/../b' >/dev/null 2>&1"
+check "'..' in --from refused" bash -c "! '$script' --from '$T/build/../build' >/dev/null 2>&1"
+
+# ---- tampered manifest -------------------------------------------------------------------------
+newhome h16
+run --yes >/dev/null 2>&1
+mf="$H/.local/share/omarchy-widgets/install-manifest"
+echo precious >"$H/outside"; ln -s "$H/outside" "$H/.local/bin/linked"
+mkdir "$H/realdir"; ln -s "$H/realdir" "$H/linkdir"
+cp "$mf" "$T/mf.good"
+for bad in $'F\tdeadbeef\trelative/path' $'F\tdeadbeef\t/x/../etc/passwd' $'D\t../up' $'X\tjunk'; do
+  { cat "$T/mf.good"; printf '%s\n' "$bad"; } >"$mf"
+  snapb=$(snap "$H")
+  out=$(run --uninstall --yes 2>&1); rc=$?
+  check "tampered manifest refused: ${bad:0:12}" test $rc -ne 0
+  check "tampered manifest: nothing removed" test "$snapb" = "$(snap "$H")"
+done
+{ cat "$T/mf.good"; printf 'F\t%s\t%s\n' "$(sha256sum "$H/outside" | cut -d' ' -f1)" "$H/.local/bin/linked"; printf 'D\t%s\n' "$H/linkdir"; } >"$mf"
+out=$(run --uninstall --yes 2>&1)
+check "manifest symlink entry: link target untouched" test "$(cat "$H/outside")" = precious
+check "manifest symlink entry: reported kept" grep -q "keep $H/.local/bin/linked" <<<"$out"
+check "manifest symlinked dir entry: not removed" test -d "$H/realdir" -a -L "$H/linkdir"
+check "manifest owned by another user: refused" bash -c "mkdir -p $(dirname $mf); cp '$T/mf.good' '$mf'; OW_TEST_HARNESS=1 OW_TEST_SENTINEL=install-local-test-2c1f OW_TEST_EUID=4242 '$script' --from '$T/build' --uninstall --yes >/dev/null 2>&1; test \$? -ne 0"
+check "the override is ignored without the sentinel (root test is real)" bash -c "OW_TEST_HARNESS=1 OW_TEST_EUID=0 '$script' --from '$T/build' >/dev/null 2>&1; test \$? -eq 0"
+
+# ---- F7: root, ownership, permissions, symlinked parents, temp files ----------------------------
+asroot() { OW_TEST_HARNESS=1 OW_TEST_SENTINEL=install-local-test-2c1f OW_TEST_EUID=$1 "$script" --from "$T/build" "${@:2}"; }
+newhome h17
+out=$(asroot 0 --yes 2>&1); rc=$?
+check "refuses to run as root" test $rc -ne 0
+check "root refusal wrote nothing" test ! -e "$H/.local"
+mkdir -p "$H/.local/bin"
+out=$(asroot 4242 --yes 2>&1); rc=$?
+check "bin dir owned by someone else: refused" test $rc -ne 0
+check "bin dir owned by someone else: message" grep -q "not owned by you" <<<"$out"
+chmod 775 "$H/.local/bin"
+out=$(run --yes 2>&1); rc=$?
+check "group-writable bin dir: refused (not warned)" test $rc -ne 0
+chmod 757 "$H/.local/bin"
+check "other-writable bin dir: refused" bash -c "! '$script' --from '$T/build' --yes >/dev/null 2>&1"
+chmod 755 "$H/.local/bin"
+newhome h18
+mkdir -p "$H/real/systemd" "$H/.config" && ln -s "$H/real/systemd" "$H/.config/systemd"
+out=$(run --yes 2>&1); rc=$?
+check "symlinked ~/.config/systemd refused" test $rc -ne 0
+newhome h19
+mkdir -p "$H/real" && ln -s "$H/real" "$H/.config"
+check "symlinked config home refused" bash -c "! '$script' --from '$T/build' --yes >/dev/null 2>&1"
+newhome h20
+run --yes >/dev/null 2>&1
+check "fresh XDG dirs created 0700" test "$(mode "$H/.config/systemd")" = 700 -a "$(mode "$H/.config")" = 700 -a "$(mode "$H/.local/share")" = 700
+check "no temp files left behind" test -z "$(find "$H" -name '.owtmp.*' -o -name '.manifest.*')"
+newhome h21
+mkdir -p "$H/.local/bin" && echo mine >"$H/.local/bin/ow"
+run --yes >/dev/null 2>&1
+check "refusal leaves no temp files" test -z "$(find "$H" -name '.owtmp.*')"
+
+# ---- F6: the widgets directory is read-only for the daemon -------------------------------------
+check "unit source makes widgets read-only" grep -qx 'ReadOnlyPaths=-%h/.local/share/owd/widgets' "$unit_src"
 
 # ---- never systemctl --------------------------------------------------------------------------
 check "systemctl was never called" test ! -e "$T/systemctl.log"

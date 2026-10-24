@@ -26,6 +26,14 @@ from=$repo/target/release
 
 die() { echo "install-local: $*" >&2; exit 1; }
 
+# Effective uid. A test can pretend to be another user, but only when BOTH variables below are set
+# (the second is a sentinel no real environment has); otherwise they are ignored.
+euid=$EUID
+if [[ ${OW_TEST_HARNESS:-} == 1 && ${OW_TEST_SENTINEL:-} == install-local-test-2c1f && -n ${OW_TEST_EUID:-} ]]; then
+  euid=$OW_TEST_EUID
+fi
+((euid != 0)) || die "refusing to run as root: this installs into your own home, run it as your normal user"
+
 while (($#)); do
   case $1 in
     --yes) yes=1 ;;
@@ -45,10 +53,10 @@ cfg=${XDG_CONFIG_HOME:-$HOME/.config}
 dat=${XDG_DATA_HOME:-$HOME/.local/share}
 for p in "$prefix" "$cfg" "$dat" "$from"; do
   [[ $p == /* ]] || die "paths must be absolute: $p"
-  # Characters that cannot be written safely into the manifest or a systemd unit line.
-  [[ $p != *$'\n'* && $p != *$'\t'* && $p != *'"'* && $p != *'\'* ]] \
-    || die "paths with a newline, tab, double quote or backslash are not supported: $p"
-  [[ /$p/ != */../* ]] || die "paths must not contain '..': $p"
+  # Characters that cannot be written safely into the manifest, a unit line or a terminal.
+  [[ $p != *[[:cntrl:]]* && $p != *'"'* && $p != *'\'* ]] \
+    || die "paths with control characters, a double quote or a backslash are not supported"
+  [[ /$p/ != */../* ]] || die "paths must not contain '..': $(printf '%q' "$p")"
 done
 
 bindir=$prefix/bin
@@ -59,9 +67,18 @@ cfgdir=$cfg/owd
 mandir=$dat/omarchy-widgets
 manifest=$mandir/install-manifest
 
-for d in "$prefix" "$bindir" "$unitdir" "$datadir" "$cfgdir" "$mandir"; do
-  [[ ! -L $d ]] || die "refusing a symlinked directory: $d"
+for d in "$prefix" "$bindir" "$cfg" "$cfg/systemd" "$unitdir" "$dat" "$datadir" "$cfgdir" "$mandir"; do
+  [[ ! -L $d ]] || die "refusing a symlinked directory: $(printf '%q' "$d")"
 done
+# An existing prefix or bin dir must be yours and not writable by group or others.
+for d in "$prefix" "$bindir"; do
+  [[ -d $d ]] || continue
+  read -r owner perm < <(stat -c '%u %a' -- "$d")
+  [[ $owner == "$euid" ]] || die "refusing $(printf '%q' "$d"): it is not owned by you"
+  (( (8#$perm & 8#022) == 0 )) || die "refusing $(printf '%q' "$d"): it is writable by group or others (mode $perm)"
+done
+tmps=()
+cleanup() { local t; for t in "${tmps[@]}"; do rm -f -- "$t"; done; }
 
 say() { echo "$@"; }
 act() { # act "text": print what is (or would be) done
@@ -74,7 +91,8 @@ declare -A old_hash=()   # path -> sha256 of the file we installed
 old_dirs=()              # directories we created, in creation order
 load_manifest() {
   [[ -e $manifest || -L $manifest ]] || return 0
-  [[ -f $manifest && ! -L $manifest && -O $manifest ]] || die "manifest is not a regular file of yours: $manifest"
+  [[ -f $manifest && ! -L $manifest && $(stat -c %u -- "$manifest") == "$euid" ]] \
+    || die "manifest is not a regular file of yours: $(printf '%q' "$manifest")"
   local kind a b
   while IFS=$'\t' read -r kind a b; do
     case $kind in
@@ -86,9 +104,11 @@ load_manifest() {
   done <"$manifest"
 }
 
-new_files=()  # "hash<TAB>path"
+declare -A new_hash=()  # path -> sha256; seeded from the old manifest so nothing is forgotten
 new_dirs=()
+manifest_ready=0        # set only after pre-flight: a refused run must not rewrite the manifest
 write_manifest() {
+  ((manifest_ready)) || return 0
   ((yes)) || return 0
   [[ -d $mandir ]] || return 0
   local tmp
@@ -97,7 +117,7 @@ write_manifest() {
     echo "# omarchy-widgets install manifest; --uninstall removes only what is listed here"
     local d f
     for d in "${new_dirs[@]}"; do printf 'D\t%s\n' "$d"; done
-    for f in "${new_files[@]}"; do printf 'F\t%s\n' "$f"; done
+    for f in "${!new_hash[@]}"; do printf 'F\t%s\t%s\n' "${new_hash[$f]}" "$f"; done
   } >"$tmp"
   mv -f -- "$tmp" "$manifest"
 }
@@ -121,7 +141,9 @@ mk_dir() {
   fi
   local m
   for m in "${missing[@]}"; do
+    # XDG base directories and everything we create below them are private.
     local md=755
+    [[ $m == "$cfg"* || $m == "$dat"* ]] && md=700
     [[ $m == "$dir" ]] && md=$mode
     act "create directory $m (mode $md)"
     if ((yes)); then
@@ -154,7 +176,7 @@ put_file() {
   want=$(sha "$src")
   check_file "$src" "$dest"
   case $verdict in
-    unchanged) say "  unchanged: $dest"; ((yes)) && new_files+=("$want"$'\t'"$dest"); return 0 ;;
+    unchanged) say "  unchanged: $dest"; ((yes)) && new_hash[$dest]=$want; return 0 ;;
     replace) act "replace $dest (older copy installed by this script)" ;;
     overwrite) act "OVERWRITE $dest (--force; it was not created by this script, or was modified)" ;;
     *) act "create $dest (mode $mode)" ;;
@@ -162,17 +184,19 @@ put_file() {
   if ((yes)); then
     local tmp
     tmp=$(mktemp -- "$(dirname -- "$dest")/.owtmp.XXXXXX")
+    tmps+=("$tmp")
     install -m "$mode" -- "$src" "$tmp"
     mv -f -- "$tmp" "$dest"
-    new_files+=("$want"$'\t'"$dest")
+    new_hash[$dest]=$want
   fi
 }
 
-# Escape a path for a systemd unit line: %% and $$ are literal, spaces need quotes.
+# Escape a path for a systemd unit line: %% is literal everywhere, $$ only in ExecStart= (systemd
+# does not expand $ in path settings), and spaces need quotes. unit_quote PATH [exec]
 unit_quote() {
   local s=$1
   s=${s//%/%%}
-  s=${s//\$/\$\$}
+  [[ ${2:-} == exec ]] && s=${s//\$/\$\$}
   printf '"%s"' "$s"
 }
 
@@ -180,7 +204,8 @@ render_unit() { # stdout: packaging/owd.service with paths rewritten to the chos
   local line
   while IFS= read -r line || [[ -n $line ]]; do
     case $line in
-      ExecStart=/usr/bin/owd) printf 'ExecStart=%s\n' "$(unit_quote "$bindir/owd")" ;;
+      ExecStart=/usr/bin/owd) printf 'ExecStart=%s\n' "$(unit_quote "$bindir/owd" exec)" ;;
+      ReadOnlyPaths=-%h/.local/share/owd/widgets) printf 'ReadOnlyPaths=%s\n' "$(unit_quote "-$datadir/widgets")" ;;
       ReadWritePaths=%h/.local/share/owd) printf 'ReadWritePaths=%s\n' "$(unit_quote "$datadir")" ;;
       *) printf '%s\n' "$line" ;;
     esac
@@ -222,15 +247,17 @@ for b in owd ow; do
 done
 load_manifest
 new_dirs=("${old_dirs[@]}")
-trap write_manifest EXIT
+for f in "${!old_hash[@]}"; do new_hash[$f]=${old_hash[$f]}; done
+trap 'cleanup; write_manifest' EXIT
 
 unit_tmp=$(mktemp -- "${TMPDIR:-/tmp}/owd.service.XXXXXX")
-trap 'rm -f -- "$unit_tmp"; write_manifest' EXIT
+tmps+=("$unit_tmp")
 render_unit >"$unit_tmp"
 # Check every target before changing anything, so a refusal never leaves half an install.
 check_file "$from/owd" "$bindir/owd"
 check_file "$from/ow" "$bindir/ow"
 check_file "$unit_tmp" "$unit"
+manifest_ready=1   # pre-flight passed; from here a partial run still records what it did
 
 say "Install plan (prefix $prefix):"
 mk_dir "$bindir" 755
@@ -244,12 +271,10 @@ put_file "$unit_tmp" "$unit" 644
 act "write manifest $manifest"
 
 if ((yes)); then say $'\nDone.'; else say $'\nDry run: nothing was changed. Add --yes to apply.'; fi
-cat <<MSG
-
-Next, run these yourself (this script never runs systemctl):
-  systemctl --user daemon-reload
-  systemctl --user enable --now owd.service
-  $bindir/ow doctor
-$([[ ":$PATH:" == *":$bindir:"* ]] || echo "Note: $bindir is not in your PATH; use the full path above or add it.")
-$([[ $dat == "$HOME/.local/share" ]] || echo "Note: XDG_DATA_HOME is not the default; the unit was rewritten for $datadir. The systemd user manager must see the same XDG_DATA_HOME, or owd will use another directory.")
-MSG
+echo
+echo "Next, run these yourself (this script never runs systemctl):"
+echo "  systemctl --user daemon-reload"
+echo "  systemctl --user enable --now owd.service"
+printf '  %q doctor\n' "$bindir/ow"
+[[ ":$PATH:" == *":$bindir:"* ]] || printf 'Note: %q is not in your PATH; use the full path above or add it.\n' "$bindir"
+[[ $dat == "$HOME/.local/share" ]] || printf 'Note: XDG_DATA_HOME is not the default; the unit was rewritten for %q. The systemd user manager must see the same XDG_DATA_HOME, or owd will use another directory.\n' "$datadir"

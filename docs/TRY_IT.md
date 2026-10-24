@@ -244,7 +244,7 @@ A small translucent panel appears near the top left (at 120, 120). Click once in
 | Click in box reaches the surface | `S1 CLICK in box on <monitor>` | PASS | 2026-10-24: 2 clicks on eDP-1, 27 on HDMI-A-1 |
 | Click outside the box passes through | no `S1 LEAK click outside box` | PASS | 2026-10-24: eDP-1 and HDMI-A-1 |
 | Lock screen hides the surface | no blue box on the lock screen | PASS | 2026-10-24: `SUPER + CTRL + L`, 90 s run ended with exit 124 (the time limit) |
-| Escape reaches the Overlay surface | `S2 ESCAPE -> exit` | **UNRESOLVED** | First run did not show the line. That run auto-closed after 4 s, so the person may simply have run out of time, but a key not reaching an on-demand layer surface is also possible. Re-run with the 30 s copy above and record the result here. |
+| Escape reaches the Overlay surface | `S2 ESCAPE -> exit` | PASS | 2026-10-24: after one click Hyprland sent `wl_keyboard.enter`, three `a` presses arrived (`S2 KEY 65`), then `S2 KEY escape` and `S2 ESCAPE -> exit`. Wait about two seconds after the click before typing. The first two attempts showed no key lines because keys were pressed before the focus event settled. |
 | Same, with your result | | ______ | |
 
 Please send your result (PASS or FAIL, the monitor names, and the lines from the log) as an issue. Do not paste anything else from the log.
@@ -266,5 +266,5 @@ Please send your result (PASS or FAIL, the monitor names, and the lines from the
 | The picture is black or the log says `unavailable` | The widget files did not install, or the daemon is down | Run `ow list`, then step 3, then step 8 again. |
 | Tile says `not served` | That data is not built yet (Docker today) | Expected. |
 | `quickshell: command not found` | Quickshell is not installed | Step 8 and step 10 need it. Steps 1 to 7 and 9 do not. |
-| In 10c the log has no `S2 ESCAPE -> exit` | See the table above: this check is unresolved | Click inside the panel first, press Escape, and send us the log. |
+| In 10c the log has no `S2 ESCAPE -> exit` | The keys were pressed before the panel had keyboard focus | Click inside the panel, wait two seconds until the log shows `S2 FOCUS activeFocus=true`, then press Escape. |
 | Anything looks wrong on the real desktop during step 10 | The test surface is still showing | It ends by itself at the time limit. Closing the terminal ends it too. |

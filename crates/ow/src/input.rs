@@ -25,6 +25,30 @@ const REJECTED: &str = "Ctrl-D, Ctrl-U and Ctrl-W are not supported here (use Ba
 struct PromptMode<'a> {
     fd: BorrowedFd<'a>,
     saved: rustix::termios::Termios,
+    /// Ends the thread that restores the terminal if SIGTERM, SIGINT or SIGHUP arrives while the
+    /// prompt is up (ISIG is off, so the keyboard cannot raise them, but `kill` and a closing
+    /// terminal can). `None` if it could not be set up; the prompt still works.
+    watch: Option<signal_hook::iterator::Handle>,
+}
+
+/// Restore `saved` on `fd` and exit 128+signal when a terminating signal arrives. Safe code only:
+/// the signals are delivered to a thread, not run as handlers.
+fn watch_signals(
+    fd: BorrowedFd<'_>,
+    saved: &rustix::termios::Termios,
+) -> Option<signal_hook::iterator::Handle> {
+    use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+    let owned = fd.try_clone_to_owned().ok()?;
+    let saved = saved.clone();
+    let mut sigs = signal_hook::iterator::Signals::new([SIGTERM, SIGINT, SIGHUP]).ok()?;
+    let handle = sigs.handle();
+    std::thread::spawn(move || {
+        if let Some(sig) = sigs.forever().next() {
+            let _ = tcsetattr(&owned, OptionalActions::Flush, &saved);
+            std::process::exit(128 + sig);
+        }
+    });
+    Some(handle)
 }
 
 impl<'a> PromptMode<'a> {
@@ -36,12 +60,16 @@ impl<'a> PromptMode<'a> {
         t.special_codes[SpecialCodeIndex::VMIN] = 1;
         t.special_codes[SpecialCodeIndex::VTIME] = 0;
         tcsetattr(fd, OptionalActions::Flush, &t).map_err(|e| e.to_string())?;
-        Ok(Self { fd, saved })
+        let watch = watch_signals(fd, &saved);
+        Ok(Self { fd, saved, watch })
     }
 }
 
 impl Drop for PromptMode<'_> {
     fn drop(&mut self) {
+        if let Some(h) = self.watch.take() {
+            h.close();
+        }
         let _ = tcsetattr(self.fd, OptionalActions::Flush, &self.saved);
     }
 }

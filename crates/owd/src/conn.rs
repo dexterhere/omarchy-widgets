@@ -2,7 +2,9 @@ use crate::hub::{self, Hub};
 use crate::unlock::{UnlockError, VaultState};
 use ow_core::ProviderError;
 use ow_core::{AuditLog, Grant, Grants, RateLimiter};
-use ow_proto::{ErrorCode, FrameError, LineDecoder, MAX_LINE, Op, Reply, Request};
+use ow_proto::{
+    ErrorCode, FrameError, LineDecoder, MAX_LINE, Op, Reply, Request, State, StateInfo,
+};
 use serde_json::{Map, Value, json};
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
@@ -154,6 +156,21 @@ impl Ctx {
     }
 }
 
+/// An error reply, with the state when the failure has one.
+fn error_reply(id: u64, code: ErrorCode, topic: &str, info: Option<StateInfo>) -> Reply {
+    match info {
+        Some(info) => Reply::err_state(id, code, Some(topic.to_owned()), info),
+        None => Reply::err(id, code, Some(topic.to_owned())),
+    }
+}
+
+fn locked_info() -> StateInfo {
+    StateInfo {
+        state: State::Locked,
+        until: None,
+    }
+}
+
 fn code_for(e: ProviderError) -> ErrorCode {
     match e {
         ProviderError::UnknownTopic => ErrorCode::UnknownTopic,
@@ -203,9 +220,25 @@ fn data_op(
         return deny(ErrorCode::RateLimited);
     }
     let fail = |code| (Reply::err(id, code, Some(topic.clone())), None);
+    // No provider serves a credential-backed topic until config.toml binds a secret: say so
+    // (granted widgets only; the grant was checked above).
+    if shared.hub.is_unconfigured(&topic) {
+        let info = StateInfo {
+            state: State::NoCredential,
+            until: None,
+        };
+        return (
+            error_reply(id, ErrorCode::ProviderError, &topic, Some(info)),
+            None,
+        );
+    }
     // A secret-backed topic cannot be served (or subscribed) while the vault is locked.
     if shared.hub.needs_secret(&topic) && !shared.vault.is_unlocked() {
-        return deny(ErrorCode::Locked);
+        lock(&shared.audit).record(widget, &topic, op, false, 0);
+        return (
+            error_reply(id, ErrorCode::Locked, &topic, Some(locked_info())),
+            None,
+        );
     }
     if op == "subscribe" {
         // Validate and register first, so the audit line only says "allow" for what happened.
@@ -230,12 +263,12 @@ fn data_op(
     }
     match shared.hub.snapshot(&topic, &params) {
         Err(e) => {
-            let code = if lock(&shared.audit).record(widget, &topic, op, true, 0) {
-                code_for(e)
+            if lock(&shared.audit).record(widget, &topic, op, true, 0) {
+                let info = hub::state_for(e);
+                (error_reply(id, code_for(e), &topic, info), None)
             } else {
-                ErrorCode::Internal
-            };
-            fail(code)
+                fail(ErrorCode::Internal)
+            }
         }
         Ok(snap) => {
             // Re-resolve the grant AFTER the (possibly slow) fetch: a revocation that landed
@@ -251,13 +284,20 @@ fn data_op(
             }
             // Last gate before the reply is built: the key may have changed during the fetch.
             if !shared.hub.still_valid(&topic, epoch) {
-                return fail(ErrorCode::Locked);
+                return (
+                    error_reply(id, ErrorCode::Locked, &topic, Some(locked_info())),
+                    None,
+                );
             }
-            let body = json!({"topic": topic, "ts": snap.ts, "stale": snap.stale, "data": data});
-            (
-                Reply::ok(id, body.as_object().cloned().unwrap_or_default()),
-                None,
-            )
+            let mut body =
+                json!({"topic": topic, "ts": snap.ts, "stale": snap.stale, "data": data})
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default();
+            if let Some(info) = snap.state {
+                info.put(&mut body);
+            }
+            (Reply::ok(id, body), None)
         }
     }
 }
@@ -325,6 +365,12 @@ fn initial_push(shared: &Shared, ctx: &Ctx, sub: u64) -> bool {
         return true;
     };
     let Some(snap) = shared.hub.cached(&topic, &params) else {
+        // No data yet: if the cache already knows why, say so now (same grant rule as data).
+        if let Some(info) = shared.hub.cached_state(&topic, &params)
+            && grant_for(shared, &widget, &topic).is_some()
+        {
+            return shared.hub.send_state(sub, &topic, info);
+        }
         return true;
     };
     let Some(grant) = grant_for(shared, &widget, &topic) else {

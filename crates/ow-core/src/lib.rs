@@ -25,6 +25,6 @@ pub use http::{
 pub use paths::Paths;
 pub use peer::peer_is_self;
 pub use provider::{
-    FetchCtx, Provider, ProviderError, SecretHandle, SecretSource, Sensitivity, TopicSpec,
+    FetchCtx, Notice, Provider, ProviderError, SecretHandle, SecretSource, Sensitivity, TopicSpec,
 };
 pub use ratelimit::RateLimiter;

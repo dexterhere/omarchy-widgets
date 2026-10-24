@@ -8,7 +8,8 @@
 //! so a slow provider delays only its own topic and never the scheduler or shutdown.
 use crate::conn::{Shared, lock};
 use crate::unlock::VaultState;
-use ow_core::{FetchCtx, Provider, ProviderError, TopicSpec};
+use ow_core::{FetchCtx, Notice, Provider, ProviderError, TopicSpec};
+use ow_proto::{State as Why, StateInfo};
 use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::panic::AssertUnwindSafe;
@@ -31,6 +32,11 @@ const CACHE_IDLE: Duration = Duration::from_secs(60);
 /// While the vault is locked, a secret-backed key is retried this often (not backed off: a
 /// locked vault is not a failing source).
 const LOCKED_RETRY: Duration = Duration::from_secs(2);
+/// Longest a source-supplied reset time may delay the next fetch. The value comes from a
+/// response header, so it is a hint, not an order.
+const MAX_RATE_WAIT: Duration = Duration::from_secs(3600);
+/// A state's `until` further away than this is dropped as implausible.
+const MAX_UNTIL_AHEAD: u64 = 30 * 24 * 3600;
 
 type Params = Map<String, Value>;
 
@@ -58,15 +64,61 @@ struct Entry {
     fetching: bool,
     /// Vault key epoch the data was fetched under (meaningful for secret-backed topics).
     epoch: u64,
+    /// Category of the latest failed fetch; cleared by a success.
+    last_err: Option<ProviderError>,
+    /// Something to tell the user about the latest successful fetch.
+    notice: Option<Notice>,
+    /// The state announced to subscribers last time, so an unchanged failure is not re-sent.
+    announced: Option<StateInfo>,
+}
+
+/// The state a failure is reported as; `None` for errors that are not about the source.
+fn state_of(e: ProviderError, now: u64) -> Option<StateInfo> {
+    // `until` must lie in the future and not absurdly far: it came from a response header.
+    let until = |u: Option<u64>| u.filter(|u| *u > now && *u <= now + MAX_UNTIL_AHEAD);
+    let (state, u) = match e {
+        ProviderError::Locked => (Why::Locked, None),
+        ProviderError::NoSecret => (Why::NoCredential, None),
+        ProviderError::Unauthorized => (Why::Unauthorized, None),
+        ProviderError::Insufficient => (Why::Insufficient, None),
+        ProviderError::RateLimited { until } => (Why::RateLimited, until),
+        ProviderError::Offline => (Why::Offline, None),
+        ProviderError::Unavailable | ProviderError::Format => (Why::Unavailable, None),
+        _ => return None,
+    };
+    Some(StateInfo {
+        state,
+        until: until(u),
+    })
+}
+
+/// `state_of` for the connection layer, at the current time.
+pub(crate) fn state_for(e: ProviderError) -> Option<StateInfo> {
+    state_of(e, now_unix())
 }
 
 impl Entry {
+    /// Why the entry is not (fully) healthy: its latest failure, else a notice from its latest
+    /// success.
+    fn state(&self) -> Option<StateInfo> {
+        let now = now_unix();
+        match (self.last_err, self.notice) {
+            (Some(e), _) => state_of(e, now),
+            (None, Some(Notice::ExpiresSoon { at })) => Some(StateInfo {
+                state: Why::ExpiredSoon,
+                until: Some(at).filter(|u| *u > now && *u <= now + MAX_UNTIL_AHEAD),
+            }),
+            _ => None,
+        }
+    }
+
     fn snap(&self) -> Option<Snap> {
         self.data.clone().map(|(data, ts)| Snap {
             data,
             ts,
             stale: self.fails > 0,
             epoch: self.epoch,
+            state: self.state(),
         })
     }
 }
@@ -97,6 +149,15 @@ pub(crate) struct Snap {
     pub stale: bool,
     /// Vault key epoch the data belongs to.
     pub epoch: u64,
+    /// Why the data is stale or about to stop (see `ow_proto::State`).
+    pub state: Option<StateInfo>,
+}
+
+/// A fetch that produced nothing to show.
+pub(crate) struct Failed {
+    pub err: ProviderError,
+    /// The state differs from the one last announced: subscribers should be told once.
+    pub announce: Option<StateInfo>,
 }
 
 pub(crate) struct Hub {
@@ -112,10 +173,22 @@ fn now_unix() -> u64 {
 }
 
 pub(crate) fn push_line(sub: u64, topic: &str, snap: &Snap, data: &Params) -> String {
-    let m = serde_json::json!({
+    let mut m = serde_json::json!({
         "v": ow_proto::PROTOCOL, "sub": sub, "topic": topic,
         "ts": snap.ts, "stale": snap.stale, "data": data,
     });
+    if let (Some(info), Some(o)) = (snap.state, m.as_object_mut()) {
+        info.put(o);
+    }
+    format!("{m}\n")
+}
+
+/// A push with no data, only why there is none (`{"v","sub","topic","state"[,"until"]}`).
+pub(crate) fn state_push_line(sub: u64, topic: &str, info: StateInfo) -> String {
+    let mut m = serde_json::json!({ "v": ow_proto::PROTOCOL, "sub": sub, "topic": topic });
+    if let Some(o) = m.as_object_mut() {
+        info.put(o);
+    }
     format!("{m}\n")
 }
 
@@ -126,6 +199,11 @@ impl Hub {
             state: Mutex::new(State::default()),
             vault,
         }
+    }
+
+    /// A credential-backed topic no provider serves because `config.toml` binds none.
+    pub(crate) fn is_unconfigured(&self, topic: &str) -> bool {
+        self.find(topic).is_none() && ow_providers::CREDENTIAL_TOPICS.contains(&topic)
     }
 
     /// Does serving this topic need a secret from the vault?
@@ -185,6 +263,20 @@ impl Hub {
         }
     }
 
+    /// Queue a state-only push for `sub` without blocking. False when the connection is gone.
+    pub(crate) fn send_state(&self, sub: u64, topic: &str, info: StateInfo) -> bool {
+        let mut st = lock(&self.state);
+        let line = state_push_line(sub, topic, info);
+        match st.subs.get(&sub).map(|s| s.tx.try_send(line)) {
+            Some(Err(TrySendError::Disconnected(_))) => false,
+            Some(Err(TrySendError::Full(_))) => {
+                st.subs.remove(&sub);
+                true
+            }
+            _ => true,
+        }
+    }
+
     fn find(&self, topic: &str) -> Option<(&Arc<dyn Provider>, &'static TopicSpec)> {
         self.providers
             .iter()
@@ -220,6 +312,9 @@ impl Hub {
             last_touch: now,
             fetching: false,
             epoch: 0,
+            last_err: None,
+            notice: None,
+            announced: None,
         });
         e.last_touch = now;
         if e.fetching {
@@ -242,10 +337,13 @@ impl Hub {
     /// Run the fetch for a claimed key (no lock held while the provider runs), store the
     /// result and return the best data we have. A panicking provider counts as unavailable;
     /// oversized output counts as a bad format.
-    fn complete(&self, key: &Key, params: &Params) -> Option<Snap> {
+    fn complete(&self, key: &Key, params: &Params) -> Result<Snap, Failed> {
         let Some((provider, spec)) = self.find(&key.topic) else {
             self.abort(key);
-            return None;
+            return Err(Failed {
+                err: ProviderError::UnknownTopic,
+                announce: None,
+            });
         };
         let secret_backed = !provider.secrets().is_empty();
         let ctx = FetchCtx::new(provider.secrets(), &*self.vault);
@@ -264,6 +362,7 @@ impl Hub {
                 Ok(d)
             }
         });
+        let notice = ctx.take_notice();
         let now = Instant::now();
         let mut st = lock(&self.state);
         st.inflight = st.inflight.saturating_sub(1);
@@ -279,12 +378,18 @@ impl Hub {
         });
         let Some(e) = st.cache.get_mut(key) else {
             // Evicted while fetching (cannot happen for claimed keys; defensive).
-            return res.ok().map(|data| Snap {
-                data,
-                ts: now_unix(),
-                stale: false,
-                epoch,
-            });
+            return res
+                .map(|data| Snap {
+                    data,
+                    ts: now_unix(),
+                    stale: false,
+                    epoch,
+                    state: None,
+                })
+                .map_err(|err| Failed {
+                    err,
+                    announce: None,
+                });
         };
         e.fetching = false;
         e.last_touch = now;
@@ -294,18 +399,57 @@ impl Hub {
                 e.epoch = epoch;
                 e.fails = 0;
                 e.next_due = now + spec.interval;
+                e.last_err = None;
+                e.notice = notice;
             }
-            Err(ProviderError::Locked) => {
+            // Not failures of the source: no backoff, the check is local and cheap.
+            Err(err @ (ProviderError::Locked | ProviderError::NoSecret)) => {
                 e.data = None;
                 e.next_due = now + LOCKED_RETRY;
+                e.last_err = Some(err);
             }
-            Err(_) => {
+            Err(err) => {
                 e.fails = (e.fails + 1).min(MAX_BACKOFF_SHIFT);
-                e.next_due = now + spec.interval * (1 << e.fails);
+                let mut wait = spec.interval * (1 << e.fails);
+                if let ProviderError::RateLimited { until: Some(u) } = err {
+                    // Stay quiet until the source says the limit resets (capped: it is a hint).
+                    let reset =
+                        Duration::from_secs(u.saturating_sub(now_unix())).min(MAX_RATE_WAIT);
+                    wait = wait.max(reset);
+                }
+                e.next_due = now + wait;
+                e.last_err = Some(err);
             }
         }
-        let e = &*e;
-        self.visible(key, e)
+        let e = &mut *e;
+        match self.visible(key, e) {
+            Some(snap) => {
+                e.announced = snap.state;
+                Ok(snap)
+            }
+            None => {
+                let err = e.last_err.unwrap_or(ProviderError::Unavailable);
+                let now_state = state_of(err, now_unix());
+                let announce = if e.announced == now_state {
+                    None
+                } else {
+                    now_state
+                };
+                e.announced = now_state;
+                Err(Failed { err, announce })
+            }
+        }
+    }
+
+    /// Why a subscription has no data right now, if the cache knows.
+    pub(crate) fn cached_state(&self, topic: &str, params: &Params) -> Option<StateInfo> {
+        let key = Key::new(topic, params);
+        let st = lock(&self.state);
+        let e = st.cache.get(&key)?;
+        if self.visible(&key, e).is_some() {
+            return None;
+        }
+        e.last_err.and_then(|err| state_of(err, now_unix()))
     }
 
     /// Cached value while the entry is not due (marked stale during failure backoff, and no
@@ -320,19 +464,21 @@ impl Hub {
                 e.last_touch = Instant::now();
                 if e.next_due > e.last_touch || e.fetching {
                     let e = &*e;
-                    return self.visible(&key, e).ok_or(ProviderError::Unavailable);
+                    return self
+                        .visible(&key, e)
+                        .ok_or_else(|| e.last_err.unwrap_or(ProviderError::Unavailable));
                 }
             }
         }
         if self.begin(&key) {
-            self.complete(&key, params)
-                .ok_or(ProviderError::Unavailable)
+            self.complete(&key, params).map_err(|f| f.err)
         } else {
-            lock(&self.state)
-                .cache
-                .get(&key)
-                .and_then(|e| self.visible(&key, e))
-                .ok_or(ProviderError::Unavailable)
+            let st = lock(&self.state);
+            let e = st.cache.get(&key);
+            e.and_then(|e| self.visible(&key, e)).ok_or_else(|| {
+                e.and_then(|e| e.last_err)
+                    .unwrap_or(ProviderError::Unavailable)
+            })
         }
     }
 
@@ -452,11 +598,15 @@ pub(crate) fn poll_once(shared: &Arc<Shared>) {
         }
         let sh = Arc::clone(shared);
         let k2 = key.clone();
-        let spawned = std::thread::Builder::new().spawn(move || {
-            if let Some(snap) = sh.hub.complete(&k2, &params) {
-                push_to_subscribers(&sh, &k2, &snap);
-            }
-        });
+        let spawned =
+            std::thread::Builder::new().spawn(move || match sh.hub.complete(&k2, &params) {
+                Ok(snap) => push_to_subscribers(&sh, &k2, &snap),
+                Err(Failed {
+                    announce: Some(info),
+                    ..
+                }) => push_state_to_subscribers(&sh, &k2, info),
+                Err(_) => {}
+            });
         if spawned.is_err() {
             hub.abort(&key);
         }
@@ -506,6 +656,41 @@ fn push_to_subscribers(shared: &Shared, key: &Key, snap: &Snap) {
     shared.hub.drop_subs(&dead);
 }
 
+/// Tell subscribers once why there is no data (a failure with nothing cached). Only widgets
+/// that still hold a grant for the topic hear it; a push that cannot be queued drops the
+/// subscription, as for data.
+fn push_state_to_subscribers(shared: &Shared, key: &Key, info: StateInfo) {
+    let targets: Vec<(u64, String)> = lock(&shared.hub.state)
+        .subs
+        .iter()
+        .filter(|(_, s)| s.active && &s.key == key)
+        .map(|(id, s)| (*id, s.widget.clone()))
+        .collect();
+    let mut dead = Vec::new();
+    for (id, widget) in targets {
+        let granted = shared
+            .grants
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .find(&widget, &key.topic)
+            .is_some();
+        if !granted {
+            continue; // the data path audits and drops a subscription whose grant is gone
+        }
+        let line = state_push_line(id, &key.topic, info);
+        let st = lock(&shared.hub.state);
+        if st.subs.get(&id).is_some_and(|sub| {
+            matches!(
+                sub.tx.try_send(line),
+                Err(TrySendError::Full(_) | TrySendError::Disconnected(_))
+            )
+        }) {
+            dead.push(id);
+        }
+    }
+    shared.hub.drop_subs(&dead);
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -547,7 +732,7 @@ mod tests {
     impl Hub {
         fn fetch_now(&self, key: &Key, params: &Params) -> Option<Snap> {
             if self.begin(key) {
-                self.complete(key, params)
+                self.complete(key, params).ok()
             } else {
                 None
             }

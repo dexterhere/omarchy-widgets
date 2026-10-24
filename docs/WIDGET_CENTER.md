@@ -1,17 +1,21 @@
 # Widget Center v0 (read-only)
 
-Status: built and tested offscreen only (`plugin/tests/run-all.sh`). Never run in the real Omarchy shell. Decision record: WIDGET-CENTER-V0 in `docs/DECISIONS.md`.
+Status: the data, state and panel items are tested offscreen (`plugin/tests/run-all.sh`); the layer-shell window itself (`PanelWindow` in `Center.qml`) is NOT instantiated by any test, because Quickshell has no window backend offscreen. Its layer, keyboard and close wiring are checked only textually by the static check. Never run in the real Omarchy shell. Decision record: WIDGET-CENTER-V0 in `docs/DECISIONS.md`.
 
 ## What it shows
 
 One panel, one row group per installed widget:
 
-- id and name, version, status and tier as recorded in `installed.json`;
+- id and name, version (from `manifest.json`), status (from `installed.json`: planned, alpha, stable, removed, else `unknown`) and tier (always `spec`; only spec widgets are loaded);
 - grants: each granted topic with its fields, and topics the widget declares but was not granted;
 - health per topic: `locked (ow vault unlock)`, `no credential`, `unauthorized`, `insufficient permission`, `rate limited`, `expired soon`, `offline`, `unavailable` (the provider states of `docs/DAEMON_SPEC.md`, "States"), otherwise `ok`, `stale`, `no access`, `not served`, `daemon error`, `waiting for data`, or `daemon not running` when the link to `owd` is down;
 - the command to remove it, as text: `ow remove io.github.example.clock`.
 
-A widget that failed validation is listed with its id, a fixed reason code and its remove command. Nothing from a widget file is shown except bounded plain text (name, version), and every `Text` is plain text.
+A widget that failed validation is listed with its id, a fixed reason code and its remove command. A directory whose name is not a valid id is counted by the store and not listed. An id that is not valid never gets a command: the panel prints `id not valid, nothing to run` and the id with every unusual character spelled out as `\uXXXX`.
+
+Limits: the store loads at most 200 widget directories (by name) and the panel shows at most 200 rows, 8 grant lines and 8 health lines per row (`+N more`). When anything is cut it says `N more not shown`. Rows are computed only while the Center is open.
+
+Known gap: the store follows a symlink under `$XDG_DATA_HOME/owd/widgets/` (Quickshell does not tell the plugin which entries are links). Exploiting it needs write access to your data directory. A daemon-provided widget list would remove the gap (OPEN_QUESTIONS 42). Nothing from a widget file is shown except bounded plain text (name, version), and every `Text` is plain text.
 
 ## What it does not do
 

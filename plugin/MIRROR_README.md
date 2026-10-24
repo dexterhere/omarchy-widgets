@@ -20,7 +20,7 @@ Pre-release. Be honest with yourself before installing:
 omarchy plugin add https://github.com/dexterhere/omarchy-widget-shell
 ```
 
-Not yet tested by the maintainers: nobody has run this command against this repository. It clones the code and runs it inside your desktop shell with your permissions, unsandboxed, so read it first (it is about a dozen small files). Without the `owd` daemon from the main repository it shows a "daemon offline" tile.
+Not yet tested by the maintainers: nobody has run this command against this repository. It clones the code and runs it inside your desktop shell with your permissions, unsandboxed, so read it first (it is 17 small files). Without the `owd` daemon from the main repository it shows a "daemon offline" tile.
 
 `omarchy plugin update` re-clones the default branch of this repository. It only ever holds tagged releases.
 

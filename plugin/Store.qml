@@ -63,8 +63,12 @@ Item {
       readonly property bool validName: L.validId(fileName)
       readonly property string dir: store.widgetsDir + "/" + fileName
       readonly property var names: ["manifest", "widget", "layout", "installed"]
+      // Files are only opened while `fresh`: the size in the listing was read AFTER the last change we
+      // saw. A change (or a rescan) clears it, which unloads the FileViews (empty path), and it comes
+      // back only once the directory has been listed again. FileView itself has no size limit.
+      // Residual: a file that grows in the milliseconds between the listing and the read is read.
+      property bool fresh: false
 
-      Component.onCompleted: { if (!validName) store.skippedDirs++ }
       Component.onDestruction: { if (validName) store.forget(fileName) }
 
       FolderListModel {
@@ -74,19 +78,35 @@ Item {
         showHidden: false
         nameFilters: ["manifest.json", "widget.json", "layout.json", "installed.json"]
         onCountChanged: debounce.restart()
-        onStatusChanged: debounce.restart()
+        onStatusChanged: { if (status === FolderListModel.Ready && src.relisting && files.folder.toString() !== "") { src.relisting = false; src.fresh = true } debounce.restart() }
       }
-      Connections { target: store; function onGenerationChanged() { src.reloadAll() } }
+      property bool relisting: false
+      property bool lastOk: false
+      // a widget that failed is looked at again every 2 s: files we refused to open have no watcher, so
+      // this is how a shrunk or completed file is noticed
+      Timer { interval: 2000; repeat: true; running: src.validName && src.fresh && !src.lastOk; onTriggered: src.invalidate() }
+      // a file the listing shows changing (also files we refused to open, which have no watcher of their own)
+      Connections { target: files; function onDataChanged() { if (src.fresh) src.invalidate() } }
+      // forget what we knew about the files and list the directory again
+      function invalidate() {
+        fresh = false
+        relisting = true
+        files.folder = ""
+        relist.restart()
+      }
+      Timer { id: relist; interval: 20; onTriggered: files.folder = src.validName ? "file://" + encodeURI(src.dir) : "" }
+      Component.onCompleted: { if (!validName) store.skippedDirs++; else invalidate() }
+      Connections { target: store; function onGenerationChanged() { src.invalidate() } }
       Timer { id: debounce; interval: 120; onTriggered: src.evaluate() }
 
       // one FileView per file; path stays empty until the listing says the size is acceptable
-      FileView { id: fvManifest; path: src.pathFor("manifest.json"); blockLoading: true; printErrors: false; watchChanges: true; onFileChanged: { reload(); debounce.restart() }
+      FileView { id: fvManifest; path: src.pathFor("manifest.json"); blockLoading: true; printErrors: false; watchChanges: true; onFileChanged: src.invalidate()
         onLoaded: debounce.restart() }
-      FileView { id: fvWidget; path: src.pathFor("widget.json"); blockLoading: true; printErrors: false; watchChanges: true; onFileChanged: { reload(); debounce.restart() }
+      FileView { id: fvWidget; path: src.pathFor("widget.json"); blockLoading: true; printErrors: false; watchChanges: true; onFileChanged: src.invalidate()
         onLoaded: debounce.restart() }
-      FileView { id: fvLayout; path: src.pathFor("layout.json"); blockLoading: true; printErrors: false; watchChanges: true; onFileChanged: { reload(); debounce.restart() }
+      FileView { id: fvLayout; path: src.pathFor("layout.json"); blockLoading: true; printErrors: false; watchChanges: true; onFileChanged: src.invalidate()
         onLoaded: debounce.restart() }
-      FileView { id: fvInstalled; path: src.pathFor("installed.json"); blockLoading: true; printErrors: false; watchChanges: true; onFileChanged: { reload(); debounce.restart() }
+      FileView { id: fvInstalled; path: src.pathFor("installed.json"); blockLoading: true; printErrors: false; watchChanges: true; onFileChanged: src.invalidate()
         onLoaded: debounce.restart() }
 
       // size of a listed file, or -1 if it is not there
@@ -96,15 +116,10 @@ Item {
       }
       function limitFor(name) { return name === "layout.json" ? L.LIMITS.bytes : L.LIMITS.fileBytes }
       function sizeOk(name) { const s = sizeOf(name); return s > 0 && s <= limitFor(name) }
-      function pathFor(name) { return validName && files.count >= 0 && sizeOk(name) ? dir + "/" + name : "" }
-
-      function reloadAll() {
-        for (const v of [fvManifest, fvWidget, fvLayout, fvInstalled]) if (v.path !== "") v.reload()
-        debounce.restart()
-      }
+      function pathFor(name) { return validName && fresh && files.count >= 0 && sizeOk(name) ? dir + "/" + name : "" }
 
       function evaluate() {
-        if (!validName) return
+        if (!validName || !fresh) return
         const views = { manifest: fvManifest, widget: fvWidget, layout: fvLayout, installed: fvInstalled }
         const texts = {}
         for (const n of names) {
@@ -112,7 +127,9 @@ Item {
           if (!sizeOk(file)) { texts[n] = null; continue }       // missing, empty or too large: never read
           texts[n] = views[n].text()
         }
-        store.report(fileName, L.loadWidget(fileName, texts))
+        const rec = L.loadWidget(fileName, texts)
+        lastOk = rec.ok === true
+        store.report(fileName, rec)
       }
     }
   }

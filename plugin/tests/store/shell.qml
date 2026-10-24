@@ -43,7 +43,11 @@ ShellRoot {
     [6900, "install a new widget (staged then renamed)", function () { h.mutate("add"); return [true, ""] }],
     [8600, "new widget appears", function () { return [why("io.test.added") === "ok", why("io.test.added")] }],
     [8600, "rescan() keeps records stable", function () { s.rescan(); return [true, ""] }],
-    [9800, "still consistent after rescan", function () { return [why("io.github.dexterhere.clock") === "ok" && why("io.test.added") === "ok", Object.keys(s.records).join()] }]
+    [9800, "still consistent after rescan", function () { return [why("io.github.dexterhere.clock") === "ok" && why("io.test.added") === "ok", Object.keys(s.records).join()] }],
+    [10000, "grow the clock layout to 1.5 GB in place", function () { h.mutate("grow"); return [true, ""] }],
+    [12500, "a file grown in place is refused, not read", function () { return [why("io.github.dexterhere.clock") === "layout-type", why("io.github.dexterhere.clock")] }],
+    [12600, "shrink it back", function () { h.mutate("fix"); return [true, ""] }],
+    [15000, "readmitted once the listing shows an acceptable size", function () { return [why("io.github.dexterhere.clock") === "ok", why("io.github.dexterhere.clock")] }]
   ]
   function mutate(what) {
     // the driver script watches this file and performs the change, so the harness stays read-only
@@ -61,7 +65,7 @@ ShellRoot {
           h.check(h.plan[i][1], res[0], res[1])
         }
       }
-      if (h.t >= 10000) { console.log("RESULT store passed=" + h.passed + " failed=" + h.failed); Qt.quit() }
+      if (h.t >= 15500) { console.log("RESULT store passed=" + h.passed + " failed=" + h.failed); Qt.quit() }
     }
   }
 }

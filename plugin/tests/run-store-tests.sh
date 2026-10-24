@@ -35,14 +35,16 @@ fx=$here/fixtures; clk=io.github.dexterhere.clock
 timeout -s TERM 30 quickshell -p "$run/cfg" >"$run/qs.log" 2>&1 &
 qs=$!
 trap 'kill -0 "$qs" 2>/dev/null && kill "$qs" 2>/dev/null' EXIT
-seen=0
+seen=0; peak=0
 while kill -0 "$qs" 2>/dev/null; do
+  for p in "$qs" $(pgrep -P "$qs" 2>/dev/null); do r=$(awk '/VmRSS/{print $2}' /proc/$p/status 2>/dev/null); [ -n "${r:-}" ] && [ "$r" -gt "$peak" ] && peak=$r; done
   n=$(grep -c "MUTATE" "$run/qs.log" 2>/dev/null); n=${n:-0}
   while [ "$seen" -lt "$n" ]; do
     seen=$((seen+1))
     what=$(grep "MUTATE" "$run/qs.log" | sed -n "${seen}p" | sed 's/^.*MUTATE //')
     case "$what" in
       break) python3 -c "import json,sys;p='$run/w/$clk/layout.json';l=json.load(open(p));l['root']['type']='exec';json.dump(l,open(p,'w'))";;
+      grow) truncate -s 1500M "$run/w/$clk/layout.json";;
       fix) cp "$fx/clock/layout.json" "$run/w/$clk/layout.json";;
       remove) rm -rf "$run/w/io.github.dexterhere.battery";;
       add) mkdir "$run/w/.stage-new"; for f in manifest widget layout installed; do python3 -c "import json;o=json.load(open('$fx/clock/$f.json'));o.update({'id':'io.test.added'} if 'id' in o else {});json.dump(o,open('$run/w/.stage-new/$f.json','w'))"; done; mv "$run/w/.stage-new" "$run/w/io.test.added";;
@@ -52,6 +54,7 @@ while kill -0 "$qs" 2>/dev/null; do
 done
 sed 's/\x1b\[[0-9;]*m//g' "$run/qs.log" | sed -n 's/^.*qml: \(\(PASS\|FAIL\|RESULT\) .*\)$/\1/p' | tee "$run/result.txt"
 rc=0
+if [ "$peak" -gt 400000 ]; then echo "FAIL store: peak resident memory $((peak/1024)) MiB after a 1.5 GB in-place growth"; rc=1; else echo "PASS store: peak resident memory $((peak/1024)) MiB with a 1.5 GB file grown in place"; fi
 grep -q '^RESULT' "$run/result.txt" || { echo "FAIL store: no RESULT"; tail -20 "$run/qs.log"; rc=1; }
 grep -q '^FAIL' "$run/result.txt" && rc=1
 rm -rf "$run"; exit $rc

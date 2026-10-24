@@ -5,3 +5,5 @@ Kids 1.0 Kids.qml
 Tile 1.0 Tile.qml
 Bridge 1.0 Bridge.qml
 Store 1.0 Store.qml
+DesktopCanvas 1.0 DesktopCanvas.qml
+Service 1.0 Service.qml

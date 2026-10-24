@@ -234,6 +234,29 @@ fn yes_needs_the_exact_access_hash_and_nothing_else_bypasses_consent() {
 }
 
 #[test]
+fn the_summary_names_topics_the_daemon_does_not_serve_yet() {
+    let (_d, paths) = tree();
+    // docker.containers has no provider in the daemon, so the summary must say so.
+    let docker = world("docker", SHA_A, "planned", "concept", |_| {});
+    let out = install(
+        &paths,
+        &docker,
+        &[
+            "io.github.dexterhere.docker",
+            "--allow-planned",
+            "--dry-run",
+        ],
+        &mut Script::no_terminal(),
+    );
+    out.result.unwrap();
+    assert!(
+        out.out.contains("does not serve yet: docker.containers"),
+        "{}",
+        out.out
+    );
+}
+
+#[test]
 fn status_gate_planned_needs_the_flag_removed_never_unknown_refused() {
     let (_d, paths) = tree();
     let planned = world("clock", SHA_A, "planned", "concept", |_| {});

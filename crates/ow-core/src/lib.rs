@@ -2,14 +2,20 @@
 #![forbid(unsafe_code)]
 
 mod audit;
+mod config;
 mod grants;
 mod harden;
 mod paths;
 mod peer;
+mod private_file;
 mod provider;
 mod ratelimit;
 
 pub use audit::AuditLog;
+pub use config::{
+    Config, ConfigError, DEFAULT_INTERVAL_SECS, MAX_CONFIG_FILE, MAX_INTERVAL_SECS,
+    MIN_INTERVAL_SECS, ProviderBinding, secret_name_allowed,
+};
 pub use grants::{Grant, Grants, GrantsError, MAX_FILE as MAX_GRANTS_FILE};
 pub use harden::{check_private_dir, harden_process, private_dir};
 pub use paths::Paths;

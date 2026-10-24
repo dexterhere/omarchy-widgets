@@ -223,6 +223,8 @@ fn data_op(
     // No provider serves a credential-backed topic until config.toml binds a secret: say so
     // (granted widgets only; the grant was checked above).
     if shared.hub.is_unconfigured(&topic) {
+        // Audited as a deny: nothing was released, and a widget probing it leaves a trace.
+        lock(&shared.audit).record(widget, &topic, op, false, 0);
         let info = StateInfo {
             state: State::NoCredential,
             until: None,

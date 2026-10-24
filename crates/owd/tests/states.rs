@@ -343,6 +343,13 @@ fn an_unconfigured_credential_topic_says_no_credential_but_only_to_granted_widge
     assert_eq!(r["error"]["code"], "provider_error", "{r}");
     assert_eq!(state_of(&r).unwrap().state, State::NoCredential);
     assert_eq!(r["error"]["topic"], "github.prs");
+    // The refusal leaves a deny line in the audit log.
+    let audit = std::fs::read_to_string(h.paths.audit()).unwrap();
+    let line = audit.lines().last().unwrap();
+    assert!(
+        line.contains("\"github.prs\"") && line.contains("deny"),
+        "{line}"
+    );
     // Not granted: the same answer as for any ungranted topic, no hint that it exists.
     let r = h.ask_as("stranger", "github.prs");
     assert_eq!(r["error"]["code"], "denied");

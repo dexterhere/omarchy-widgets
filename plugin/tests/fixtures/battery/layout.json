@@ -1,0 +1,292 @@
+{
+  "schemaVersion": 0,
+  "root": {
+    "type": "row",
+    "gap": "md",
+    "children": [
+      {
+        "type": "ring",
+        "bind": {
+          "topic": "battery.status",
+          "field": "percent"
+        },
+        "color": "accent"
+      },
+      {
+        "type": "stack",
+        "gap": "sm",
+        "children": [
+          {
+            "type": "value",
+            "bind": {
+              "topic": "battery.status",
+              "field": "percent"
+            },
+            "unit": "%",
+            "size": "xl",
+            "color": "accent"
+          },
+          {
+            "type": "text",
+            "bind": {
+              "topic": "battery.status",
+              "field": "state"
+            },
+            "size": "sm",
+            "color": "muted"
+          }
+        ]
+      }
+    ]
+  },
+  "variants": {
+    "ring": {
+      "type": "row",
+      "gap": "md",
+      "children": [
+        {
+          "type": "ring",
+          "bind": {
+            "topic": "battery.status",
+            "field": "percent"
+          },
+          "color": "accent"
+        },
+        {
+          "type": "stack",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "value",
+              "bind": {
+                "topic": "battery.status",
+                "field": "percent"
+              },
+              "unit": "%",
+              "size": "xl",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "bind": {
+                "topic": "battery.status",
+                "field": "state"
+              },
+              "size": "sm",
+              "color": "muted"
+            }
+          ]
+        }
+      ]
+    },
+    "bar": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "icon",
+              "name": "battery",
+              "size": "md",
+              "color": "accent"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "battery.status",
+                "field": "percent"
+              },
+              "unit": "%",
+              "size": "lg",
+              "color": "foreground"
+            }
+          ]
+        },
+        {
+          "type": "bar",
+          "bind": {
+            "topic": "battery.status",
+            "field": "percent"
+          },
+          "color": "accent"
+        },
+        {
+          "type": "text",
+          "bind": {
+            "topic": "battery.status",
+            "field": "state"
+          },
+          "size": "sm",
+          "color": "muted"
+        }
+      ]
+    },
+    "percent": {
+      "type": "value",
+      "bind": {
+        "topic": "battery.status",
+        "field": "percent"
+      },
+      "unit": "%",
+      "size": "xl",
+      "color": "accent"
+    },
+    "chip": {
+      "type": "row",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "icon",
+          "name": "battery",
+          "size": "sm",
+          "color": "accent"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "battery.status",
+            "field": "percent"
+          },
+          "unit": "%",
+          "size": "sm",
+          "color": "foreground"
+        }
+      ]
+    },
+    "timeleft": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "icon",
+              "name": "bolt",
+              "size": "md",
+              "color": "accent"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "battery.status",
+                "field": "percent"
+              },
+              "unit": "%",
+              "size": "lg",
+              "color": "accent"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "bind": {
+            "topic": "battery.status",
+            "field": "timeLeft"
+          },
+          "size": "md",
+          "color": "foreground"
+        },
+        {
+          "type": "text",
+          "bind": {
+            "topic": "battery.status",
+            "field": "state"
+          },
+          "size": "sm",
+          "color": "muted"
+        }
+      ]
+    },
+    "detailed": {
+      "type": "row",
+      "gap": "lg",
+      "children": [
+        {
+          "type": "ring",
+          "bind": {
+            "topic": "battery.status",
+            "field": "percent"
+          },
+          "color": "accent"
+        },
+        {
+          "type": "stack",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "row",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "icon",
+                  "name": "battery",
+                  "size": "sm",
+                  "color": "secondary"
+                },
+                {
+                  "type": "text",
+                  "text": "Battery",
+                  "size": "sm",
+                  "color": "secondary"
+                }
+              ]
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "battery.status",
+                "field": "percent"
+              },
+              "unit": "%",
+              "size": "xl",
+              "color": "accent"
+            },
+            {
+              "type": "bar",
+              "bind": {
+                "topic": "battery.status",
+                "field": "percent"
+              },
+              "color": "accent"
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "row",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "bind": {
+                    "topic": "battery.status",
+                    "field": "state"
+                  },
+                  "size": "sm",
+                  "color": "foreground"
+                },
+                {
+                  "type": "spacer"
+                },
+                {
+                  "type": "text",
+                  "bind": {
+                    "topic": "battery.status",
+                    "field": "timeLeft"
+                  },
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

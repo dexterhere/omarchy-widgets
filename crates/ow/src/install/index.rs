@@ -127,7 +127,20 @@ pub fn select_listing(bytes: &[u8], id: &str) -> Result<Listing, String> {
         return Err("the registry index is implausibly large".into());
     }
     let mut hits = widgets.iter().filter(|w| w["id"].as_str() == Some(id));
-    let entry = hits.next().ok_or("this id is not in the registry")?;
+    let Some(entry) = hits.next() else {
+        // A short name such as "clock" is the usual slip; point at the full id (only if it is a clean id).
+        let tail = format!(".{id}");
+        let near = widgets
+            .iter()
+            .filter_map(|w| w["id"].as_str())
+            .find(|w| w.ends_with(&tail) && store_id(w));
+        return Err(match near {
+            Some(n) => {
+                format!("this id is not in the registry; ids are the full name, did you mean {n}?")
+            }
+            None => "this id is not in the registry".into(),
+        });
+    };
     if hits.next().is_some() {
         return Err("the registry lists this id more than once; refusing".into());
     }
@@ -299,6 +312,17 @@ mod tests {
             file_path(&l, "widget.json").unwrap(),
             format!("/dexterhere/omarchy-widget-clock/{C}/widget.json")
         );
+    }
+
+    #[test]
+    fn a_short_name_gets_a_did_you_mean() {
+        let e = select_listing(&index(vec![entry(json!({}))]), "clock").unwrap_err();
+        assert!(
+            e.contains("did you mean io.github.dexterhere.clock?"),
+            "{e}"
+        );
+        let e = select_listing(&index(vec![entry(json!({}))]), "nope").unwrap_err();
+        assert_eq!(e, "this id is not in the registry");
     }
 
     #[test]

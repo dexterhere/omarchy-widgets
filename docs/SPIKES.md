@@ -14,7 +14,7 @@ Skipped on purpose: **S4** (keyring; needs real keyring access, out of scope for
 | Spike | Verdict | Measured fact |
 |---|---|---|
 | S1 Bottom-layer canvas | PARTIAL | Layer 1 (bottom) on both monitors, no focus change, no reserved area, one input rect reaches the compositor. Real click pass-through and lock-screen behavior were not exercised. |
-| S2 Overlay edit surface | PARTIAL | Layer 3 (overlay), drag/resize/nudge/Escape logic passes 7 offscreen tests, JSON written atomically. Live keyboard delivery not exercised. |
+| S2 Overlay edit surface | PASS | Layer 3 (overlay), drag/resize/nudge/Escape logic passes 7 offscreen tests, JSON written atomically. Live keyboard delivery measured by a person on 2026-10-24: with `OnDemand` focus, a click gives the surface the keyboard and Escape reaches it. |
 | S3 Socket bridge | PASS | `Quickshell.Io` `Socket` + `SplitParser` talks NDJSON to a `SO_PEERCRED` stub, survives a config hot reload, reconnects after a server restart. |
 | S5 Manifest tolerance | PASS | Extra top-level keys, sidecar files, unknown kinds and a data-only plugin all validate. Fold into the manifest. |
 | S6 Plugin imports | PARTIAL | Works (one shared singleton), already used on this machine, but Omarchy has no dependency mechanism and its facade deliberately blocks cross-plugin service access. |
@@ -26,6 +26,10 @@ Skipped on purpose: **S4** (keyring; needs real keyring access, out of scope for
 | S13 Chord | PASS | `SUPER + ALT + W` is free. The brief's placeholder `SUPER + SHIFT + W` is taken. |
 
 ## S1 Canvas surface on `WlrLayer.Bottom`
+
+**Update 2026-10-24, measured by a person (Dexter) on the live desktop (eDP-1 and HDMI-A-1):** with the S1 surface running (`spikes/run-safe.sh /tmp/ow-kb/s1 40`), clicks inside the box were received on both monitors (2 on eDP-1, 27 on HDMI-A-1), and clicks on bare wallpaper outside the box were made on both monitors with no `S1 LEAK click outside box` line in the log, so the surface never received them. Click pass-through of the input mask is therefore **PASS** on both monitors. Lock screen, fullscreen windows and keyboard focus were still unverified at that point.
+
+**Lock screen, measured by Dexter on 2026-10-24:** with the same surface running for 90 s (`spikes/run-safe.sh /tmp/ow-kb/s1 90`), the session was locked with `SUPER + CTRL + L`. No blue box was visible on the lock screen on either monitor, and the run ended normally with the timeout (exit 124). A Bottom-layer surface is therefore hidden by the session lock, as the protocol intends. Result: **PASS**. Fullscreen windows and keyboard focus (S2) remain unverified.
 
 **Question.** Can a plugin draw a Bottom-layer surface that is click-through except one interactive rectangle, without stealing focus or shifting other layers?
 
@@ -61,7 +65,9 @@ Skipped on purpose: **S4** (keyring; needs real keyring access, out of scope for
 - Qt's drag threshold (about 10 px) is swallowed before a drag begins; the test allows that slack. A real editor will see the same small lag.
 - The spike surface was deliberately small and used on-demand focus so a live run could not grab the user's keyboard.
 
-**Not measured.** Delivery of a real Escape key press by Hyprland to a layer surface. `OnDemand` gives the surface the keyboard only after a click; `Exclusive` grabs it immediately and is what a modal edit mode would need. The latter was not run on the live session. Keyboard handling on the dimmed full-screen surface, and the "pause when a fullscreen window covers the monitor" behavior, are untested.
+**Update 2026-10-24.** Measured by Dexter on 2026-10-24 on the live desktop with a logging copy of the S2 spike and `WAYLAND_DEBUG=client`: after one click inside the panel Hyprland sent `wl_keyboard.enter` and the QML logged `S2 FOCUS activeFocus=true`; three presses of `a` arrived as `wl_keyboard.key` events and as `S2 KEY 65`; Escape arrived as `S2 KEY escape` followed by `S2 ESCAPE -> exit`, and the surface released the keyboard. The surface gives the keyboard back when the person clicks elsewhere and takes it again on the next click, as `OnDemand` should. Earlier runs showed no `S2 KEY` lines because keys were pressed before the focus event settled; wait about two seconds after the click. `Exclusive` was not needed and was not run.
+
+**Not measured.** Keyboard handling on the dimmed full-screen surface, and the "pause when a fullscreen window covers the monitor" behavior, are untested.
 
 **Verdict.** PARTIAL (logic and persistence pass; live key delivery unmeasured).
 

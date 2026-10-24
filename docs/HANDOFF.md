@@ -2,6 +2,8 @@
 
 Written 2026-10-17 when work was stopped at the maintainer's request. The website repo has the detailed note (`omarchy-widgets-web/docs/HANDOFF.md`); this one covers the code repo.
 
+> 2026-10-24: the chain was proven end to end in a sandbox (daemon, `ow install` against the live site, plugin render). Guide: [TRY_IT.md](TRY_IT.md). What blocks a first release: [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md). This file below is the older 2026-10-17 note.
+
 ## Done (merged to `develop` via PR #24; check promotion to `staging` and `main` on GitHub)
 
 - Cargo workspace with `#![forbid(unsafe_code)]`, strict lints, CI (fmt, clippy, tests, cargo-deny, cargo-audit, weekly fuzz). Actions are referenced by tag (e.g. `actions/checkout@v7`), not pinned to commit SHAs.

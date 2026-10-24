@@ -1,0 +1,21 @@
+{
+  "id": "io.github.dexterhere.battery",
+  "repo": "https://github.com/dexterhere/battery",
+  "commit": "0000000000000000000000000000000000000001",
+  "installedAt": "2026-10-23T12:00:00Z",
+  "status": "alpha",
+  "tier": "spec",
+  "files": {},
+  "granted": [
+    {
+      "topics": [
+        "battery.status"
+      ],
+      "fields": [
+        "percent",
+        "state",
+        "timeLeft"
+      ]
+    }
+  ]
+}

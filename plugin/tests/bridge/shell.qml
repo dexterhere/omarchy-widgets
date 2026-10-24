@@ -31,7 +31,7 @@ ShellRoot {
   Bridge {
     id: b
     socketPath: h.scenario === "defaultpath" || h.scenario === "nopath" || h.scenario === "relpath" ? b.defaultSocketPath : Quickshell.env("OW_TEST_SOCK")
-    wanted: h.scenario === "normal" ? h.normalWanted : (h.scenario === "caps" ? h.capsWanted : h.base)
+    wanted: h.scenario === "health" ? h.base.concat([{ widget: "io.test.ok", topic: "x.nocred" }]) : h.scenario === "normal" ? h.normalWanted : (h.scenario === "caps" ? h.capsWanted : h.base)
     retryLockedMs: 1000
     onLinkChanged: h.history = h.history.concat([{ t: h.t, link: link }])
   }
@@ -57,6 +57,12 @@ ShellRoot {
       [3000, "wanted changes: drop x.two, add x.three", function () { b.wanted = [{ widget: "io.test.ok", topic: "x.one" }, { widget: "io.test.ok", topic: "x.three" }]; return [true, ""] }],
       [4200, "removed topic is gone, new topic live", function () { return [e("io.test.ok", "x.two") === undefined && e("io.test.ok", "x.three") && e("io.test.ok", "x.three").data !== undefined, JSON.stringify(b.entries)] }],
       [4200, "no malformed counted for a clean stream", function () { return [b.malformed === 0 && b.oversize === 0, b.malformed + "/" + b.oversize] }]
+    ],
+    health: [
+      [1500, "live data keeps its value and carries the provider word", function () { const x = e("io.test.ok", "x.one"); return [x && x.state === "live" && x.data.n >= 1 && x.health === "expired_soon", JSON.stringify(x)] }],
+      [1500, "a state-only push adds the word and invents no data", function () { const x = e("io.test.ok", "x.two"); return [x && x.health === "unauthorized" && x.data === undefined, JSON.stringify(x)] }],
+      [1500, "an error with a provider word is kept", function () { const x = e("io.test.ok", "x.nocred"); return [x && x.state === "error" && x.health === "no_credential", JSON.stringify(x)] }],
+      [1500, "no malformed lines", function () { return [b.malformed === 0, "" + b.malformed] }]
     ],
     caps: [
       [1800, "one widget with 128 topics is held to 16", function () { return [h.countFor("io.test.big", "limited") === 16 && h.countFor("io.test.big", "") === 128, h.countFor("io.test.big", "limited") + "/" + h.countFor("io.test.big", "")] }],

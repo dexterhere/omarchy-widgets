@@ -3,7 +3,7 @@
 
   fake_owd.py <socket-path> <scenario> <log-file>
 
-Scenarios: normal fragment garbage oversize drop silent reject refuse unsupported locked flood floodpre burst
+Scenarios: normal fragment garbage oversize drop silent reject refuse unsupported locked flood floodpre burst health
 Every request line it receives is appended to the log, so tests can assert what the
 client sent. It is a test double; it checks nothing about peers and keeps no state."""
 import json, os, socket, sys, threading, time
@@ -137,12 +137,16 @@ def serve(c, state):
                     send(c, {"v": 0, "id": rid, "error": {"code": "denied", "topic": topic}})
                 elif topic == "x.locked" or scenario == "locked":
                     send(c, {"v": 0, "id": rid, "error": {"code": "locked", "topic": topic}})
+                elif topic == "x.nocred" and scenario == "health":
+                    send(c, {"v": 0, "id": rid, "error": {"code": "provider_error", "topic": topic, "state": "no_credential"}})
                 elif topic == "x.unknown":
                     send(c, {"v": 0, "id": rid, "error": {"code": "unknown_topic", "topic": topic}})
                 else:
                     sub = len(subs) + 1 + 100 * conn_id
                     subs[sub] = (m.get("widget"), topic)
                     send(c, {"v": 0, "id": rid, "ok": True, "sub": sub})
+                    if scenario == "health" and topic == "x.two":
+                        send(c, {"v": 0, "sub": sub, "topic": topic, "state": "unauthorized"})
             elif op == "unsubscribe":
                 subs.pop(m.get("sub"), None)
                 send(c, {"v": 0, "id": rid, "ok": True})
@@ -164,6 +168,9 @@ def serve(c, state):
                         if n == 2 and conn_id == 1:
                             send(c, b"{\"v\":0,\"sub\":%d,\"topic\":\"%s\",\"data\":{\"x\":\"" % (sub, t.encode()) + b"a" * 200000 + b"\"}}\n")
                         push(c, sub, t, n)
+                    elif scenario == "health":
+                        if t == "x.one":
+                            send(c, {"v": 0, "sub": sub, "topic": t, "ts": 1760700000 + n, "stale": False, "data": {"n": n}, "state": "expired_soon", "until": 1761000000})
                     else:
                         push(c, sub, t, n, stale=(n % 4 == 0))
                     sent += 1

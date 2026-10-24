@@ -68,6 +68,9 @@ struct Entry {
     last_err: Option<ProviderError>,
     /// Something to tell the user about the latest successful fetch.
     notice: Option<Notice>,
+    /// Which `begin` claimed the fetch in flight; a worker whose claim no longer matches lost
+    /// the entry (purged and re-created) and must not write to it.
+    claim: u64,
     /// The state announced to subscribers last time, so an unchanged failure is not re-sent.
     announced: Option<StateInfo>,
 }
@@ -141,6 +144,7 @@ struct State {
     /// Fetch workers running, counted separately from cache entries so purging an entry whose
     /// fetch is still running cannot let lock/unlock cycles exceed `MAX_IN_FLIGHT`.
     inflight: usize,
+    next_claim: u64,
 }
 
 pub(crate) struct Snap {
@@ -314,6 +318,7 @@ impl Hub {
             epoch: 0,
             last_err: None,
             notice: None,
+            claim: 0,
             announced: None,
         });
         e.last_touch = now;
@@ -321,6 +326,11 @@ impl Hub {
             return false;
         }
         e.fetching = true;
+        st.next_claim += 1;
+        let claim = st.next_claim;
+        if let Some(e) = st.cache.get_mut(key) {
+            e.claim = claim;
+        }
         st.inflight += 1;
         true
     }
@@ -345,6 +355,7 @@ impl Hub {
                 announce: None,
             });
         };
+        let claim = lock(&self.state).cache.get(key).map(|e| e.claim);
         let secret_backed = !provider.secrets().is_empty();
         let ctx = FetchCtx::new(provider.secrets(), &*self.vault);
         // Key epoch before the fetch: any lock, idle lock or fresh unlock changes it.
@@ -369,13 +380,23 @@ impl Hub {
         // Decided under the state lock: purge_secret_entries needs this lock and runs after
         // the epoch change, so a result that passes here is purged by any later lock, and one
         // that fails here never reaches the cache, a reply or a push.
-        let res = res.and_then(|d| {
+        // Applies to failures too: an Unauthorized or RateLimited fetched under an old token must
+        // not become the state of an entry that belongs to the new key.
+        let res =
             if secret_backed && (self.vault.generation() != epoch || !self.vault.is_unlocked()) {
                 Err(ProviderError::Locked)
             } else {
-                Ok(d)
-            }
-        });
+                res
+            };
+        if st.cache.get(key).map(|e| e.claim) != claim || claim.is_none() {
+            // The entry was purged and claimed again while this fetch ran: it is not ours to
+            // write (that would clear `fetching` under the newer worker), and the result is
+            // from before the purge, so it is dropped.
+            return Err(Failed {
+                err: ProviderError::Locked,
+                announce: None,
+            });
+        }
         let Some(e) = st.cache.get_mut(key) else {
             // Evicted while fetching (cannot happen for claimed keys; defensive).
             return res
@@ -978,5 +999,126 @@ mod tests {
         let mut p = Params::new();
         p.insert("id".into(), 99.into());
         assert!(!h.begin(&Key::new("s.one", &p)), "cap exceeded after purge");
+    }
+
+    struct SlowErr;
+
+    static ETOPICS: [TopicSpec; 1] = [TopicSpec::new(
+        "s.err",
+        Sensitivity::High,
+        Duration::from_secs(1),
+        &["v"],
+    )];
+
+    impl Provider for SlowErr {
+        fn id(&self) -> &'static str {
+            "slow-err"
+        }
+        fn topics(&self) -> &'static [TopicSpec] {
+            &ETOPICS
+        }
+        fn secrets(&self) -> &'static [&'static str] {
+            &["tok"]
+        }
+        fn fetch(&self, _t: &str, _p: &Params, c: &FetchCtx<'_>) -> Result<Params, ProviderError> {
+            c.with_secret("tok", |_| ())?;
+            std::thread::sleep(Duration::from_millis(400));
+            Err(ProviderError::Unauthorized)
+        }
+    }
+
+    /// A failure fetched under the old key must neither become the state of the entry that a
+    /// newer worker now owns nor clear that worker's `fetching` flag.
+    #[test]
+    fn an_error_from_before_a_lock_is_discarded() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("v.owv");
+        let mut v = ow_vault::Vault::create(
+            &path,
+            b"FAKE correct horse battery",
+            ow_vault::Profile::Standard,
+        )
+        .unwrap();
+        v.set("tok", "FAKE-secret-value").unwrap();
+        drop(v);
+        let vault = Arc::new(VaultState::new(path, crate::unlock::VaultPolicy::default()));
+        vault.unlock(b"FAKE correct horse battery").unwrap();
+        let h = Arc::new(Hub::new(vec![Arc::new(SlowErr)], vault));
+        let k = Key::new("s.err", &Params::new());
+        assert!(h.begin(&k));
+        let old = {
+            let (h, k) = (Arc::clone(&h), k.clone());
+            std::thread::spawn(move || h.complete(&k, &Params::new()))
+        };
+        std::thread::sleep(Duration::from_millis(150));
+        h.lock_vault();
+        h.vault.unlock(b"FAKE correct horse battery").unwrap();
+        assert!(h.begin(&k), "entry was purged, a new worker may claim it");
+        let r = old.join().unwrap();
+        assert!(matches!(
+            r,
+            Err(Failed {
+                err: ProviderError::Locked,
+                announce: None
+            })
+        ));
+        let st = lock(&h.state);
+        let e = st.cache.get(&k).unwrap();
+        assert!(
+            e.fetching,
+            "the old worker cleared the newer worker's claim"
+        );
+        assert_eq!(
+            e.last_err, None,
+            "an old-token failure became the new entry's state"
+        );
+        assert_eq!(e.fails, 0);
+    }
+
+    struct Limited(u64);
+
+    static LTOPICS: [TopicSpec; 1] = [TopicSpec::new(
+        "t.lim",
+        Sensitivity::Low,
+        Duration::from_secs(1),
+        &["v"],
+    )];
+
+    impl Provider for Limited {
+        fn id(&self) -> &'static str {
+            "limited"
+        }
+        fn topics(&self) -> &'static [TopicSpec] {
+            &LTOPICS
+        }
+        fn fetch(&self, _t: &str, _p: &Params, _c: &FetchCtx<'_>) -> Result<Params, ProviderError> {
+            Err(ProviderError::RateLimited {
+                until: Some(self.0),
+            })
+        }
+    }
+
+    /// The reset time is a header value: whatever it says, the next fetch is at most
+    /// `MAX_RATE_WAIT` away, and a sooner reset is honoured down to the normal backoff.
+    #[test]
+    fn a_far_reset_time_delays_the_next_fetch_by_at_most_an_hour() {
+        for (ahead, max, min) in [
+            (
+                20 * 86_400,
+                MAX_RATE_WAIT,
+                MAX_RATE_WAIT - Duration::from_secs(5),
+            ),
+            (600, Duration::from_secs(601), Duration::from_secs(590)),
+        ] {
+            let h = Hub::new(vec![Arc::new(Limited(now_unix() + ahead))], test_vault());
+            let k = Key::new("t.lim", &Params::new());
+            let t0 = Instant::now();
+            assert!(h.fetch_now(&k, &Params::new()).is_none());
+            let due = lock(&h.state).cache.get(&k).unwrap().next_due - t0;
+            assert!(
+                due <= max + Duration::from_secs(1) && due >= min,
+                "{ahead}: {due:?}"
+            );
+        }
     }
 }

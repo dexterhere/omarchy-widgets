@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const PASS: &str = "FAKE-passphrase-correct-horse";
-const GRANTS: &str = "[[grant]]\nwidget=\"w1\"\ntopics=[\"fake.state\",\"fake.needs\",\"github.prs\"]\nfields=[\"n\"]\n";
+const GRANTS: &str = "[[grant]]\nwidget=\"w1\"\ntopics=[\"fake.state\",\"fake.needs\",\"github.prs\",\"fake.hold\"]\nfields=[\"n\"]\n";
 
 type Step = (Result<u64, ProviderError>, Option<Notice>);
 
@@ -432,4 +432,79 @@ fn no_reply_carries_text_from_the_provider_side() {
             .all(|k| ["code", "topic", "state", "until"].contains(&k.as_str())),
         "{raw}"
     );
+}
+
+/// Holds a vault secret in `with_secret` for a few seconds, like an HTTPS request would.
+struct Holder;
+
+static HOLD: [TopicSpec; 1] = [TopicSpec::new(
+    "fake.hold",
+    Sensitivity::High,
+    Duration::from_millis(50),
+    &["n"],
+)];
+
+impl Provider for Holder {
+    fn id(&self) -> &'static str {
+        "holder"
+    }
+    fn topics(&self) -> &'static [TopicSpec] {
+        &HOLD
+    }
+    fn secrets(&self) -> &'static [&'static str] {
+        &["other"]
+    }
+    fn fetch(
+        &self,
+        _t: &str,
+        _p: &Map<String, Value>,
+        ctx: &FetchCtx<'_>,
+    ) -> Result<Map<String, Value>, ProviderError> {
+        ctx.with_secret("other", |_| std::thread::sleep(Duration::from_secs(3)))?;
+        Ok(json!({"n": 1}).as_object().cloned().unwrap())
+    }
+}
+
+fn ask_raw(h: &H, line: &str) -> (Value, Duration) {
+    let t = std::time::Instant::now();
+    let mut s = UnixStream::connect(h.paths.socket()).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    s.write_all(line.as_bytes()).unwrap();
+    let mut out = String::new();
+    BufReader::new(s).read_line(&mut out).unwrap();
+    (serde_json::from_str(&out).unwrap(), t.elapsed())
+}
+
+#[test]
+fn a_slow_request_holding_a_secret_does_not_stall_lock_status_or_other_topics() {
+    let h = start(vec![Arc::new(Holder), Scripted::new(vec![(Ok(1), None)])]);
+    h.unlock();
+    let slow = {
+        let path = h.paths.socket();
+        std::thread::spawn(move || {
+            let mut s = UnixStream::connect(path).unwrap();
+            s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            s.write_all(b"{\"v\":0,\"id\":3,\"op\":\"snapshot\",\"widget\":\"w1\",\"topic\":\"fake.hold\"}\n")
+                .unwrap();
+            let mut out = String::new();
+            BufReader::new(s).read_line(&mut out).unwrap();
+            out
+        })
+    };
+    std::thread::sleep(Duration::from_millis(500)); // the fetch is inside the 3 s closure now
+    let (st, t) = ask_raw(&h, "{\"v\":0,\"id\":2,\"op\":\"vault.status\"}\n");
+    assert_eq!(st["state"], "unlocked");
+    assert!(t < Duration::from_secs(1), "status stalled {t:?}");
+    let t0 = std::time::Instant::now();
+    assert_eq!(h.snap("fake.state")["data"]["n"], 1);
+    assert!(
+        t0.elapsed() < Duration::from_secs(1),
+        "local snapshot stalled"
+    );
+    let (lk, t) = ask_raw(&h, "{\"v\":0,\"id\":5,\"op\":\"vault.lock\"}\n");
+    assert_eq!(lk["state"], "locked");
+    assert!(t < Duration::from_secs(1), "vault.lock stalled {t:?}");
+    // The in-flight result belongs to the old key: it is not served.
+    let out = slow.join().unwrap();
+    assert!(!out.contains("\"data\""), "{out}");
 }

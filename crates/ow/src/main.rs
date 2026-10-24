@@ -1,10 +1,7 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::print_stdout)] // CLI output is its job
 
-mod input;
-mod vault_cmd;
-
-use ow::{daemon, doctor, install};
+use ow::{connect, daemon, doctor, install, vault_cmd};
 use ow_core::Paths;
 use std::process::ExitCode;
 
@@ -36,6 +33,18 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         Some("vault") => vault_cmd::run(&paths, &args[1..], &mut std::io::stdout()),
+        Some("connect") => {
+            let code = connect::run(
+                &paths,
+                &args[1..],
+                &mut std::io::stdout(),
+                &mut install::TtyUi,
+            )?;
+            if code != 0 {
+                std::process::exit(i32::from(code));
+            }
+            Ok(())
+        }
         Some("install") => install::install(
             &paths,
             &args[1..],
@@ -51,7 +60,8 @@ fn run() -> Result<(), String> {
             &mut install::TtyUi,
         ),
         _ => Err(format!(
-            "usage: ow [--config-dir DIR] status | doctor [--json] [--names] | vault ... | install | list | remove\n{}",
+            "usage: ow [--config-dir DIR] status | doctor [--json] [--names] | vault ... | connect github | install | list | remove\n{}\n{}",
+            connect::USAGE,
             install::USAGE
         )),
     }

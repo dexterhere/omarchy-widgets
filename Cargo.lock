@@ -668,6 +668,7 @@ dependencies = [
  "jiff",
  "ow-core",
  "rustix",
+ "serde",
  "serde_json",
  "tempfile",
 ]

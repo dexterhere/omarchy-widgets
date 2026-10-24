@@ -15,6 +15,7 @@ die() { echo "mirror-plugin: $*" >&2; exit 1; }
 [ $# -ge 1 ] && [ $# -le 2 ] || die "usage: $0 DEST [REF]"
 dest_arg=$1
 ref=${2:-HEAD}
+case "$ref" in -*) die "a ref may not start with a dash: $ref" ;; esac
 
 root=$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --show-toplevel) || die "not inside the code repo"
 cd "$root"

@@ -49,6 +49,7 @@ check "idempotent: clone stays clean" test -z "$(git -C "$T/d1" status --porcela
 echo x >"$T/d1/junk"; refuses "dirty destination clone refused" "not clean" "$M" "$T/d1" v9.9.9; rm "$T/d1/junk"
 mkdir "$T/plain"; echo x >"$T/plain/f"; refuses "non-empty non-clone refused" "not the root of a git clone" "$M" "$T/plain" v9.9.9
 refuses "unknown ref refused" "unknown ref" "$M" "$T/d3" v0.0.0
+refuses "option-like ref refused" "may not start with a dash" "$M" "$T/d3b" --output=/tmp/ow-evil
 # linter and validator gate
 git -C "$R" checkout -q -b bad; echo BAD >>"$R/plugin/Service.qml"; git -C "$R" commit -qam bad
 refuses "static check failure refused" "static safety check failed" "$M" "$T/d4" HEAD

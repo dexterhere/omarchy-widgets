@@ -63,6 +63,12 @@ test = false
 doc = false
 
 [[bin]]
+name = "connect_config_edit"
+path = "fuzz_targets/connect_config_edit.rs"
+test = false
+doc = false
+
+[[bin]]
 name = "config_parse"
 path = "fuzz_targets/config_parse.rs"
 test = false

@@ -30,7 +30,8 @@ Item {
   property var entries: ({})                    // "<widget> <topic>" -> { state, data, ts }
   property string daemonVersion: ""
   property int malformed: 0                     // lines dropped on this connection
-  property int oversize: 0
+  property int oversize: 0                      // over-long lines on this connection
+  property int oversizeTotal: 0                 // ... since the plugin started
   property int connects: 0                      // successful hellos, for tests and diagnostics
   property int pushes: 0                        // accepted pushes
 
@@ -58,9 +59,13 @@ Item {
     connected: false
     onConnectedChanged: root.onConnection(connected)
     onError: function (e) { root.onSocketError() }
+    // An EMPTY marker makes Quickshell hand over every chunk as it arrives (measured: about 230 KB per
+    // read, resident memory flat under a never-ending stream). With the marker "\n" it buffers until a
+    // newline, with no limit: a peer that never sends one grew the shell to 6 GB in 9 s. So framing is
+    // done in onChunk() below, with a hard cap.
     parser: SplitParser {
-      splitMarker: "\n"
-      onRead: function (line) { root.onLine(line) }
+      splitMarker: ""
+      onRead: function (chunk) { root.onChunk(chunk) }
     }
   }
 
@@ -108,6 +113,8 @@ Item {
   function onConnection(up) {
     if (up) {
       wasUp = true
+      partial = ""
+      bytesThisSecond = 0
       helloOk = false
       malformed = 0
       oversize = 0
@@ -120,6 +127,7 @@ Item {
     }
     if (!wasUp) return               // an attempt that never connected: onSocketError handles it
     wasUp = false
+    partial = ""
     helloTimer.stop()
     stableTimer.stop()
     const hadHello = helloOk
@@ -154,12 +162,47 @@ Item {
   }
 
   // ---------------------------------------------------------------- incoming
+  property string partial: ""                   // bytes of an unfinished line, never longer than P.MAX_LINE
+  property int bytesThisSecond: 0
+  readonly property int maxBytesPerSecond: 4 * 1024 * 1024    // a daemon pushes a few KB per second
+
+  Timer {
+    id: rateTimer
+    interval: 1000
+    repeat: true
+    running: root.wasUp
+    onTriggered: root.bytesThisSecond = 0
+  }
+
+  // A chunk may hold part of a line, several lines, or both. Memory is bounded: a chunk is at most a
+  // few hundred KB and what is kept between chunks is cut off at MAX_LINE, which drops the connection.
+  // (A multi-byte character split exactly at a chunk boundary is decoded per chunk by Quickshell and
+  // shows as a replacement character; the daemon's data is ASCII in practice.)
+  function onChunk(chunk) {
+    if (!wasUp || typeof chunk !== "string") return
+    bytesThisSecond += chunk.length
+    if (bytesThisSecond > maxBytesPerSecond) { oversize++; oversizeTotal++; partial = ""; drop("unavailable"); return }
+    let buf = partial + chunk
+    partial = ""
+    let nl = buf.indexOf("\n")
+    while (nl >= 0) {
+      const line = buf.substring(0, nl)
+      buf = buf.substring(nl + 1)
+      onLine(line)
+      if (!wasUp) return                        // onLine may have dropped the connection
+      nl = buf.indexOf("\n")
+    }
+    if (buf.length > P.MAX_LINE) { oversize++; oversizeTotal++; drop("unavailable"); return }   // never-ending line
+    partial = buf
+  }
+
   function onLine(line) {
     const ev = P.parseLine(line)
     switch (ev.kind) {
     case "ignore": return
     case "oversize":
       oversize++
+      oversizeTotal++
       if (oversize > 5) drop("unavailable")
       return
     case "malformed":

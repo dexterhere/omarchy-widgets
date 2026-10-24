@@ -63,8 +63,19 @@ ShellRoot {
       [2500, "prototype untouched", function () { return [({}).n === undefined && ({}).constructor === Object, ""] }]
     ],
     oversize: [
-      [3000, "oversize line counted", function () { return [b.oversize >= 1, "oversize=" + b.oversize] }],
-      [3000, "stream continues after the oversize line", function () { const x = e("io.test.ok", "x.one"); return [b.link === "connected" && x && x.data.n >= 4, JSON.stringify(x) + " " + b.link] }]
+      [4500, "an over-long line is counted and never parsed", function () { return [b.oversizeTotal >= 1, "oversize=" + b.oversizeTotal] }],
+      [4500, "the stream continues (same connection, or after a drop and reconnect)", function () { const x = e("io.test.ok", "x.one"); return [b.link === "connected" && x && x.data.n >= 4, b.connects + " " + b.link + " " + JSON.stringify(x)] }]
+    ],
+    floodpre: [
+      [2500, "never-ending line before hello: dropped", function () { return [b.oversizeTotal >= 1 && b.link !== "connected", "oversize=" + b.oversizeTotal + " " + h.links()] }],
+      [7500, "never connected, retries are spaced", function () { return [b.connects === 0, "" + b.connects] }]
+    ],
+    flood: [
+      [2500, "never-ending line after hello: dropped", function () { return [b.connects >= 1 && b.oversizeTotal >= 1 && b.link !== "connected", "oversize=" + b.oversizeTotal + " " + h.links()] }],
+      [7500, "buffered text was freed", function () { return [b.partial.length === 0, "partial=" + b.partial.length] }]
+    ],
+    burst: [
+      [3500, "endless valid lines hit the byte-rate watchdog", function () { return [b.oversizeTotal >= 1 && h.links().indexOf("connected>unavailable") >= 0, "oversize=" + b.oversize + " " + h.links()] }]
     ],
     drop: [
       [600, "first connection up", function () { return [b.connects === 1 && b.link === "connected", b.connects + " " + b.link] }],
@@ -106,7 +117,7 @@ ShellRoot {
       [1500, "no runtime dir: unavailable, no crash", function () { return [b.socketPath === "" && b.link === "unavailable", b.socketPath + b.link] }]
     ]
   })
-  property var endAt: ({ normal: 4600, fragment: 3000, garbage: 2800, oversize: 3300, drop: 6300, silent: 8300, reject: 7300, refuse: 1800,
+  property var endAt: ({ normal: 4600, fragment: 3000, garbage: 2800, oversize: 4800, floodpre: 7800, flood: 7800, burst: 3800, drop: 6300, silent: 8300, reject: 7300, refuse: 1800,
                          unsupported: 1800, locked: 4500, late: 9300, defaultpath: 1800, nopath: 1800 })
 
   // sample for facts a single end-of-run check would miss

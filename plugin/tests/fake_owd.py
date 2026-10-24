@@ -3,7 +3,7 @@
 
   fake_owd.py <socket-path> <scenario> <log-file>
 
-Scenarios: normal fragment garbage oversize drop silent reject refuse unsupported locked
+Scenarios: normal fragment garbage oversize drop silent reject refuse unsupported locked flood floodpre burst
 Every request line it receives is appended to the log, so tests can assert what the
 client sent. It is a test double; it checks nothing about peers and keeps no state."""
 import json, os, socket, sys, threading, time
@@ -46,6 +46,40 @@ def push(c, sub, topic, n, **kw):
     send(c, msg, kw.get("chunk", 0))
 
 
+def flood(c, conn_id):
+    """Peers that try to exhaust the client: never a newline (floodpre: before hello is answered;
+    flood: after a good hello), or an endless stream of valid short lines (burst)."""
+    c.settimeout(2)
+    if scenario == "flood":
+        try:
+            buf = b""
+            while b"\n" not in buf:
+                buf += c.recv(4096)
+            send(c, {"v": 0, "id": 1, "ok": True, "daemonVersion": "0.0-test", "protocol": 0})
+        except OSError:
+            return
+    blob = b"a" * 65536 if scenario != "burst" else (json.dumps({"v": 0, "sub": 1, "topic": "x.one", "ts": 1, "stale": False, "data": {"n": 1}}) + "\n").encode() * 1000
+    if scenario == "burst":
+        try:
+            buf = b""
+            while b"\n" not in buf:
+                buf += c.recv(4096)
+            send(c, {"v": 0, "id": 1, "ok": True, "daemonVersion": "0.0-test", "protocol": 0})
+        except OSError:
+            return
+    end = time.time() + 6
+    sent = 0
+    try:
+        while time.time() < end:
+            c.sendall(blob)
+            sent += len(blob)
+    except OSError:
+        pass
+    log("SENT_MIB %d" % (sent // 1048576))
+    log("FLOOD_END %d" % conn_id)
+    c.close()
+
+
 def serve(c, state):
     buf = b""
     subs = {}
@@ -57,6 +91,9 @@ def serve(c, state):
     log("CONNECT %d" % conn_id)
     if scenario == "reject":
         c.close()
+        return
+    if scenario in ("floodpre", "flood", "burst"):
+        flood(c, conn_id)
         return
     while True:
         try:
@@ -120,7 +157,7 @@ def serve(c, state):
                         send(c, {"v": 0, "sub": sub, "topic": "x.other", "ts": 1, "stale": False, "data": {"n": 555}})   # wrong topic for this sub
                         push(c, sub, t, n, data={"n": n, "bad": float("1e308"), "nested": {"a": 1}, "constructor": 5})
                     elif scenario == "oversize":
-                        if n == 2:
+                        if n == 2 and conn_id == 1:
                             send(c, b"{\"v\":0,\"sub\":%d,\"topic\":\"%s\",\"data\":{\"x\":\"" % (sub, t.encode()) + b"a" * 200000 + b"\"}}\n")
                         push(c, sub, t, n)
                     else:

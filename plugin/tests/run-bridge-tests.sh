@@ -5,7 +5,7 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 plugin=$(cd "$here/.." && pwd)
-scenarios=("$@"); [ ${#scenarios[@]} -eq 0 ] && scenarios=(normal fragment garbage oversize drop silent reject refuse unsupported locked late defaultpath nopath)
+scenarios=("$@"); [ ${#scenarios[@]} -eq 0 ] && scenarios=(normal fragment garbage oversize flood floodpre burst drop silent reject refuse unsupported locked late defaultpath nopath)
 rc=0
 cleanup_pids=()
 trap 'for p in "${cleanup_pids[@]}"; do kill -0 "$p" 2>/dev/null && kill "$p" 2>/dev/null; done' EXIT
@@ -33,7 +33,19 @@ for sc in "${scenarios[@]}"; do
   [ "$sc" != late ] && python3 -c 'import time;time.sleep(0.4)'
   timeout -s TERM 30 quickshell -p "$run/cfg" >"$run/qs.log" 2>&1 &
   qs=$!; cleanup_pids+=("$qs")
+  # peak resident memory of the throwaway Quickshell (our own pid; timeout execs it as a child, so look one level down)
+  peak=0
+  while kill -0 "$qs" 2>/dev/null; do
+    for p in "$qs" $(pgrep -P "$qs" 2>/dev/null); do
+      r=$(awk '/VmRSS/{print $2}' /proc/$p/status 2>/dev/null); [ -n "${r:-}" ] && [ "$r" -gt "$peak" ] && peak=$r
+    done
+    python3 -c 'import time;time.sleep(0.1)'
+  done
   wait "$qs"
+  echo "PEAK_RSS_KB $sc $peak" >"$run/peak.txt"
+  case "$sc" in flood|floodpre|burst)
+    if [ "$peak" -gt 400000 ]; then echo "FAIL $sc: resident memory peaked at $((peak/1024)) MiB (cap 400 MiB)"; rc=1; else echo "PASS $sc: resident memory peaked at $((peak/1024)) MiB under an unbounded stream"; fi;;
+  esac
   # the late server runs in a subshell that exec'd python: $srv is that pid
   [ -n "$srv" ] && kill -0 "$srv" 2>/dev/null && kill "$srv" 2>/dev/null
   sed 's/\x1b\[[0-9;]*m//g' "$run/qs.log" | sed -n 's/^.*qml: \(\(PASS\|FAIL\|RESULT\) .*\)$/\1/p' >"$run/result.txt"
@@ -73,6 +85,10 @@ if sc == "normal":
     if per_topic.get("x.one") != 1: msgs.append("FAIL normal: x.one asked %s times (duplicates in wanted must collapse)" % per_topic.get("x.one"))
 if sc == "drop" and hellos < 2: msgs.append("FAIL drop: expected a second hello after reconnect, got %d" % hellos)
 if sc == "drop" and subs < 4: msgs.append("FAIL drop: expected subscriptions re-sent after reconnect, got %d" % subs)
+if sc in ("flood", "floodpre") and not (2 <= conns <= 5): msgs.append("FAIL %s: %d connections in 8s (backoff expected 2 to 5)" % (sc, conns))
+if sc in ("flood", "floodpre", "burst"):
+    sent = [int(l.split()[1]) for l in open(log) if l.startswith("SENT_MIB")]
+    msgs.append("PASS %s: peer managed to send only %s MiB before being dropped" % (sc, sent)) if sent and max(sent) < 3000 else msgs.append("FAIL %s: peer sent %s MiB" % (sc, sent))
 if sc == "silent" and not (2 <= conns <= 6): msgs.append("FAIL silent: %d connections in 8s (backoff expected 2 to 6)" % conns)
 if sc == "reject" and not (3 <= conns <= 7): msgs.append("FAIL reject: %d connections in 7s (backoff expected 3 to 7)" % conns)
 if sc == "locked" and subs < 6: msgs.append("FAIL locked: locked topics should be re-asked, subscribes=%d" % subs)

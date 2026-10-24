@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 0,
+  "id": "io.github.dexterhere.tasks",
+  "tier": "spec",
+  "category": "productivity",
+  "surfaces": [
+    "desktop",
+    "bar"
+  ],
+  "sizeClasses": [
+    {
+      "name": "chip",
+      "min": [
+        48,
+        24
+      ],
+      "max": [
+        140,
+        40
+      ],
+      "aspectLock": null
+    },
+    {
+      "name": "compact",
+      "min": [
+        120,
+        80
+      ],
+      "max": [
+        240,
+        160
+      ],
+      "aspectLock": null
+    },
+    {
+      "name": "wide",
+      "min": [
+        240,
+        140
+      ],
+      "max": [
+        480,
+        280
+      ],
+      "aspectLock": null
+    }
+  ],
+  "variants": [
+    "list",
+    "count",
+    "due",
+    "chip",
+    "minimal",
+    "detailed"
+  ],
+  "providers": [
+    {
+      "name": "tasks",
+      "topics": [
+        "tasks.list"
+      ],
+      "fields": [
+        "open",
+        "dueToday",
+        "titles"
+      ],
+      "auth": "none"
+    }
+  ],
+  "capabilities": {
+    "network": [],
+    "files": [],
+    "spawn": []
+  },
+  "interactiveRegions": [],
+  "settings": [],
+  "compat": {
+    "omarchy": ">=4.0",
+    "widgetsKit": "^1"
+  },
+  "sampleData": {
+    "tasks.list": {
+      "open": 6,
+      "dueToday": 2,
+      "titles": [
+        "Reply to review",
+        "Fix clock drift",
+        "Write docs"
+      ]
+    }
+  }
+}

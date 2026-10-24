@@ -1,0 +1,7 @@
+{
+  "id": "io.github.dexterhere.github-activity",
+  "name": "GitHub activity",
+  "version": "0.1.0",
+  "description": "Your open pull requests and the ones waiting for your review, as two numbers. Spec widget with no code and five layout variants. Needs the GitHub provider, which is not built yet.",
+  "license": "MIT"
+}

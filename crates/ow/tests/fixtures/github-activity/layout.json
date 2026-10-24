@@ -1,0 +1,314 @@
+{
+  "schemaVersion": 0,
+  "root": {
+    "type": "row",
+    "gap": "lg",
+    "children": [
+      {
+        "type": "stack",
+        "gap": "sm",
+        "children": [
+          {
+            "type": "value",
+            "bind": {
+              "topic": "github.prs",
+              "field": "open"
+            },
+            "size": "xl",
+            "color": "accent"
+          },
+          {
+            "type": "text",
+            "text": "open",
+            "size": "sm",
+            "color": "muted"
+          }
+        ]
+      },
+      {
+        "type": "stack",
+        "gap": "sm",
+        "children": [
+          {
+            "type": "value",
+            "bind": {
+              "topic": "github.prs",
+              "field": "review"
+            },
+            "size": "xl",
+            "color": "foreground"
+          },
+          {
+            "type": "text",
+            "text": "to review",
+            "size": "sm",
+            "color": "muted"
+          }
+        ]
+      }
+    ]
+  },
+  "variants": {
+    "counts": {
+      "type": "row",
+      "gap": "lg",
+      "children": [
+        {
+          "type": "stack",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "value",
+              "bind": {
+                "topic": "github.prs",
+                "field": "open"
+              },
+              "size": "xl",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "open",
+              "size": "sm",
+              "color": "muted"
+            }
+          ]
+        },
+        {
+          "type": "stack",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "value",
+              "bind": {
+                "topic": "github.prs",
+                "field": "review"
+              },
+              "size": "xl",
+              "color": "foreground"
+            },
+            {
+              "type": "text",
+              "text": "to review",
+              "size": "sm",
+              "color": "muted"
+            }
+          ]
+        }
+      ]
+    },
+    "badge-review": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "icon",
+              "name": "git",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "Pull requests",
+              "size": "md",
+              "color": "foreground"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "gap": "lg",
+          "children": [
+            {
+              "type": "value",
+              "bind": {
+                "topic": "github.prs",
+                "field": "open"
+              },
+              "size": "lg",
+              "color": "foreground"
+            },
+            {
+              "type": "text",
+              "text": "open",
+              "size": "sm",
+              "color": "muted"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "badge",
+              "bind": {
+                "topic": "github.prs",
+                "field": "review"
+              },
+              "size": "md",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "waiting for your review",
+              "size": "sm",
+              "color": "muted"
+            }
+          ]
+        }
+      ]
+    },
+    "chip": {
+      "type": "row",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "icon",
+          "name": "git",
+          "color": "accent"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "github.prs",
+            "field": "open"
+          },
+          "size": "sm",
+          "color": "accent"
+        },
+        {
+          "type": "text",
+          "text": "open",
+          "size": "sm",
+          "color": "muted"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "github.prs",
+            "field": "review"
+          },
+          "size": "sm",
+          "color": "secondary"
+        },
+        {
+          "type": "text",
+          "text": "review",
+          "size": "sm",
+          "color": "muted"
+        }
+      ]
+    },
+    "minimal": {
+      "type": "row",
+      "gap": "md",
+      "children": [
+        {
+          "type": "value",
+          "bind": {
+            "topic": "github.prs",
+            "field": "open"
+          },
+          "size": "lg",
+          "color": "accent"
+        },
+        {
+          "type": "text",
+          "text": "/",
+          "size": "sm",
+          "color": "muted"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "github.prs",
+            "field": "review"
+          },
+          "size": "lg",
+          "color": "secondary"
+        }
+      ]
+    },
+    "detailed": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "icon",
+              "name": "git",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "Pull requests",
+              "size": "md",
+              "color": "foreground"
+            }
+          ]
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "text",
+              "text": "Open",
+              "size": "md",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "github.prs",
+                "field": "open"
+              },
+              "size": "lg",
+              "color": "accent"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "text",
+              "text": "To review",
+              "size": "md",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "github.prs",
+                "field": "review"
+              },
+              "size": "lg",
+              "color": "foreground"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,3419 @@
+{
+  "schemaVersion": 1,
+  "widgetSchema": "draft-0",
+  "counts": {
+    "total": 7,
+    "byStatus": {
+      "planned": 7
+    },
+    "byTier": {
+      "concept": 7
+    },
+    "byCategory": {
+      "ai-agents": 1,
+      "ambient-fun": 1,
+      "dev-git": 2,
+      "network-containers": 1,
+      "productivity": 2,
+      "system": 2,
+      "time-calendar": 2,
+      "utilities": 3
+    }
+  },
+  "widgets": [
+    {
+      "id": "io.github.dexterhere.ai-usage",
+      "name": "AI Usage",
+      "version": "0.1.0",
+      "description": "A no-code widget showing how many AI sessions, requests and active minutes you have, in six variants. Three numbers only, never prompts or content.",
+      "summary": "Shows counts and timings of your local coding-agent sessions today, never what was said in them.",
+      "license": "MIT",
+      "repo": "https://github.com/dexterhere/omarchy-widget-ai-usage",
+      "commit": "0000000000000000000000000000000000000000",
+      "updated": "2026-01-15",
+      "category": "ai-agents",
+      "categories": [
+        "ai-agents",
+        "utilities"
+      ],
+      "tags": [
+        "ai",
+        "agents",
+        "usage"
+      ],
+      "status": "planned",
+      "tier": "concept",
+      "declaredTier": "spec",
+      "installable": false,
+      "review": null,
+      "reviewNote": null,
+      "surfaces": [
+        "desktop",
+        "bar"
+      ],
+      "sizeClasses": [
+        {
+          "name": "chip",
+          "min": [
+            60,
+            24
+          ],
+          "max": [
+            160,
+            40
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "compact",
+          "min": [
+            140,
+            80
+          ],
+          "max": [
+            240,
+            160
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "wide",
+          "min": [
+            240,
+            100
+          ],
+          "max": [
+            480,
+            220
+          ],
+          "aspectLock": null
+        }
+      ],
+      "variants": [
+        "counts",
+        "sessions-only",
+        "activity",
+        "chip",
+        "minimal",
+        "detailed"
+      ],
+      "providers": [
+        {
+          "name": "ai-usage",
+          "topics": [
+            "ai-usage.sessions"
+          ],
+          "fields": [
+            "sessions",
+            "requests",
+            "activeMinutes"
+          ],
+          "auth": "none"
+        }
+      ],
+      "capabilities": {
+        "network": [],
+        "files": [],
+        "spawn": []
+      },
+      "settings": [],
+      "compat": {
+        "omarchy": ">=4.0",
+        "widgetsKit": "^1"
+      },
+      "access": {
+        "data": [
+          "ai-usage.sessions: sessions, requests, activeMinutes"
+        ],
+        "network": [
+          "none"
+        ],
+        "files": [
+          "none"
+        ],
+        "programs": [
+          "none"
+        ],
+        "secrets": [
+          "none"
+        ]
+      },
+      "layout": {
+        "schemaVersion": 0,
+        "root": {
+          "type": "grid",
+          "columns": 2,
+          "gap": "md",
+          "children": [
+            {
+              "type": "value",
+              "bind": {
+                "topic": "ai-usage.sessions",
+                "field": "sessions"
+              },
+              "size": "lg",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "sessions",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "ai-usage.sessions",
+                "field": "requests"
+              },
+              "size": "lg",
+              "color": "foreground"
+            },
+            {
+              "type": "text",
+              "text": "requests",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "ai-usage.sessions",
+                "field": "activeMinutes"
+              },
+              "unit": "m",
+              "size": "lg",
+              "color": "foreground"
+            },
+            {
+              "type": "text",
+              "text": "active",
+              "size": "sm",
+              "color": "muted"
+            }
+          ]
+        },
+        "variants": {
+          "counts": {
+            "type": "grid",
+            "columns": 2,
+            "gap": "md",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "ai-usage.sessions",
+                  "field": "sessions"
+                },
+                "size": "lg",
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "text": "sessions",
+                "size": "sm",
+                "color": "muted"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "ai-usage.sessions",
+                  "field": "requests"
+                },
+                "size": "lg",
+                "color": "foreground"
+              },
+              {
+                "type": "text",
+                "text": "requests",
+                "size": "sm",
+                "color": "muted"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "ai-usage.sessions",
+                  "field": "activeMinutes"
+                },
+                "unit": "m",
+                "size": "lg",
+                "color": "foreground"
+              },
+              {
+                "type": "text",
+                "text": "active",
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          },
+          "sessions-only": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "ai-usage.sessions",
+                  "field": "sessions"
+                },
+                "size": "xl",
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "text": "sessions",
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          },
+          "activity": {
+            "type": "row",
+            "gap": "md",
+            "children": [
+              {
+                "type": "ring",
+                "bind": {
+                  "topic": "ai-usage.sessions",
+                  "field": "activeMinutes"
+                },
+                "color": "accent"
+              },
+              {
+                "type": "stack",
+                "gap": "sm",
+                "children": [
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "ai-usage.sessions",
+                      "field": "activeMinutes"
+                    },
+                    "unit": "m",
+                    "size": "xl",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "active today",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "row",
+                    "gap": "sm",
+                    "children": [
+                      {
+                        "type": "value",
+                        "bind": {
+                          "topic": "ai-usage.sessions",
+                          "field": "sessions"
+                        },
+                        "size": "sm",
+                        "color": "secondary"
+                      },
+                      {
+                        "type": "text",
+                        "text": "sessions",
+                        "size": "sm",
+                        "color": "muted"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "chip": {
+            "type": "row",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "icon",
+                "name": "bolt",
+                "size": "sm",
+                "color": "secondary"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "ai-usage.sessions",
+                  "field": "sessions"
+                },
+                "size": "sm",
+                "color": "foreground"
+              }
+            ]
+          },
+          "minimal": {
+            "type": "value",
+            "bind": {
+              "topic": "ai-usage.sessions",
+              "field": "requests"
+            },
+            "size": "xl",
+            "color": "foreground"
+          },
+          "detailed": {
+            "type": "stack",
+            "gap": "md",
+            "children": [
+              {
+                "type": "row",
+                "gap": "sm",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "bolt",
+                    "size": "md",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "AI usage",
+                    "size": "sm",
+                    "color": "secondary"
+                  }
+                ]
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "row",
+                "gap": "lg",
+                "children": [
+                  {
+                    "type": "stack",
+                    "gap": "sm",
+                    "children": [
+                      {
+                        "type": "value",
+                        "bind": {
+                          "topic": "ai-usage.sessions",
+                          "field": "sessions"
+                        },
+                        "size": "lg",
+                        "color": "accent"
+                      },
+                      {
+                        "type": "text",
+                        "text": "sessions",
+                        "size": "sm",
+                        "color": "muted"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "stack",
+                    "gap": "sm",
+                    "children": [
+                      {
+                        "type": "value",
+                        "bind": {
+                          "topic": "ai-usage.sessions",
+                          "field": "requests"
+                        },
+                        "size": "lg",
+                        "color": "foreground"
+                      },
+                      {
+                        "type": "text",
+                        "text": "requests",
+                        "size": "sm",
+                        "color": "muted"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "stack",
+                    "gap": "sm",
+                    "children": [
+                      {
+                        "type": "value",
+                        "bind": {
+                          "topic": "ai-usage.sessions",
+                          "field": "activeMinutes"
+                        },
+                        "unit": "m",
+                        "size": "lg",
+                        "color": "foreground"
+                      },
+                      {
+                        "type": "text",
+                        "text": "active",
+                        "size": "sm",
+                        "color": "muted"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "bar",
+                "bind": {
+                  "topic": "ai-usage.sessions",
+                  "field": "activeMinutes"
+                },
+                "color": "accent"
+              }
+            ]
+          }
+        }
+      },
+      "sampleData": {
+        "ai-usage.sessions": {
+          "sessions": 12,
+          "requests": 340,
+          "activeMinutes": 95
+        }
+      }
+    },
+    {
+      "id": "io.github.dexterhere.battery",
+      "name": "Battery",
+      "version": "0.1.0",
+      "description": "Battery charge, state and time left as a ring, bar, big number, bar chip or detailed card. Spec widget: JSON only, no code.",
+      "summary": "Shows battery charge, whether it is charging, and the estimated time left.",
+      "license": "MIT",
+      "repo": "https://github.com/dexterhere/omarchy-widget-battery",
+      "commit": "0000000000000000000000000000000000000000",
+      "updated": "2026-01-15",
+      "category": "system",
+      "categories": [
+        "system",
+        "utilities"
+      ],
+      "tags": [
+        "battery",
+        "power"
+      ],
+      "status": "planned",
+      "tier": "concept",
+      "declaredTier": "spec",
+      "installable": false,
+      "review": null,
+      "reviewNote": null,
+      "surfaces": [
+        "desktop",
+        "bar"
+      ],
+      "sizeClasses": [
+        {
+          "name": "chip",
+          "min": [
+            48,
+            24
+          ],
+          "max": [
+            140,
+            40
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "compact",
+          "min": [
+            120,
+            80
+          ],
+          "max": [
+            240,
+            160
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "wide",
+          "min": [
+            240,
+            100
+          ],
+          "max": [
+            480,
+            240
+          ],
+          "aspectLock": null
+        }
+      ],
+      "variants": [
+        "ring",
+        "bar",
+        "percent",
+        "chip",
+        "timeleft",
+        "detailed"
+      ],
+      "providers": [
+        {
+          "name": "battery",
+          "topics": [
+            "battery.status"
+          ],
+          "fields": [
+            "percent",
+            "state",
+            "timeLeft"
+          ],
+          "auth": "none"
+        }
+      ],
+      "capabilities": {
+        "network": [],
+        "files": [],
+        "spawn": []
+      },
+      "settings": [],
+      "compat": {
+        "omarchy": ">=4.0",
+        "widgetsKit": "^1"
+      },
+      "access": {
+        "data": [
+          "battery.status: percent, state, timeLeft"
+        ],
+        "network": [
+          "none"
+        ],
+        "files": [
+          "none"
+        ],
+        "programs": [
+          "none"
+        ],
+        "secrets": [
+          "none"
+        ]
+      },
+      "layout": {
+        "schemaVersion": 0,
+        "root": {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "ring",
+              "bind": {
+                "topic": "battery.status",
+                "field": "percent"
+              },
+              "color": "accent"
+            },
+            {
+              "type": "stack",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "battery.status",
+                    "field": "percent"
+                  },
+                  "unit": "%",
+                  "size": "xl",
+                  "color": "accent"
+                },
+                {
+                  "type": "text",
+                  "bind": {
+                    "topic": "battery.status",
+                    "field": "state"
+                  },
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            }
+          ]
+        },
+        "variants": {
+          "ring": {
+            "type": "row",
+            "gap": "md",
+            "children": [
+              {
+                "type": "ring",
+                "bind": {
+                  "topic": "battery.status",
+                  "field": "percent"
+                },
+                "color": "accent"
+              },
+              {
+                "type": "stack",
+                "gap": "sm",
+                "children": [
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "battery.status",
+                      "field": "percent"
+                    },
+                    "unit": "%",
+                    "size": "xl",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "bind": {
+                      "topic": "battery.status",
+                      "field": "state"
+                    },
+                    "size": "sm",
+                    "color": "muted"
+                  }
+                ]
+              }
+            ]
+          },
+          "bar": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "sm",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "battery",
+                    "size": "md",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "battery.status",
+                      "field": "percent"
+                    },
+                    "unit": "%",
+                    "size": "lg",
+                    "color": "foreground"
+                  }
+                ]
+              },
+              {
+                "type": "bar",
+                "bind": {
+                  "topic": "battery.status",
+                  "field": "percent"
+                },
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "bind": {
+                  "topic": "battery.status",
+                  "field": "state"
+                },
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          },
+          "percent": {
+            "type": "value",
+            "bind": {
+              "topic": "battery.status",
+              "field": "percent"
+            },
+            "unit": "%",
+            "size": "xl",
+            "color": "accent"
+          },
+          "chip": {
+            "type": "row",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "icon",
+                "name": "battery",
+                "size": "sm",
+                "color": "accent"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "battery.status",
+                  "field": "percent"
+                },
+                "unit": "%",
+                "size": "sm",
+                "color": "foreground"
+              }
+            ]
+          },
+          "timeleft": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "sm",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "bolt",
+                    "size": "md",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "battery.status",
+                      "field": "percent"
+                    },
+                    "unit": "%",
+                    "size": "lg",
+                    "color": "accent"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "bind": {
+                  "topic": "battery.status",
+                  "field": "timeLeft"
+                },
+                "size": "md",
+                "color": "foreground"
+              },
+              {
+                "type": "text",
+                "bind": {
+                  "topic": "battery.status",
+                  "field": "state"
+                },
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          },
+          "detailed": {
+            "type": "row",
+            "gap": "lg",
+            "children": [
+              {
+                "type": "ring",
+                "bind": {
+                  "topic": "battery.status",
+                  "field": "percent"
+                },
+                "color": "accent"
+              },
+              {
+                "type": "stack",
+                "gap": "sm",
+                "children": [
+                  {
+                    "type": "row",
+                    "gap": "sm",
+                    "children": [
+                      {
+                        "type": "icon",
+                        "name": "battery",
+                        "size": "sm",
+                        "color": "secondary"
+                      },
+                      {
+                        "type": "text",
+                        "text": "Battery",
+                        "size": "sm",
+                        "color": "secondary"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "battery.status",
+                      "field": "percent"
+                    },
+                    "unit": "%",
+                    "size": "xl",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "bar",
+                    "bind": {
+                      "topic": "battery.status",
+                      "field": "percent"
+                    },
+                    "color": "accent"
+                  },
+                  {
+                    "type": "divider"
+                  },
+                  {
+                    "type": "row",
+                    "gap": "md",
+                    "children": [
+                      {
+                        "type": "text",
+                        "bind": {
+                          "topic": "battery.status",
+                          "field": "state"
+                        },
+                        "size": "sm",
+                        "color": "foreground"
+                      },
+                      {
+                        "type": "spacer"
+                      },
+                      {
+                        "type": "text",
+                        "bind": {
+                          "topic": "battery.status",
+                          "field": "timeLeft"
+                        },
+                        "size": "sm",
+                        "color": "muted"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "sampleData": {
+        "battery.status": {
+          "percent": 72,
+          "state": "Discharging",
+          "timeLeft": "3h 20m"
+        }
+      }
+    },
+    {
+      "id": "io.github.dexterhere.clock",
+      "name": "Clock",
+      "version": "0.1.0",
+      "description": "A no-code clock with six variants: digital, digital with seconds, minimal, date focus, bar chip and stacked time, date and zone.",
+      "summary": "Shows the time and date as digital, analog or binary numerals, or as several world time zones.",
+      "license": "MIT",
+      "repo": "https://github.com/dexterhere/omarchy-widget-clock",
+      "commit": "0000000000000000000000000000000000000000",
+      "updated": "2026-01-15",
+      "category": "time-calendar",
+      "categories": [
+        "time-calendar",
+        "ambient-fun"
+      ],
+      "tags": [
+        "clock",
+        "time",
+        "world-clock"
+      ],
+      "status": "planned",
+      "tier": "concept",
+      "declaredTier": "spec",
+      "installable": false,
+      "review": null,
+      "reviewNote": null,
+      "surfaces": [
+        "desktop",
+        "bar"
+      ],
+      "sizeClasses": [
+        {
+          "name": "chip",
+          "min": [
+            60,
+            24
+          ],
+          "max": [
+            140,
+            40
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "compact",
+          "min": [
+            140,
+            80
+          ],
+          "max": [
+            240,
+            160
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "wide",
+          "min": [
+            240,
+            100
+          ],
+          "max": [
+            480,
+            220
+          ],
+          "aspectLock": null
+        }
+      ],
+      "variants": [
+        "digital",
+        "digital-seconds",
+        "minimal",
+        "date-focus",
+        "chip",
+        "stacked"
+      ],
+      "providers": [
+        {
+          "name": "system",
+          "topics": [
+            "system.time"
+          ],
+          "fields": [
+            "hm",
+            "hms",
+            "date",
+            "tz"
+          ],
+          "auth": "none"
+        }
+      ],
+      "capabilities": {
+        "network": [],
+        "files": [],
+        "spawn": []
+      },
+      "settings": [],
+      "compat": {
+        "omarchy": ">=4.0",
+        "widgetsKit": "^1"
+      },
+      "access": {
+        "data": [
+          "system.time: hm, hms, date, tz"
+        ],
+        "network": [
+          "none"
+        ],
+        "files": [
+          "none"
+        ],
+        "programs": [
+          "none"
+        ],
+        "secrets": [
+          "none"
+        ]
+      },
+      "layout": {
+        "schemaVersion": 0,
+        "root": {
+          "type": "stack",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "value",
+              "bind": {
+                "topic": "system.time",
+                "field": "hm"
+              },
+              "size": "xl",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "bind": {
+                "topic": "system.time",
+                "field": "date"
+              },
+              "size": "sm",
+              "color": "muted"
+            }
+          ]
+        },
+        "variants": {
+          "digital": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "system.time",
+                  "field": "hm"
+                },
+                "size": "xl",
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "bind": {
+                  "topic": "system.time",
+                  "field": "date"
+                },
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          },
+          "digital-seconds": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "system.time",
+                  "field": "hms"
+                },
+                "size": "xl",
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "bind": {
+                  "topic": "system.time",
+                  "field": "date"
+                },
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          },
+          "minimal": {
+            "type": "value",
+            "bind": {
+              "topic": "system.time",
+              "field": "hm"
+            },
+            "size": "xl",
+            "color": "foreground"
+          },
+          "date-focus": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "text",
+                "bind": {
+                  "topic": "system.time",
+                  "field": "date"
+                },
+                "size": "xl",
+                "color": "accent"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "system.time",
+                  "field": "hm"
+                },
+                "size": "md",
+                "color": "secondary"
+              }
+            ]
+          },
+          "chip": {
+            "type": "row",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "icon",
+                "name": "clock",
+                "size": "sm",
+                "color": "secondary"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "system.time",
+                  "field": "hm"
+                },
+                "size": "sm",
+                "color": "foreground"
+              }
+            ]
+          },
+          "stacked": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "system.time",
+                  "field": "hm"
+                },
+                "size": "xl",
+                "color": "accent"
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "text",
+                "bind": {
+                  "topic": "system.time",
+                  "field": "date"
+                },
+                "size": "md",
+                "color": "foreground"
+              },
+              {
+                "type": "badge",
+                "bind": {
+                  "topic": "system.time",
+                  "field": "tz"
+                },
+                "size": "sm",
+                "color": "secondary"
+              }
+            ]
+          }
+        }
+      },
+      "sampleData": {
+        "system.time": {
+          "hm": "10:09",
+          "hms": "10:09:42",
+          "date": "Mon 19 Oct",
+          "tz": "NPT"
+        }
+      }
+    },
+    {
+      "id": "io.github.dexterhere.docker",
+      "name": "Docker",
+      "version": "0.1.0",
+      "description": "Container counts at a glance. Spec widget with no code and six layout variants: counts, health, names, detailed, minimal and a bar chip.",
+      "summary": "Shows how many containers are running, stopped or unhealthy, read-only.",
+      "license": "MIT",
+      "repo": "https://github.com/dexterhere/omarchy-widget-docker",
+      "commit": "0000000000000000000000000000000000000000",
+      "updated": "2026-01-15",
+      "category": "network-containers",
+      "categories": [
+        "network-containers",
+        "dev-git"
+      ],
+      "tags": [
+        "docker",
+        "containers"
+      ],
+      "status": "planned",
+      "tier": "concept",
+      "declaredTier": "spec",
+      "installable": false,
+      "review": null,
+      "reviewNote": null,
+      "surfaces": [
+        "desktop",
+        "bar"
+      ],
+      "sizeClasses": [
+        {
+          "name": "chip",
+          "min": [
+            120,
+            24
+          ],
+          "max": [
+            240,
+            48
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "compact",
+          "min": [
+            140,
+            80
+          ],
+          "max": [
+            240,
+            160
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "wide",
+          "min": [
+            240,
+            120
+          ],
+          "max": [
+            480,
+            240
+          ],
+          "aspectLock": null
+        }
+      ],
+      "variants": [
+        "counts",
+        "health",
+        "names",
+        "detailed",
+        "minimal",
+        "chip"
+      ],
+      "providers": [
+        {
+          "name": "docker",
+          "topics": [
+            "docker.containers"
+          ],
+          "fields": [
+            "running",
+            "stopped",
+            "unhealthy",
+            "names"
+          ],
+          "auth": "none"
+        }
+      ],
+      "capabilities": {
+        "network": [],
+        "files": [],
+        "spawn": []
+      },
+      "settings": [],
+      "compat": {
+        "omarchy": ">=4.0",
+        "widgetsKit": "^1"
+      },
+      "access": {
+        "data": [
+          "docker.containers: running, stopped, unhealthy, names"
+        ],
+        "network": [
+          "none"
+        ],
+        "files": [
+          "none"
+        ],
+        "programs": [
+          "none"
+        ],
+        "secrets": [
+          "none"
+        ]
+      },
+      "layout": {
+        "schemaVersion": 0,
+        "root": {
+          "type": "stack",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "row",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "icon",
+                  "name": "container",
+                  "color": "accent"
+                },
+                {
+                  "type": "text",
+                  "text": "Containers",
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "columns": 3,
+              "gap": "md",
+              "children": [
+                {
+                  "type": "stack",
+                  "gap": "sm",
+                  "children": [
+                    {
+                      "type": "value",
+                      "bind": {
+                        "topic": "docker.containers",
+                        "field": "running"
+                      },
+                      "size": "lg",
+                      "color": "accent"
+                    },
+                    {
+                      "type": "text",
+                      "text": "running",
+                      "size": "sm",
+                      "color": "muted"
+                    }
+                  ]
+                },
+                {
+                  "type": "stack",
+                  "gap": "sm",
+                  "children": [
+                    {
+                      "type": "value",
+                      "bind": {
+                        "topic": "docker.containers",
+                        "field": "stopped"
+                      },
+                      "size": "lg",
+                      "color": "secondary"
+                    },
+                    {
+                      "type": "text",
+                      "text": "stopped",
+                      "size": "sm",
+                      "color": "muted"
+                    }
+                  ]
+                },
+                {
+                  "type": "stack",
+                  "gap": "sm",
+                  "children": [
+                    {
+                      "type": "value",
+                      "bind": {
+                        "topic": "docker.containers",
+                        "field": "unhealthy"
+                      },
+                      "size": "lg",
+                      "color": "foreground"
+                    },
+                    {
+                      "type": "text",
+                      "text": "unhealthy",
+                      "size": "sm",
+                      "color": "muted"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "variants": {
+          "counts": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "container",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "Containers",
+                    "size": "sm",
+                    "color": "muted"
+                  }
+                ]
+              },
+              {
+                "type": "grid",
+                "columns": 3,
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "stack",
+                    "gap": "sm",
+                    "children": [
+                      {
+                        "type": "value",
+                        "bind": {
+                          "topic": "docker.containers",
+                          "field": "running"
+                        },
+                        "size": "lg",
+                        "color": "accent"
+                      },
+                      {
+                        "type": "text",
+                        "text": "running",
+                        "size": "sm",
+                        "color": "muted"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "stack",
+                    "gap": "sm",
+                    "children": [
+                      {
+                        "type": "value",
+                        "bind": {
+                          "topic": "docker.containers",
+                          "field": "stopped"
+                        },
+                        "size": "lg",
+                        "color": "secondary"
+                      },
+                      {
+                        "type": "text",
+                        "text": "stopped",
+                        "size": "sm",
+                        "color": "muted"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "stack",
+                    "gap": "sm",
+                    "children": [
+                      {
+                        "type": "value",
+                        "bind": {
+                          "topic": "docker.containers",
+                          "field": "unhealthy"
+                        },
+                        "size": "lg",
+                        "color": "foreground"
+                      },
+                      {
+                        "type": "text",
+                        "text": "unhealthy",
+                        "size": "sm",
+                        "color": "muted"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "health": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "container",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "Health",
+                    "size": "sm",
+                    "color": "muted"
+                  }
+                ]
+              },
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "docker.containers",
+                      "field": "unhealthy"
+                    },
+                    "size": "xl",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "unhealthy",
+                    "size": "md",
+                    "color": "accent"
+                  }
+                ]
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "docker.containers",
+                      "field": "running"
+                    },
+                    "size": "md",
+                    "color": "foreground"
+                  },
+                  {
+                    "type": "text",
+                    "text": "running",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "docker.containers",
+                      "field": "stopped"
+                    },
+                    "size": "md",
+                    "color": "secondary"
+                  },
+                  {
+                    "type": "text",
+                    "text": "stopped",
+                    "size": "sm",
+                    "color": "muted"
+                  }
+                ]
+              }
+            ]
+          },
+          "names": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "container",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "Containers",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "docker.containers",
+                      "field": "running"
+                    },
+                    "size": "md",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "running",
+                    "size": "sm",
+                    "color": "muted"
+                  }
+                ]
+              },
+              {
+                "type": "list",
+                "bind": {
+                  "topic": "docker.containers",
+                  "field": "names"
+                },
+                "max": 10,
+                "size": "sm",
+                "color": "foreground"
+              }
+            ]
+          },
+          "detailed": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "container",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "Docker",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "docker.containers",
+                      "field": "running"
+                    },
+                    "size": "lg",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "running",
+                    "size": "sm",
+                    "color": "muted"
+                  }
+                ]
+              },
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "text",
+                    "text": "Stopped",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "docker.containers",
+                      "field": "stopped"
+                    },
+                    "size": "md",
+                    "color": "secondary"
+                  }
+                ]
+              },
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "text",
+                    "text": "Unhealthy",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "docker.containers",
+                      "field": "unhealthy"
+                    },
+                    "size": "md",
+                    "color": "accent"
+                  }
+                ]
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "list",
+                "bind": {
+                  "topic": "docker.containers",
+                  "field": "names"
+                },
+                "max": 8,
+                "size": "sm",
+                "color": "foreground"
+              }
+            ]
+          },
+          "minimal": {
+            "type": "row",
+            "gap": "md",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "docker.containers",
+                  "field": "running"
+                },
+                "size": "xl",
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "text": "running",
+                "size": "sm",
+                "color": "muted"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "docker.containers",
+                  "field": "stopped"
+                },
+                "size": "md",
+                "color": "secondary"
+              },
+              {
+                "type": "text",
+                "text": "stopped",
+                "size": "sm",
+                "color": "muted"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "docker.containers",
+                  "field": "unhealthy"
+                },
+                "size": "md",
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "text": "unhealthy",
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          },
+          "chip": {
+            "type": "row",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "icon",
+                "name": "container",
+                "color": "accent"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "docker.containers",
+                  "field": "running"
+                },
+                "size": "md",
+                "color": "foreground"
+              },
+              {
+                "type": "text",
+                "text": "up",
+                "size": "sm",
+                "color": "muted"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "docker.containers",
+                  "field": "unhealthy"
+                },
+                "size": "md",
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "text": "unhealthy",
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          }
+        }
+      },
+      "sampleData": {
+        "docker.containers": {
+          "running": 5,
+          "stopped": 2,
+          "unhealthy": 1,
+          "names": [
+            "web",
+            "db",
+            "cache",
+            "worker",
+            "proxy"
+          ]
+        }
+      }
+    },
+    {
+      "id": "io.github.dexterhere.github-activity",
+      "name": "GitHub activity",
+      "version": "0.1.0",
+      "description": "Your open pull requests and the ones waiting for your review, as two numbers. Spec widget with no code and five layout variants. Needs the GitHub provider, which is not built yet.",
+      "summary": "Shows how many of your pull requests are open and how many reviews are waiting for you.",
+      "license": "MIT",
+      "repo": "https://github.com/dexterhere/omarchy-widget-github-activity",
+      "commit": "0000000000000000000000000000000000000000",
+      "updated": "2026-01-15",
+      "category": "dev-git",
+      "categories": [
+        "dev-git",
+        "productivity"
+      ],
+      "tags": [
+        "github",
+        "pull-requests"
+      ],
+      "status": "planned",
+      "tier": "concept",
+      "declaredTier": "spec",
+      "installable": false,
+      "review": null,
+      "reviewNote": null,
+      "surfaces": [
+        "desktop",
+        "bar"
+      ],
+      "sizeClasses": [
+        {
+          "name": "chip",
+          "min": [
+            100,
+            24
+          ],
+          "max": [
+            200,
+            48
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "compact",
+          "min": [
+            140,
+            80
+          ],
+          "max": [
+            240,
+            160
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "wide",
+          "min": [
+            260,
+            100
+          ],
+          "max": [
+            480,
+            200
+          ],
+          "aspectLock": null
+        }
+      ],
+      "variants": [
+        "counts",
+        "badge-review",
+        "chip",
+        "minimal",
+        "detailed"
+      ],
+      "providers": [
+        {
+          "name": "github",
+          "topics": [
+            "github.prs"
+          ],
+          "fields": [
+            "open",
+            "review"
+          ],
+          "auth": "vault"
+        }
+      ],
+      "capabilities": {
+        "network": [],
+        "files": [],
+        "spawn": []
+      },
+      "settings": [],
+      "compat": {
+        "omarchy": ">=4.0",
+        "widgetsKit": "^1"
+      },
+      "access": {
+        "data": [
+          "github.prs: open, review"
+        ],
+        "network": [
+          "none"
+        ],
+        "files": [
+          "none"
+        ],
+        "programs": [
+          "none"
+        ],
+        "secrets": [
+          "a github credential kept in your vault (the widget never sees it)"
+        ]
+      },
+      "layout": {
+        "schemaVersion": 0,
+        "root": {
+          "type": "row",
+          "gap": "lg",
+          "children": [
+            {
+              "type": "stack",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "github.prs",
+                    "field": "open"
+                  },
+                  "size": "xl",
+                  "color": "accent"
+                },
+                {
+                  "type": "text",
+                  "text": "open",
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            },
+            {
+              "type": "stack",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "github.prs",
+                    "field": "review"
+                  },
+                  "size": "xl",
+                  "color": "foreground"
+                },
+                {
+                  "type": "text",
+                  "text": "to review",
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            }
+          ]
+        },
+        "variants": {
+          "counts": {
+            "type": "row",
+            "gap": "lg",
+            "children": [
+              {
+                "type": "stack",
+                "gap": "sm",
+                "children": [
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "github.prs",
+                      "field": "open"
+                    },
+                    "size": "xl",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "open",
+                    "size": "sm",
+                    "color": "muted"
+                  }
+                ]
+              },
+              {
+                "type": "stack",
+                "gap": "sm",
+                "children": [
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "github.prs",
+                      "field": "review"
+                    },
+                    "size": "xl",
+                    "color": "foreground"
+                  },
+                  {
+                    "type": "text",
+                    "text": "to review",
+                    "size": "sm",
+                    "color": "muted"
+                  }
+                ]
+              }
+            ]
+          },
+          "badge-review": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "git",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "Pull requests",
+                    "size": "md",
+                    "color": "foreground"
+                  }
+                ]
+              },
+              {
+                "type": "row",
+                "gap": "lg",
+                "children": [
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "github.prs",
+                      "field": "open"
+                    },
+                    "size": "lg",
+                    "color": "foreground"
+                  },
+                  {
+                    "type": "text",
+                    "text": "open",
+                    "size": "sm",
+                    "color": "muted"
+                  }
+                ]
+              },
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "badge",
+                    "bind": {
+                      "topic": "github.prs",
+                      "field": "review"
+                    },
+                    "size": "md",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "waiting for your review",
+                    "size": "sm",
+                    "color": "muted"
+                  }
+                ]
+              }
+            ]
+          },
+          "chip": {
+            "type": "row",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "icon",
+                "name": "git",
+                "color": "accent"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "github.prs",
+                  "field": "open"
+                },
+                "size": "sm",
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "text": "open",
+                "size": "sm",
+                "color": "muted"
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "github.prs",
+                  "field": "review"
+                },
+                "size": "sm",
+                "color": "secondary"
+              },
+              {
+                "type": "text",
+                "text": "review",
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          },
+          "minimal": {
+            "type": "row",
+            "gap": "md",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "github.prs",
+                  "field": "open"
+                },
+                "size": "lg",
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "text": "/",
+                "size": "sm",
+                "color": "muted"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "github.prs",
+                  "field": "review"
+                },
+                "size": "lg",
+                "color": "secondary"
+              }
+            ]
+          },
+          "detailed": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "git",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "Pull requests",
+                    "size": "md",
+                    "color": "foreground"
+                  }
+                ]
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "text",
+                    "text": "Open",
+                    "size": "md",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "github.prs",
+                      "field": "open"
+                    },
+                    "size": "lg",
+                    "color": "accent"
+                  }
+                ]
+              },
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "text",
+                    "text": "To review",
+                    "size": "md",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "github.prs",
+                      "field": "review"
+                    },
+                    "size": "lg",
+                    "color": "foreground"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "sampleData": {
+        "github.prs": {
+          "open": 4,
+          "review": 2
+        }
+      }
+    },
+    {
+      "id": "io.github.dexterhere.system-monitor",
+      "name": "System monitor",
+      "version": "0.1.0",
+      "description": "CPU, memory and load at a glance. Spec widget with no code and eight layout variants: rings, bars, a two-bar view, a full view with load averages, a numbers-only view, a bar chip, and one separate variant that needs the not-yet-served temperature field.",
+      "summary": "Shows CPU load, memory use and temperature, with a short history graph when the widget is tall enough.",
+      "license": "MIT",
+      "repo": "https://github.com/dexterhere/omarchy-widget-system-monitor",
+      "commit": "0000000000000000000000000000000000000000",
+      "updated": "2026-01-15",
+      "category": "system",
+      "categories": [
+        "system",
+        "utilities"
+      ],
+      "tags": [
+        "cpu",
+        "memory",
+        "temperature"
+      ],
+      "status": "planned",
+      "tier": "concept",
+      "declaredTier": "spec",
+      "installable": false,
+      "review": null,
+      "reviewNote": null,
+      "surfaces": [
+        "desktop",
+        "bar"
+      ],
+      "sizeClasses": [
+        {
+          "name": "chip",
+          "min": [
+            120,
+            24
+          ],
+          "max": [
+            240,
+            48
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "compact",
+          "min": [
+            140,
+            100
+          ],
+          "max": [
+            240,
+            180
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "wide",
+          "min": [
+            260,
+            120
+          ],
+          "max": [
+            480,
+            220
+          ],
+          "aspectLock": null
+        }
+      ],
+      "variants": [
+        "cpu-ring",
+        "cpu-bar",
+        "memory-ring",
+        "cpu-memory",
+        "full",
+        "minimal",
+        "chip",
+        "cpu-temp"
+      ],
+      "providers": [
+        {
+          "name": "system",
+          "topics": [
+            "system.cpu",
+            "system.memory",
+            "system.load",
+            "system.temp"
+          ],
+          "fields": [
+            "usage_pct",
+            "used_pct",
+            "used_mib",
+            "total_mib",
+            "load1",
+            "load5",
+            "load15",
+            "celsius"
+          ],
+          "auth": "none"
+        }
+      ],
+      "capabilities": {
+        "network": [],
+        "files": [],
+        "spawn": []
+      },
+      "settings": [],
+      "compat": {
+        "omarchy": ">=4.0",
+        "widgetsKit": "^1"
+      },
+      "access": {
+        "data": [
+          "system.cpu, system.memory, system.load, system.temp: usage_pct, used_pct, used_mib, total_mib, load1, load5, load15, celsius"
+        ],
+        "network": [
+          "none"
+        ],
+        "files": [
+          "none"
+        ],
+        "programs": [
+          "none"
+        ],
+        "secrets": [
+          "none"
+        ]
+      },
+      "layout": {
+        "schemaVersion": 0,
+        "root": {
+          "type": "stack",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "row",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "icon",
+                  "name": "cpu",
+                  "color": "accent"
+                },
+                {
+                  "type": "text",
+                  "text": "CPU",
+                  "size": "sm",
+                  "color": "muted"
+                },
+                {
+                  "type": "spacer"
+                },
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "system.cpu",
+                    "field": "usage_pct"
+                  },
+                  "unit": "%",
+                  "size": "md",
+                  "color": "foreground"
+                }
+              ]
+            },
+            {
+              "type": "bar",
+              "bind": {
+                "topic": "system.cpu",
+                "field": "usage_pct"
+              },
+              "color": "accent"
+            },
+            {
+              "type": "row",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "icon",
+                  "name": "memory",
+                  "color": "secondary"
+                },
+                {
+                  "type": "text",
+                  "text": "Memory",
+                  "size": "sm",
+                  "color": "muted"
+                },
+                {
+                  "type": "spacer"
+                },
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "system.memory",
+                    "field": "used_pct"
+                  },
+                  "unit": "%",
+                  "size": "md",
+                  "color": "foreground"
+                }
+              ]
+            },
+            {
+              "type": "bar",
+              "bind": {
+                "topic": "system.memory",
+                "field": "used_pct"
+              },
+              "color": "secondary"
+            }
+          ]
+        },
+        "variants": {
+          "cpu-ring": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "text",
+                "text": "CPU",
+                "size": "sm",
+                "color": "muted"
+              },
+              {
+                "type": "ring",
+                "bind": {
+                  "topic": "system.cpu",
+                  "field": "usage_pct"
+                },
+                "color": "accent"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "system.cpu",
+                  "field": "usage_pct"
+                },
+                "unit": "%",
+                "size": "lg",
+                "color": "accent"
+              }
+            ]
+          },
+          "cpu-bar": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "cpu",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "CPU",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "system.cpu",
+                      "field": "usage_pct"
+                    },
+                    "unit": "%",
+                    "size": "lg",
+                    "color": "accent"
+                  }
+                ]
+              },
+              {
+                "type": "bar",
+                "bind": {
+                  "topic": "system.cpu",
+                  "field": "usage_pct"
+                },
+                "color": "accent"
+              }
+            ]
+          },
+          "memory-ring": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "text",
+                "text": "Memory",
+                "size": "sm",
+                "color": "muted"
+              },
+              {
+                "type": "ring",
+                "bind": {
+                  "topic": "system.memory",
+                  "field": "used_pct"
+                },
+                "color": "secondary"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "system.memory",
+                  "field": "used_pct"
+                },
+                "unit": "%",
+                "size": "lg",
+                "color": "secondary"
+              },
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "system.memory",
+                      "field": "used_mib"
+                    },
+                    "unit": "MiB",
+                    "size": "sm",
+                    "color": "foreground"
+                  },
+                  {
+                    "type": "text",
+                    "text": "of",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "system.memory",
+                      "field": "total_mib"
+                    },
+                    "unit": "MiB",
+                    "size": "sm",
+                    "color": "foreground"
+                  }
+                ]
+              }
+            ]
+          },
+          "cpu-memory": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "cpu",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "CPU",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "system.cpu",
+                      "field": "usage_pct"
+                    },
+                    "unit": "%",
+                    "size": "md",
+                    "color": "foreground"
+                  }
+                ]
+              },
+              {
+                "type": "bar",
+                "bind": {
+                  "topic": "system.cpu",
+                  "field": "usage_pct"
+                },
+                "color": "accent"
+              },
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "memory",
+                    "color": "secondary"
+                  },
+                  {
+                    "type": "text",
+                    "text": "Memory",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "system.memory",
+                      "field": "used_pct"
+                    },
+                    "unit": "%",
+                    "size": "md",
+                    "color": "foreground"
+                  }
+                ]
+              },
+              {
+                "type": "bar",
+                "bind": {
+                  "topic": "system.memory",
+                  "field": "used_pct"
+                },
+                "color": "secondary"
+              }
+            ]
+          },
+          "full": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "cpu",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "CPU",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "system.cpu",
+                      "field": "usage_pct"
+                    },
+                    "unit": "%",
+                    "size": "md",
+                    "color": "foreground"
+                  }
+                ]
+              },
+              {
+                "type": "bar",
+                "bind": {
+                  "topic": "system.cpu",
+                  "field": "usage_pct"
+                },
+                "color": "accent"
+              },
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "memory",
+                    "color": "secondary"
+                  },
+                  {
+                    "type": "text",
+                    "text": "Memory",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "system.memory",
+                      "field": "used_pct"
+                    },
+                    "unit": "%",
+                    "size": "md",
+                    "color": "foreground"
+                  }
+                ]
+              },
+              {
+                "type": "bar",
+                "bind": {
+                  "topic": "system.memory",
+                  "field": "used_pct"
+                },
+                "color": "secondary"
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "text",
+                    "text": "Load",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "system.load",
+                      "field": "load1"
+                    },
+                    "unit": "",
+                    "size": "sm",
+                    "color": "foreground"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "system.load",
+                      "field": "load5"
+                    },
+                    "unit": "",
+                    "size": "sm",
+                    "color": "secondary"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "system.load",
+                      "field": "load15"
+                    },
+                    "unit": "",
+                    "size": "sm",
+                    "color": "muted"
+                  }
+                ]
+              }
+            ]
+          },
+          "minimal": {
+            "type": "row",
+            "gap": "lg",
+            "children": [
+              {
+                "type": "text",
+                "text": "CPU",
+                "size": "sm",
+                "color": "muted"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "system.cpu",
+                  "field": "usage_pct"
+                },
+                "unit": "%",
+                "size": "lg",
+                "color": "accent"
+              },
+              {
+                "type": "spacer"
+              },
+              {
+                "type": "text",
+                "text": "MEM",
+                "size": "sm",
+                "color": "muted"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "system.memory",
+                  "field": "used_pct"
+                },
+                "unit": "%",
+                "size": "lg",
+                "color": "secondary"
+              }
+            ]
+          },
+          "chip": {
+            "type": "row",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "icon",
+                "name": "cpu",
+                "color": "accent"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "system.cpu",
+                  "field": "usage_pct"
+                },
+                "unit": "%",
+                "size": "sm",
+                "color": "accent"
+              },
+              {
+                "type": "bar",
+                "bind": {
+                  "topic": "system.cpu",
+                  "field": "usage_pct"
+                },
+                "color": "accent"
+              },
+              {
+                "type": "icon",
+                "name": "memory",
+                "color": "secondary"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "system.memory",
+                  "field": "used_pct"
+                },
+                "unit": "%",
+                "size": "sm",
+                "color": "secondary"
+              }
+            ]
+          },
+          "cpu-temp": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "cpu",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "CPU",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "system.cpu",
+                      "field": "usage_pct"
+                    },
+                    "unit": "%",
+                    "size": "md",
+                    "color": "foreground"
+                  }
+                ]
+              },
+              {
+                "type": "bar",
+                "bind": {
+                  "topic": "system.cpu",
+                  "field": "usage_pct"
+                },
+                "color": "accent"
+              },
+              {
+                "type": "row",
+                "gap": "md",
+                "children": [
+                  {
+                    "type": "text",
+                    "text": "Temp",
+                    "size": "sm",
+                    "color": "muted"
+                  },
+                  {
+                    "type": "spacer"
+                  },
+                  {
+                    "type": "value",
+                    "bind": {
+                      "topic": "system.temp",
+                      "field": "celsius"
+                    },
+                    "unit": "C",
+                    "size": "md",
+                    "color": "secondary"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "sampleData": {
+        "system.cpu": {
+          "usage_pct": 34
+        },
+        "system.memory": {
+          "used_pct": 58,
+          "used_mib": 9200,
+          "total_mib": 16000
+        },
+        "system.load": {
+          "load1": 1.2,
+          "load5": 0.9,
+          "load15": 0.7
+        },
+        "system.temp": {
+          "celsius": 54
+        }
+      }
+    },
+    {
+      "id": "io.github.dexterhere.tasks",
+      "name": "Tasks",
+      "version": "0.1.0",
+      "description": "Open tasks, tasks due today and a short task list as a list, counts, chip, minimal or detailed card. Spec widget: JSON only, no code.",
+      "summary": "Shows your open tasks and how many are due today, from a local task file.",
+      "license": "MIT",
+      "repo": "https://github.com/dexterhere/omarchy-widget-tasks",
+      "commit": "0000000000000000000000000000000000000000",
+      "updated": "2026-01-15",
+      "category": "productivity",
+      "categories": [
+        "productivity",
+        "time-calendar"
+      ],
+      "tags": [
+        "tasks",
+        "todo"
+      ],
+      "status": "planned",
+      "tier": "concept",
+      "declaredTier": "spec",
+      "installable": false,
+      "review": null,
+      "reviewNote": null,
+      "surfaces": [
+        "desktop",
+        "bar"
+      ],
+      "sizeClasses": [
+        {
+          "name": "chip",
+          "min": [
+            48,
+            24
+          ],
+          "max": [
+            140,
+            40
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "compact",
+          "min": [
+            120,
+            80
+          ],
+          "max": [
+            240,
+            160
+          ],
+          "aspectLock": null
+        },
+        {
+          "name": "wide",
+          "min": [
+            240,
+            140
+          ],
+          "max": [
+            480,
+            280
+          ],
+          "aspectLock": null
+        }
+      ],
+      "variants": [
+        "list",
+        "count",
+        "due",
+        "chip",
+        "minimal",
+        "detailed"
+      ],
+      "providers": [
+        {
+          "name": "tasks",
+          "topics": [
+            "tasks.list"
+          ],
+          "fields": [
+            "open",
+            "dueToday",
+            "titles"
+          ],
+          "auth": "none"
+        }
+      ],
+      "capabilities": {
+        "network": [],
+        "files": [],
+        "spawn": []
+      },
+      "settings": [],
+      "compat": {
+        "omarchy": ">=4.0",
+        "widgetsKit": "^1"
+      },
+      "access": {
+        "data": [
+          "tasks.list: open, dueToday, titles"
+        ],
+        "network": [
+          "none"
+        ],
+        "files": [
+          "none"
+        ],
+        "programs": [
+          "none"
+        ],
+        "secrets": [
+          "none"
+        ]
+      },
+      "layout": {
+        "schemaVersion": 0,
+        "root": {
+          "type": "stack",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "row",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "icon",
+                  "name": "check",
+                  "size": "md",
+                  "color": "accent"
+                },
+                {
+                  "type": "text",
+                  "text": "Tasks",
+                  "size": "sm",
+                  "color": "secondary"
+                }
+              ]
+            },
+            {
+              "type": "row",
+              "gap": "lg",
+              "children": [
+                {
+                  "type": "stack",
+                  "gap": "sm",
+                  "children": [
+                    {
+                      "type": "value",
+                      "bind": {
+                        "topic": "tasks.list",
+                        "field": "open"
+                      },
+                      "size": "lg",
+                      "color": "accent"
+                    },
+                    {
+                      "type": "text",
+                      "text": "open",
+                      "size": "sm",
+                      "color": "muted"
+                    }
+                  ]
+                },
+                {
+                  "type": "stack",
+                  "gap": "sm",
+                  "children": [
+                    {
+                      "type": "value",
+                      "bind": {
+                        "topic": "tasks.list",
+                        "field": "dueToday"
+                      },
+                      "size": "lg",
+                      "color": "foreground"
+                    },
+                    {
+                      "type": "text",
+                      "text": "due today",
+                      "size": "sm",
+                      "color": "muted"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "list",
+              "bind": {
+                "topic": "tasks.list",
+                "field": "titles"
+              },
+              "max": 5,
+              "size": "md",
+              "color": "foreground"
+            }
+          ]
+        },
+        "variants": {
+          "list": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "sm",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "check",
+                    "size": "md",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "Tasks",
+                    "size": "sm",
+                    "color": "secondary"
+                  }
+                ]
+              },
+              {
+                "type": "list",
+                "bind": {
+                  "topic": "tasks.list",
+                  "field": "titles"
+                },
+                "max": 5,
+                "size": "md",
+                "color": "foreground"
+              }
+            ]
+          },
+          "count": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "tasks.list",
+                  "field": "open"
+                },
+                "size": "xl",
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "text": "open",
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          },
+          "due": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "tasks.list",
+                  "field": "dueToday"
+                },
+                "size": "xl",
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "text": "due today",
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          },
+          "chip": {
+            "type": "row",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "icon",
+                "name": "check",
+                "size": "sm",
+                "color": "accent"
+              },
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "tasks.list",
+                  "field": "open"
+                },
+                "size": "sm",
+                "color": "foreground"
+              }
+            ]
+          },
+          "minimal": {
+            "type": "list",
+            "bind": {
+              "topic": "tasks.list",
+              "field": "titles"
+            },
+            "max": 3,
+            "size": "sm",
+            "color": "foreground"
+          },
+          "detailed": {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "row",
+                "gap": "sm",
+                "children": [
+                  {
+                    "type": "icon",
+                    "name": "check",
+                    "size": "md",
+                    "color": "accent"
+                  },
+                  {
+                    "type": "text",
+                    "text": "Tasks",
+                    "size": "sm",
+                    "color": "secondary"
+                  }
+                ]
+              },
+              {
+                "type": "row",
+                "gap": "lg",
+                "children": [
+                  {
+                    "type": "stack",
+                    "gap": "sm",
+                    "children": [
+                      {
+                        "type": "value",
+                        "bind": {
+                          "topic": "tasks.list",
+                          "field": "open"
+                        },
+                        "size": "lg",
+                        "color": "accent"
+                      },
+                      {
+                        "type": "text",
+                        "text": "open",
+                        "size": "sm",
+                        "color": "muted"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "stack",
+                    "gap": "sm",
+                    "children": [
+                      {
+                        "type": "value",
+                        "bind": {
+                          "topic": "tasks.list",
+                          "field": "dueToday"
+                        },
+                        "size": "lg",
+                        "color": "foreground"
+                      },
+                      {
+                        "type": "text",
+                        "text": "due today",
+                        "size": "sm",
+                        "color": "muted"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "list",
+                "bind": {
+                  "topic": "tasks.list",
+                  "field": "titles"
+                },
+                "max": 5,
+                "size": "md",
+                "color": "foreground"
+              }
+            ]
+          }
+        }
+      },
+      "sampleData": {
+        "tasks.list": {
+          "open": 6,
+          "dueToday": 2,
+          "titles": [
+            "Reply to review",
+            "Fix clock drift",
+            "Write docs"
+          ]
+        }
+      }
+    }
+  ],
+  "excluded": []
+}

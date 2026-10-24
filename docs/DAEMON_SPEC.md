@@ -1,6 +1,6 @@
 # Provider daemon (`owd`) specification, draft v0
 
-> **Status (checked against `crates/` on 2026-10-23).** This is a design document; the code is the source of truth. Each section below ends with an **Implemented / Not implemented** note. Summary: the Unix socket server, protocol ops `hello`/`snapshot`/`subscribe`/`unsubscribe`/`status`, grants, audit log, rate limiting, process hardening, the passphrase-mode vault (library plus `ow vault`) and the `system` provider are implemented. Admin ops `vault.unlock`, `vault.lock` and `vault.status` (passphrase mode) are implemented. Not implemented: `config.toml`, the other admin ops, vault keyring/TPM modes and keyring auto-unlock, every provider except `system`, any network access or egress allow-list, `tracing`. The design text is kept as intent; where it differs from the code, the status note says so. The unit in `packaging/owd.service` has been verified only offline and as a transient unit, not as an installed unit. Nothing here makes code widgets sandboxed: they run as the user.
+> **Status (checked against `crates/` on 2026-10-23).** This is a design document; the code is the source of truth. Each section below ends with an **Implemented / Not implemented** note. Summary: the Unix socket server, protocol ops `hello`/`snapshot`/`subscribe`/`unsubscribe`/`status`, grants, audit log, rate limiting, process hardening, the passphrase-mode vault (library plus `ow vault`) and the `system` provider are implemented. Admin ops `vault.unlock`, `vault.lock` and `vault.status` (passphrase mode) and `grants.reload` are implemented. `ow install|list|remove` manage spec widgets and their grants (`docs/INSTALL_DESIGN.md`). Not implemented: `config.toml`, the other admin ops, vault keyring/TPM modes and keyring auto-unlock, every provider except `system`, any network access or egress allow-list, `tracing`. The design text is kept as intent; where it differs from the code, the status note says so. The unit in `packaging/owd.service` has been verified only offline and as a transient unit, not as an installed unit. Nothing here makes code widgets sandboxed: they run as the user.
 
 Audience: the agent that builds it. This is a proposal derived from the project plan; where it says **verify** or **decide**, record the outcome in `docs/DECISIONS.md`. Visual explanations are in `design/` (artboards "What the provider daemon is", "One request, step by step", "How to build it").
 
@@ -61,7 +61,7 @@ deny.toml
 - `ow-core`: `grants`, `audit`, `ratelimit`, `paths`, `harden`, and the synchronous `Provider` trait (`provider.rs`). The cache and scheduler are not here; they live in `owd/src/hub.rs`. There is no HTTP client.
 - `ow-providers`: only `system`.
 - `owd`: socket server, connection handling, hub (cache and scheduler), SIGHUP grants reload, `sd_notify`. No config file.
-- `ow`: `status` and `vault init|status|list|set|remove|rotate|wipe` only. No `grants`, `audit` or `unlock`/`change-mode` verbs.
+- `ow`: `status`, `vault init|status|unlock|lock|list|set|remove|rotate|wipe`, and `install <id>`, `list`, `remove <id>` for spec widgets (CLI verbs below). No `grants`, `audit` or `change-mode` verbs. `ow` is also a library (`crates/ow/src/lib.rs`) so tests can drive the install code in-process; it is the only crate that depends on `ow-egress`.
 - `packaging/owd.service` exists; no PKGBUILD was checked here.
 
 All crates `#![forbid(unsafe_code)]`. If `prctl`, `mlock` or `setrlimit` need syscalls, use `rustix` or `nix`; if a truly unsafe block remains, isolate it in one audited module with a comment explaining why.
@@ -94,7 +94,7 @@ Client -> daemon:
 {"v":0,"id":5,"op":"status"}
 ```
 
-Admin ops, on the same socket in v0 (decision D-1 still open): implemented `vault.unlock`, `vault.lock`, `vault.status`; design only `grants.list`, `grants.set`, `audit.tail`, `vault.set`, `vault.remove`, `vault.wipe`.
+Admin ops, on the same socket in v0 (decision D-1 still open): implemented `vault.unlock`, `vault.lock`, `vault.status`, `grants.reload`; design only `grants.list`, `grants.set`, `audit.tail`, `vault.set`, `vault.remove`, `vault.wipe`.
 
 Implemented admin frames (same uid only, via `SO_PEERCRED`; they carry no `widget` field, and one that does is refused with `denied` and audited by op name):
 
@@ -111,6 +111,18 @@ Implemented admin frames (same uid only, via `SO_PEERCRED`; they carry no `widge
 ```
 
 The passphrase is hex so it is arbitrary bytes and has no JSON escapes. It is decoded outside serde's tagged/flattened buffering into zeroizing memory, the frame buffers are wiped after use, `Debug` is redacted, and parse errors carry a code only. `vault.status` never returns values and does not count as use (it does not extend the idle timer). Policy constants (`crates/owd/src/unlock.rs`): 5 free failures, then a lockout of 30 s that doubles per further consecutive failure up to 15 min; one unlock attempt at a time; idle auto-lock after 15 min without a secret being resolved (a visible widget that polls keeps the vault open). Counters live in memory and reset on daemon restart. A secret-backed topic answers `locked` (to snapshot and subscribe) while the vault is locked; lock, idle lock and every fresh unlock purge the cache entries of secret-backed providers, and a result fetched across a lock is discarded. Review follow-ups, now in the code: the idle timer and lockout deadline run on CLOCK_BOOTTIME, so time spent suspended counts as idle. Any `widget` key on an admin op, including `null`, makes it a widget claim and it is refused. Cache entries carry the vault key epoch; the lock and the cache purge happen together under the hub state lock, and snapshot, cached, initial and scheduled pushes compare the epoch under that lock (a reply already past its last check can still be in flight on another connection when a lock lands). Fetch workers are counted separately from cache entries. An unlock whose audit line cannot be written is rolled back and answers `internal`. Refused widget-shaped admin frames, and data requests whose topic starts with `vault.`, share one small rate-limit bucket checked before the grant lookup; over the limit they are refused with no audit line. `ow vault set|remove|rotate|wipe` send `vault.lock` to the daemon afterwards (best effort), because the daemon's decrypted copy would otherwise go stale. Providers get secrets through `FetchCtx::with_secret` (closure) or a `SecretHandle` that borrows the context.
+
+`grants.reload` (no payload) makes the daemon re-read `grants.toml` through the same function SIGHUP uses; a failed reload fails closed (no grants, everything denied):
+
+```
+{"v":0,"id":N,"op":"grants.reload"}
+  ok:    {"v":0,"id":N,"ok":true,"state":"reloaded"}
+  unreadable, insecure or invalid file: error "internal" (the daemon now denies every widget)
+  more than the small admin burst: error "rate_limited"
+  a frame with a "widget" key (null included): error "denied", audited by op name, like the vault ops
+```
+
+Its audit entries have widget `admin`, topic `grants`, op `reload`, decision allow or deny (a failed reload is a deny). `ow install` and `ow remove` call it after editing `grants.toml`; if no daemon is running they say the grants apply at the next start.
 
 Audit entries for admin events have widget `admin`, topic `vault` and op `unlock`, `lock`, `autolock`, `lockout` or the refused op's name; no payload exists in the entry type.
 
@@ -158,7 +170,17 @@ approved_at = "2026-10-17T12:00:00Z"
 - Limits: 32 connections, 32 subscriptions per connection, 16 per widget, 256 total.
 - Audit ops logged are `snapshot`, `subscribe` and push; a push is logged only when it is denied. Rotation at 1 MiB, keeping 5 numbered files.
 
-Not implemented: `audit.tail`, `ow audit tail`, any `ow grants` command (grants are edited as a file).
+Not implemented: `audit.tail`, `ow audit tail`, any `ow grants` command. Grants are still plain file edits, except that `ow install <id>` appends the entries of a spec widget and `ow remove <id>` deletes every entry whose `widget` equals the id (text edit that keeps other entries and comments, proven with the daemon's own parser; atomic replace, mode 0600).
+
+### CLI verbs for spec widgets
+
+```
+ow install <id> [--registry https://<host>] [--allow-planned] [--dry-run] [--yes --accept-access <hash>]
+ow list
+ow remove <id> [--yes]
+```
+
+Design, trust statements and limits: `docs/INSTALL_DESIGN.md`. Summary: the registry index (compiled-in host, or `--registry`, never an environment variable) names repo and commit; `manifest.json`, `widget.json`, `layout.json` are fetched from raw.githubusercontent.com at that commit through `ow-egress` (https, no redirects, 256 KB, JSON only), validated, shown as a plain-language access summary, and installed to `$XDG_DATA_HOME/owd/widgets/<id>/` only after the person types `yes` on a terminal (or passes `--yes` with the exact `--accept-access` hash of that access: registry, repo, commit, file hashes and grants; `--yes` is refused with a non-default `--registry`). `planned` widgets need `--allow-planned`; `removed` ones are never installed. Files are staged and swapped, grants are written second, and any failure rolls back. **Status:** implemented and tested against a fake byte source; a live fetch was checked once with `--dry-run` (the production index lists seven concept entries with placeholder commits, so nothing is installable yet).
 
 ## 7. Vault
 
@@ -210,7 +232,7 @@ trait Provider: Send + Sync {
 - `docker`: talk to the local Docker socket but expose only an allow-listed read-only subset (list/inspect containers, stats). Start/stop/exec require a separate per-widget opt-in and are out of v0.1.
 
 **Status:**
-- Implemented: the `Provider` trait in `ow-core/src/provider.rs` is synchronous (no `async`, no `Ctx`, no `egress_hosts` or `secrets`). A `TopicSpec` is `{name, sensitivity, interval, fields, params}`; undeclared output fields are dropped and undeclared params rejected. Only the `system` provider exists: `system.cpu {usage_pct}`, `system.memory {total_mib, used_mib, used_pct}`, `system.load {load1, load5, load15}`. Scheduler backoff, stale flag and RAM cache are in `owd/src/hub.rs`.
+- Implemented: the `Provider` trait in `ow-core/src/provider.rs` is synchronous (no `async`, no `Ctx`, no `egress_hosts` or `secrets`). A `TopicSpec` is `{name, sensitivity, interval, fields, params}`; undeclared output fields are dropped and undeclared params rejected. Served now (all sensitivity low, no parameters): provider `system`: `system.cpu {usage_pct}`, `system.memory {total_mib, used_mib, used_pct}`, `system.load {load1, load5, load15}`, `system.time {hm "10:09", hms "10:09:42", date "Mon 19 Oct", tz string}` (1 s interval; local 24 h time, zone from `TZ` or `/etc/localtime` via jiff, DEP-TIME; `tz` is the tzdata abbreviation, or an offset such as "+0545" where the zone has none), `system.temp {celsius number}` (5 s; max over CPU hwmon drivers coretemp, k10temp, zenpower, cpu_thermal, x86_pkg_temp, else max over all hwmon `temp*_input`, else thermal zones; readings outside -50..150 C ignored; `unavailable` when no sensor); provider `battery`: `battery.status {percent number 0..100, state string, timeLeft string}` (10 s; first power supply of type Battery in natural name order (BAT2 before BAT10; any name such as macsmc-battery or CMB0 counts when its `type` says Battery, and a supply with no readable `type` counts only if its name starts with BAT); state is Charging, Discharging, Full, Not charging or Unknown; percent from `capacity`, else energy or charge ratio; `timeLeft` is "3h 20m" or "45m" while charging or discharging with a nonzero rate, otherwise an empty string; no battery is `unavailable`, unusable files are `format`). Both read sysfs only, with an injectable root for tests. Scheduler backoff, stale flag and RAM cache are in `owd/src/hub.rs`. `tz` is the tzdata abbreviation or a numeric offset, so Asia/Kathmandu shows "+0545" while the widget's sampleData says "NPT". jiff caches the system zone for about 5 minutes, so a time zone change can take that long to show in `system.time`. Local files are read through one helper: opened O_NONBLOCK and O_NOFOLLOW (final component only), must be a regular file, at most 4 KiB for sysfs and 256 KiB for /proc, so a FIFO, a symlink to /dev/zero or an oversized file is an error instead of a hang. `TZ` check at startup: jiff reads whatever file `TZ` names, so `owd` refuses to start (exit code 2, one line, value never printed) when `TZ` is set, non-empty and not a plain zone name: at most 64 characters from `A-Za-z0-9_+/:.-`, no leading `/` (after one optional `:`) and no `..` segment. POSIX rule strings are refused too; use a zone name.
 - Not implemented: `battery`, `media`, `github`, `docker`, `gmail`, `calendar`, `ai-usage`; per-topic JSON Schema validation; any network provider, HTTP client or egress allow-list; ETag polling; disk or network topics for `system`.
 
 ## 9. Logging and diagnostics

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 0,
+  "id": "io.github.dexterhere.docker",
+  "tier": "spec",
+  "category": "network-containers",
+  "surfaces": ["desktop", "bar"],
+  "sizeClasses": [
+    { "name": "chip", "min": [120, 24], "max": [240, 48], "aspectLock": null },
+    { "name": "compact", "min": [140, 80], "max": [240, 160], "aspectLock": null },
+    { "name": "wide", "min": [240, 120], "max": [480, 240], "aspectLock": null }
+  ],
+  "variants": ["counts", "health", "names", "detailed", "minimal", "chip"],
+  "providers": [
+    {
+      "name": "docker",
+      "topics": ["docker.containers"],
+      "fields": ["running", "stopped", "unhealthy", "names"],
+      "auth": "none"
+    }
+  ],
+  "capabilities": { "network": [], "files": [], "spawn": [] },
+  "interactiveRegions": [],
+  "settings": [],
+  "compat": { "omarchy": ">=4.0", "widgetsKit": "^1" },
+  "sampleData": {
+    "docker.containers": {
+      "running": 5,
+      "stopped": 2,
+      "unhealthy": 1,
+      "names": ["web", "db", "cache", "worker", "proxy"]
+    }
+  }
+}

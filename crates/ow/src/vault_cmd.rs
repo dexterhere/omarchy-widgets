@@ -1,7 +1,7 @@
 //! `ow vault ...`: offline operations on the vault file. Secrets come only from
 //! `input` (terminal prompt or stdin), never from arguments.
-use crate::daemon;
 use crate::input::{secret, secret_confirmed, tty_secret};
+use ow::daemon;
 use ow_core::Paths;
 use ow_vault::{Profile, Vault, VaultError};
 use std::path::Path;

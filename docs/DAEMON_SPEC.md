@@ -241,7 +241,7 @@ Setup, in order: (1) prints what to create (a fine-grained, read-only, expiring 
 
 `--remove` deletes the vault secret and the github table after a typed `yes` (terminal) or `--yes` (no terminal), the same consent style as `ow remove`; the vault passphrase is asked after the consent so a wrong one changes nothing.
 
-**Status:** implemented and tested: unit tests in `crates/ow/src/connect.rs`, the real binary in `crates/ow/tests/connect_cli.rs` (stdin and pseudo-terminal runs, refusals of bad tokens/names/configs/symlinks, leak scan of output, every file, argv and environment in raw, hex, base64 and percent forms, `--check` against a real in-process daemon with a fake HTTP transport), fuzz target `connect_config_edit`. NOT verified against real GitHub or a systemd unit.
+**Status:** implemented and tested: unit tests in `crates/ow/src/connect.rs`, the real binary in `crates/ow/tests/daemon_cli.rs` (stdin and pseudo-terminal runs, refusals of bad tokens/names/configs/symlinks, leak scan of output, every file, argv and environment in raw, hex, base64 and percent forms, `--check` against a real in-process daemon with a fake HTTP transport), fuzz target `connect_config_edit`. NOT verified against real GitHub or a systemd unit.
 
 ### CLI verbs for spec widgets
 

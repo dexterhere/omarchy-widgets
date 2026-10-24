@@ -60,6 +60,20 @@ TestCase {
     compare(P.parseLine(line({ v: 0, sub: 7, topic: "github.prs", state: "offline", data: { open: 1 } })).kind, "push")
   }
 
+  function test_provider_health_words() {
+    const all = ["locked", "no_credential", "unauthorized", "insufficient", "rate_limited", "expired_soon", "offline", "unavailable"]
+    for (const s of all) {
+      compare(P.parseLine(line({ v: 0, sub: 7, topic: "github.prs", state: s })).state, s)
+      compare(P.parseLine(line({ v: 0, sub: 7, topic: "github.prs", stale: true, data: { open: 1 }, state: s })).health, s)
+      compare(P.parseLine(line({ v: 0, id: 3, error: { code: "provider_error", topic: "github.prs", state: s } })).health, s)
+    }
+    // anything outside the closed list is dropped, never passed on as text
+    compare(P.parseLine(line({ v: 0, sub: 7, topic: "github.prs", data: { open: 1 }, state: "<b>x</b>" })).health, "")
+    compare(P.parseLine(line({ v: 0, sub: 7, topic: "github.prs", state: "token ghp_x" })).state, "")
+    compare(P.parseLine(line({ v: 0, id: 3, error: { code: "provider_error", state: 5 } })).health, "")
+    compare(P.parseLine(line({ v: 0, sub: 7, topic: "system.cpu", data: { usage_pct: 1 } })).health, "")
+  }
+
   function test_push() {
     var e = P.parseLine(line({ v: 0, sub: 7, topic: "system.cpu", ts: 1760700000, stale: false, data: { usage_pct: 12.5 } }))
     compare(e.kind, "push"); compare(e.sub, 7); compare(e.topic, "system.cpu"); compare(e.stale, false); compare(e.data.usage_pct, 12.5)

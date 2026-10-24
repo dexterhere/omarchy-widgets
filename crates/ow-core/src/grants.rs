@@ -4,7 +4,6 @@
 //! this is a guardrail for honest code, not a barrier.
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 /// Largest grants file read (and written by tools).
@@ -74,34 +73,12 @@ impl Grants {
     /// The file's text under the rules of `load` (`None` = file missing). For tools that edit
     /// the file (`ow install`): they must apply the daemon's own checks before touching it.
     pub fn read_text(path: &Path) -> Result<Option<String>, GrantsError> {
-        use std::io::Read;
-        use std::os::unix::fs::OpenOptionsExt;
-        let flags = rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK;
-        let f = match std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(flags.bits() as i32)
-            .open(path)
-        {
-            Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(_) => return Err(GrantsError::Io),
-        };
-        let md = f.metadata().map_err(|_| GrantsError::Io)?;
-        if !md.is_file()
-            || md.mode() & 0o077 != 0
-            || md.uid() != rustix::process::geteuid().as_raw()
-        {
-            return Err(GrantsError::Insecure);
-        }
-        let mut text = String::new();
-        // One byte over the cap is read so that an oversize file is an error, not a truncation.
-        f.take(MAX_FILE + 1)
-            .read_to_string(&mut text)
-            .map_err(|_| GrantsError::Io)?;
-        if text.len() as u64 > MAX_FILE {
-            return Err(GrantsError::Invalid);
-        }
-        Ok(Some(text))
+        use crate::private_file::{ReadError, read_private};
+        read_private(path, MAX_FILE).map_err(|e| match e {
+            ReadError::Insecure => GrantsError::Insecure,
+            ReadError::Io => GrantsError::Io,
+            ReadError::TooLarge => GrantsError::Invalid,
+        })
     }
 
     /// Every grant, in file order.

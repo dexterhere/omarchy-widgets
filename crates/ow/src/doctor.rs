@@ -761,7 +761,10 @@ pub fn run(env: &Env) -> Vec<Check> {
             "Data directory",
             &pa.data,
             env.uid,
-            (Level::Fail, "The service cannot start without it."),
+            (
+                Level::Warn,
+                "The systemd service cannot start without it (a daemon you start by hand can).",
+            ),
         ),
         check_private_dir(
             "config-dir",

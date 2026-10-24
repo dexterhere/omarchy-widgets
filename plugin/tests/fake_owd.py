@@ -171,6 +171,13 @@ def serve(c, state):
                     elif scenario == "health":
                         if t == "x.one":
                             send(c, {"v": 0, "sub": sub, "topic": t, "ts": 1760700000 + n, "stale": False, "data": {"n": n}, "state": "expired_soon", "until": 1761000000})
+                        elif t == "x.three":      # data twice, then one state-only push: the data must survive it
+                            if n <= 2:
+                                push(c, sub, t, n)
+                            elif n == 3:
+                                send(c, {"v": 0, "sub": sub, "topic": t, "state": "offline"})
+                        elif t == "x.two" and n == 3:    # a state push whose topic is not the one this sub was made for
+                            send(c, {"v": 0, "sub": sub, "topic": "x.other", "state": "offline"})
                     else:
                         push(c, sub, t, n, stale=(n % 4 == 0))
                     sent += 1

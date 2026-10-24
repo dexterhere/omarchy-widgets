@@ -4,4 +4,5 @@
 #![forbid(unsafe_code)]
 
 pub mod daemon;
+pub mod doctor;
 pub mod install;

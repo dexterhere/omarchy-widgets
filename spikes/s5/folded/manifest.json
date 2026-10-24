@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "io.example.spike-fold",
+  "name": "Spike fold",
+  "version": "0.0.1",
+  "kinds": ["service"],
+  "entryPoints": { "service": "Service.qml" },
+  "ow": {
+    "schemaVersion": 0,
+    "tier": "spec",
+    "surfaces": ["desktop"],
+    "providers": [{ "name": "system", "topics": ["system.cpu"] }],
+    "sizeClasses": [{ "name": "compact", "min": [160, 100], "max": [240, 160] }]
+  }
+}

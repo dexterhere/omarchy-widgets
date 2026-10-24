@@ -1,0 +1,37 @@
+# S2 evidence (live part), 2026-10-23
+run dir: /tmp/ow-spike.LOHR  pid: 3624586
+{"mon":"eDP-1","levels":[{"l":"0","n":["omarchy-background"]},{"l":"1","n":["omarchy-desk"]},{"l":"2","n":["omarchy-bar"]},{"l":"3","n":["ow-spike-edit"]}]}
+{"mon":"HDMI-A-1","levels":[{"l":"0","n":["omarchy-background"]},{"l":"1","n":[]},{"l":"2","n":["omarchy-bar"]},{"l":"3","n":[]}]}
+{"ns":"ow-spike-edit","x":120,"y":120,"w":520,"h":320}
+layout.json:
+{
+  "version": 1,
+  "widgets": {
+    "a": {
+      "x": 70,
+      "y": 60,
+      "w": 260,
+      "h": 150
+    }
+  }
+}exit=0
+--- qs.log
+  INFO: Launching config: "/home/buggybuck/omarchy-ext/omarchy-widgets/omarchy-widgets/.claude/worktrees/phase0-spikes/spikes/s2/shell.qml"
+  INFO: Shell ID: "5dc1e7325664db0faeafbd872f454777" Path ID "5dc1e7325664db0faeafbd872f454777"
+  INFO: Configuration Loaded
+  WARN scene: QML FileView at @shell.qml[13:3]: Read of /tmp/ow-spike.LOHR/layout.json failed: File does not exist.
+ DEBUG qml: S2 SAVED /tmp/ow-spike.LOHR/layout.json
+ DEBUG qml: S2 SAVED /tmp/ow-spike.LOHR/layout.json
+ DEBUG qml: S2 TIMEOUT quit
+      2 zwlr_layer_surface_v1#50.set_keyboard_interactivity(2)
+      1 zwlr_layer_surface_v1#50.set_layer(3)
+# offscreen logic tests:
+Config: Using QtTest library 6.12.0, Qt 6.12.0 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), omarchy 4.0.6
+PASS   : qmltestrunner::EditCanvas::initTestCase()
+PASS   : qmltestrunner::EditCanvas::test_drag_moves_and_commits()
+PASS   : qmltestrunner::EditCanvas::test_escape_exits()
+PASS   : qmltestrunner::EditCanvas::test_keyboard_nudge()
+PASS   : qmltestrunner::EditCanvas::test_resize_handle()
+PASS   : qmltestrunner::EditCanvas::test_resize_respects_min_and_bounds()
+PASS   : qmltestrunner::EditCanvas::cleanupTestCase()
+Totals: 7 passed, 0 failed, 0 skipped, 0 blacklisted, 18ms

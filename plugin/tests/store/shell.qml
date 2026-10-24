@@ -11,13 +11,33 @@ ShellRoot {
   property var step: ({})
   Store { id: s; widgetsDir: Quickshell.env("OW_TEST_WIDGETS") }
 
+  // the Widget Center state (the window part cannot be created offscreen) against the same hostile tree; a stub stands in for the injected service
+  CenterState { id: c; service: QtObject { property var store: s; property var bridge: null } }
+
   function check(name, ok, detail) {
     if (ok) { passed++; console.log("PASS " + name) } else { failed++; console.log("FAIL " + name + " :: " + detail) }
   }
+  function top_count() { return parseInt(Quickshell.env("OW_TEST_DIRCOUNT")) }
   function r(id) { return s.records[id] }
   function why(id) { return r(id) ? (r(id).ok ? "ok" : r(id).reason) : "absent" }
 
   property var plan: [
+    [1600, "center starts hidden and does no row work while closed", function () { return [c.visible === false && c.open === false && c.rows.length === 0 && c.hiddenCount === 0, c.rows.length + " rows"] }],
+    [1650, "open the center", function () { c.toggle(); return [true, ""] }],
+    [1800, "center visible after toggle", function () { return [c.open === true, "" + c.open] }],
+    [1800, "center lists every record, bad ones too, with a remove command each", function () {
+      const rows = c.rows
+      const bad = rows.filter(function (x) { return x.id === "io.test.badnode" })
+      return [rows.length === Object.keys(s.records).length && bad.length === 1 && bad[0].ok === false && bad[0].command === "ow remove io.test.badnode"
+        && rows.every(function (x) { return x.command.indexOf("ow remove ") === 0 }), rows.length + " rows " + Object.keys(s.records).length + " records"] }],
+    [1800, "center shows the daemon as not running when there is no bridge", function () { return [c.rows.filter(function (x) { return x.ok }).every(function (x) { return x.summary === "daemon not running" }), ""] }],
+    [1800, "store loads at most maxDirs directories and counts the rest", function () {
+      return [s.overflowDirs >= 60 && Object.keys(s.records).length <= s.maxDirs && r("io.zz.259") === undefined && r("io.zz.000") !== undefined && s.overflowDirs === top_count() - s.maxDirs, s.overflowDirs + " overflow, " + Object.keys(s.records).length + " records"] }],
+    [1800, "center says how many widgets it is not showing", function () { return [c.hiddenCount === s.overflowDirs && c.hiddenCount > 0, c.hiddenCount + " vs " + s.overflowDirs] }],
+    [1950, "toggle hides it", function () { c.toggle(); return [true, ""] }],
+    [2100, "center hidden after second toggle, rows dropped", function () { return [c.visible === false && c.open === false && c.rows.length === 0, "" + c.open] }],
+    [2150, "show then hide()", function () { c.toggle(); c.hide(); return [true, ""] }],
+    [2300, "hide() closes", function () { return [c.open === false && c.rows.length === 0, "" + c.open] }],
     [1500, "good widget loads", function () { return [why("io.github.dexterhere.clock") === "ok", why("io.github.dexterhere.clock")] }],
     [1500, "all three real widgets load", function () { return [why("io.github.dexterhere.system-monitor") === "ok" && why("io.github.dexterhere.battery") === "ok", Object.keys(s.records).join()] }],
     [1500, "oversize layout is rejected without being read", function () { return [why("io.test.huge") === "layout-type", why("io.test.huge")] }],

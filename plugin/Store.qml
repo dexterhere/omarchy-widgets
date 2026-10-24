@@ -31,6 +31,10 @@ Item {
   }
   property int generation: 0                 // bump to force every directory to be re-read
   property int skippedDirs: 0                // directory names that were not valid ids
+  // Each loaded directory costs memory (about 0.35 MiB measured: four FileViews and a listing), so only the
+  // first maxDirs directories (by name) are loaded. The rest are counted here and never opened.
+  readonly property int maxDirs: 200
+  readonly property int overflowDirs: Math.max(0, top.count - maxDirs)
 
   function rescan() { generation++ }
 
@@ -61,7 +65,8 @@ Item {
     delegate: Item {
       id: src
       required property string fileName
-      readonly property bool validName: L.validId(fileName)
+      required property int index
+      readonly property bool validName: index < store.maxDirs && L.validId(fileName)
       readonly property string dir: store.widgetsDir + "/" + fileName
       readonly property var names: ["manifest", "widget", "layout", "installed"]
       // Files are only opened while `fresh`: the size in the listing was read AFTER the last change we
@@ -96,7 +101,7 @@ Item {
         relist.restart()
       }
       Timer { id: relist; interval: 20; onTriggered: files.folder = src.validName ? "file://" + encodeURI(src.dir) : "" }
-      Component.onCompleted: { if (!validName) store.skippedDirs++; else invalidate() }
+      Component.onCompleted: { if (!validName) { if (index < store.maxDirs) store.skippedDirs++ } else invalidate() }
       Connections { target: store; function onGenerationChanged() { src.invalidate() } }
       Timer { id: debounce; interval: 120; onTriggered: src.evaluate() }
 

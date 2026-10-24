@@ -5,7 +5,7 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 plugin=$(cd "$here/.." && pwd)
-scenarios=("$@"); [ ${#scenarios[@]} -eq 0 ] && scenarios=(normal caps fragment garbage oversize flood floodpre burst drop silent reject refuse unsupported badproto noproto locked late defaultpath nopath relpath)
+scenarios=("$@"); [ ${#scenarios[@]} -eq 0 ] && scenarios=(normal caps fragment garbage oversize flood floodpre burst health drop silent reject refuse unsupported badproto noproto locked late defaultpath nopath relpath)
 rc=0
 cleanup_pids=()
 trap 'for p in "${cleanup_pids[@]}"; do kill -0 "$p" 2>/dev/null && kill "$p" 2>/dev/null; done' EXIT

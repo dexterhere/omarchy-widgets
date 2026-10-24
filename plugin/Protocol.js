@@ -15,6 +15,12 @@ var MAX_STRING = 4096
 var CODES = ["bad_request", "denied", "unknown_topic", "provider_error", "rate_limited",
              "locked", "unsupported_version", "internal"]
 
+// Provider health words (docs/DAEMON_SPEC.md "States"). A closed list: anything else is dropped,
+// so nothing the daemon (or a swapped socket) sends can become display text through this field.
+var HEALTH = ["locked", "no_credential", "unauthorized", "insufficient", "rate_limited",
+              "expired_soon", "offline", "unavailable"]
+function health(v) { return typeof v === "string" && HEALTH.indexOf(v) >= 0 ? v : "" }
+
 function frame(obj) { return JSON.stringify(obj) + "\n" }
 
 function hello(id) {
@@ -90,9 +96,10 @@ function parseLine(line) {
     // A push with a state and no data key says why there is no value (DAEMON_SPEC "States"). It
     // is not an empty update: the bridge must keep what it has.
     if (J.own(m, "data") === undefined && typeof J.own(m, "state") === "string")
-      return { kind: "state", sub: sub, topic: topic, state: J.own(m, "state") }
+      return { kind: "state", sub: sub, topic: topic, state: health(J.own(m, "state")) }
     return { kind: "push", sub: sub, topic: topic, ts: isUint(ts) ? ts : 0,
-             stale: J.own(m, "stale") === true, data: cleanData(J.own(m, "data")) }
+             stale: J.own(m, "stale") === true, data: cleanData(J.own(m, "data")),
+             health: health(J.own(m, "state")) }
   }
   if (!isUint(id)) return { kind: "malformed" }
   var e = J.own(m, "error")
@@ -100,7 +107,7 @@ function parseLine(line) {
     if (!J.isObj(e)) return { kind: "malformed" }
     var code = J.own(e, "code"), t = J.own(e, "topic")
     return { kind: "error", id: id, code: CODES.indexOf(code) >= 0 ? code : "internal",
-             topic: typeof t === "string" && L.TOPIC.test(t) ? t : "" }
+             topic: typeof t === "string" && L.TOPIC.test(t) ? t : "", health: health(J.own(e, "state")) }
   }
   if (J.own(m, "ok") !== true) return { kind: "malformed" }
   var out = { kind: "ok", id: id }

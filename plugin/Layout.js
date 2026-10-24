@@ -543,7 +543,7 @@ var ICON_PATHS = {
   calendar: "M2 4h12v10H2zM2 7h12M5 2v3M11 2v3",
   check: "M3 8l3 3 7-7"
 }
-function iconPath(name) { return oneOf(ICONS, name) ? ICON_PATHS[name] : "" }
+function iconOutline(name) { return oneOf(ICONS, name) ? ICON_PATHS[name] : "" }
 
 // ---------------------------------------------------------------- what a tile shows
 

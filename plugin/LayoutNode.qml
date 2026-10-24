@@ -322,7 +322,7 @@ Loader {
           fillColor: "transparent"
           capStyle: ShapePath.RoundCap
           joinStyle: ShapePath.RoundJoin
-          PathSvg { path: L.iconPath(L.prop(root.node, "name")) }
+          PathSvg { path: L.iconOutline(L.prop(root.node, "name")) }
         }
       }
     }

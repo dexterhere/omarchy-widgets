@@ -183,11 +183,11 @@ TestCase {
       compare(o.ln.nodeType, "icon")
       compare(o.ln.status, Loader.Ready)
       compare(o.ln.item.px, Theme.iconPx("lg"))
-      verify(L.iconPath(n).length > 5)
+      verify(L.iconOutline(n).length > 5)
     })
-    compare(L.iconPath("skull"), "")
-    compare(L.iconPath("constructor"), "")
-    compare(L.iconPath("file:///etc/passwd"), "")
+    compare(L.iconOutline("skull"), "")
+    compare(L.iconOutline("constructor"), "")
+    compare(L.iconOutline("file:///etc/passwd"), "")
   }
   function test_layout_containers() {
     var kids = [{ type: "text", text: "a" }, { type: "text", text: "b" }, { type: "text", text: "c" }, { type: "text", text: "d" }]

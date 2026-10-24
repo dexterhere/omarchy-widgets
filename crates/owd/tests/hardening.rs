@@ -41,3 +41,21 @@ fn daemon_process_is_hardened() {
     child.kill().unwrap();
     child.wait().unwrap();
 }
+
+#[test]
+fn hostile_tz_stops_startup_with_exit_2_and_never_prints_the_value() {
+    let dir = tempfile::Builder::new()
+        .prefix("owd.")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_owd"))
+        .arg("--config-dir")
+        .arg(dir.path())
+        .env_clear()
+        .env("TZ", "/dev/zero")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("TZ") && !err.contains("/dev/zero") && err.lines().count() == 1);
+}

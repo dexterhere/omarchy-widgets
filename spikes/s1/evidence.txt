@@ -1,0 +1,30 @@
+# S1 evidence, 2026-10-23, Omarchy 4.0.6, Quickshell 0.3.2, Hyprland 0.56.2 (2 monitors)
+# cmd: WAYLAND_DEBUG=client spikes/run-safe.sh spikes/s1 6 <probe>
+run dir: /tmp/ow-spike.FgHc  pid: 3601016
+== active window before
+{"class":"firefox","title":"GNOME Local AI Contribution Ideas - Google Gemini — Zeenolabs — Mozilla Firefox"}
+== layers
+{"mon":"eDP-1","levels":[{"l":"0","n":["omarchy-background"]},{"l":"1","n":["omarchy-desk","ow-spike-canvas"]},{"l":"2","n":["omarchy-bar"]},{"l":"3","n":[]}]}
+{"mon":"HDMI-A-1","levels":[{"l":"0","n":["omarchy-background"]},{"l":"1","n":["ow-spike-canvas"]},{"l":"2","n":["omarchy-bar"]},{"l":"3","n":[]}]}
+{"ns":"ow-spike-canvas","x":0,"y":0,"w":1920,"h":1080,"pid":3601018}
+{"ns":"ow-spike-canvas","x":1920,"y":0,"w":1920,"h":1080,"pid":3601018}
+== active window after
+{"class":"firefox","title":"GNOME Local AI Contribution Ideas - Google Gemini — Zeenolabs — Mozilla Firefox"}
+== monitors reserved
+{"name":"eDP-1","reserved":[0,0,0,0]}
+{"name":"HDMI-A-1","reserved":[0,0,0,0]}
+exit=124
+--- qs.log
+  INFO: Launching config: "/home/buggybuck/omarchy-ext/omarchy-widgets/omarchy-widgets/.claude/worktrees/phase0-spikes/spikes/s1/shell.qml"
+  INFO: Shell ID: "7daeebfbebf61289f91b0e16e39d92f9" Path ID "7daeebfbebf61289f91b0e16e39d92f9"
+  INFO: Configuration Loaded
+# Wayland requests from the client (filtered):
+      2 wl_region#51.add(40, 200, 160, 90)
+      1 wl_surface#47.set_input_region(wl_region#51)
+      1 wl_surface#54.set_input_region(wl_region#51)
+      2 zwlr_layer_surface_v1#50.set_exclusive_zone(-1)
+      1 zwlr_layer_surface_v1#50.set_keyboard_interactivity(0)
+      1 zwlr_layer_surface_v1#50.set_layer(1)
+      2 zwlr_layer_surface_v1#57.set_exclusive_zone(-1)
+      1 zwlr_layer_surface_v1#57.set_keyboard_interactivity(0)
+      1 zwlr_layer_surface_v1#57.set_layer(1)

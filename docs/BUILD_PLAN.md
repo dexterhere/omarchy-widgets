@@ -44,10 +44,11 @@ Phase 1, epic 1 (daemon core) is largely done ahead of the Phase 0 spikes becaus
 - [x] Daemon-side vault unlock, passphrase mode (AUTH-UNLOCK): `vault.unlock|lock|status`, attempt limit and lockout, idle lock, `locked` error plumbing, `ow vault unlock|lock|status`, `ow vault set` tty passphrase, daemon leak test. Not done: keyring auto-unlock, network providers, grants admin ops, remove-then-reload flow
 - [x] Step 5: provider hub, scheduler, push, `system` provider
 - [x] `ow install|list|remove` for spec widgets (INSTALL_DESIGN.md, INSTALL in DECISIONS.md): registry index + raw files at the pinned commit through `ow-egress`, Rust re-implementation of the widget schema, layout rules and spec policy, consent by typing `yes`, `--yes` only with `--accept-access <hash>`, staged install with rollback, grants edit, `grants.reload` admin op (parser tests, `admin_parse` fuzz). Not done: per-file hashes in the index (web change, listed in HANDOFF), signatures, update checks (`ow update`), a pty test of the real binary through a live fetch, no installable widget exists yet (all seven registry entries are concept entries with placeholder commits)
+- [x] Local providers for the clock, battery and system-monitor widgets: `system.time`, `system.temp`, `battery.status` (DEP-TIME: jiff)
 - [ ] Step 6 network providers, step 7 hardening/PKGBUILD/outside review
 - [ ] Epics 2 to 7 (bridge and kit, canvas, `ow` manager verbs, Widget Center, first widgets, packaging)
 
-Phase 0 spikes S1 to S13 and all **[Dexter]** tasks are untouched. Machine facts: bare metal Omarchy 4.0.4, Quickshell 0.3.1, Hyprland 0.56.2, TPM2 present (see DECISIONS.md).
+Phase 0 spikes S1, S2, S3, S5, S6, S7, S8, S9, S10 and S13 have recorded results in `docs/SPIKES.md` (S12 not measurable offline, S4 keyring and S11 headless CI not run; all **[Dexter]** tasks untouched). Machine facts: bare metal Omarchy 4.0.6, Quickshell 0.3.2, Hyprland 0.56.2, TPM2 present (see DECISIONS.md).
 
 ## Phase 0: spikes and decisions (about 2 weeks)
 
@@ -63,19 +64,19 @@ Environment
 - [ ] Omarchy 4 test machine or VM with a restorable snapshot. Record Omarchy version, Quickshell version, Hyprland version in DECISIONS.md.
 
 Spikes (each: write a minimal experiment in `spikes/<name>/`, record result and exact evidence)
-- [ ] S1 Canvas surface: a service plugin draws a `WlrLayer.Bottom` surface, click-through except one interactive rectangle (empty input mask plus one region). Check focus stealing, lock screen behavior, multi-monitor.
-- [ ] S2 Edit surface: Overlay-layer surface with free-form drag and resize that writes anchors and sizes to JSON; Escape exits; keyboard nudge works.
-- [ ] S3 Socket bridge: a QML service plugin connects to a Unix socket served by a tiny Rust stub, with `SO_PEERCRED` uid check; survives `rescanPlugins`; reconnects.
+- [x] S1 Canvas surface: a service plugin draws a `WlrLayer.Bottom` surface, click-through except one interactive rectangle (empty input mask plus one region). Check focus stealing, lock screen behavior, multi-monitor. **Result: PARTIAL 2026-10-23: layer, focus, input region measured; click pass-through and lock untested; see docs/SPIKES.md.**
+- [x] S2 Edit surface: Overlay-layer surface with free-form drag and resize that writes anchors and sizes to JSON; Escape exits; keyboard nudge works. **Result: PARTIAL 2026-10-23: logic, overlay layer and JSON write pass; live Escape delivery untested.**
+- [x] S3 Socket bridge: a QML service plugin connects to a Unix socket served by a tiny Rust stub, with `SO_PEERCRED` uid check; survives `rescanPlugins`; reconnects. **Result: PASS 2026-10-23: Socket + SplitParser, reload and reconnect measured.**
 - [ ] S4 Vault round trip: keyring, passphrase and TPM modes. **Measure what an arbitrary same-uid process can read from the keyring under Omarchy 4 autologin.**
-- [ ] S5 Manifest tolerance: does `omarchy plugin validate` accept extra top-level manifest keys? If yes, can `widget.json` fold into the manifest?
-- [ ] S6 Plugin dependencies: can one plugin import another's singleton? Decides shared bridge singleton vs per-widget client.
-- [ ] S7 `omarchy plugin add`: does it accept a commit SHA or a subdirectory, or always track HEAD?
-- [ ] S8 Theme tokens: which shell theme singletons and components may third-party QML import, and are they stable? Read the shipped schema (sources disagree on 22 vs 24 colors).
-- [ ] S9 Settings form: how far does the manifest's settings form go (types, validation, per-instance values)?
-- [ ] S10 Existing data: what do `omarchy.monitor` and `omarchy.agents` expose that we can read instead of re-collecting?
+- [x] S5 Manifest tolerance: does `omarchy plugin validate` accept extra top-level manifest keys? If yes, can `widget.json` fold into the manifest? **Result: PASS 2026-10-23: extra keys accepted, fold into manifest (SPIKE-S5).**
+- [x] S6 Plugin dependencies: can one plugin import another's singleton? Decides shared bridge singleton vs per-widget client. **Result: PARTIAL 2026-10-23: works but unsupported; ship bridge and renderer as one plugin (SPIKE-S6).**
+- [x] S7 `omarchy plugin add`: does it accept a commit SHA or a subdirectory, or always track HEAD? **Result: FAIL as assumed 2026-10-23: HEAD of repo root only; no SHA or subdirectory (SPIKE-S7).**
+- [x] S8 Theme tokens: which shell theme singletons and components may third-party QML import, and are they stable? Read the shipped schema (sources disagree on 22 vs 24 colors). **Result: PARTIAL 2026-10-23: Color/Style importable, no stability promise, ANSI palette not exposed (SPIKE-S8).**
+- [x] S9 Settings form: how far does the manifest's settings form go (types, validation, per-instance values)? **Result: PARTIAL 2026-10-23: schema declared, no renderer shipped, bar widgets only (SPIKE-S9).**
+- [x] S10 Existing data: what do `omarchy.monitor` and `omarchy.agents` expose that we can read instead of re-collecting? **Result: PASS 2026-10-23: agents file contract; monitor has no data API.**
 - [ ] S11 Headless previews: can the shell run on a nested/headless compositor in CI and produce screenshots?
-- [ ] S12 Marketplace reality: what does the live catalog contain by category; where are the real gaps?
-- [ ] S13 Keybinding: confirm a free chord for the Center on stock Omarchy 4; prototype the consented, reversible `bindings.lua` edit (against a copy).
+- [ ] S12 Marketplace reality: what does the live catalog contain by category; where are the real gaps? **Result: NOT MEASURABLE offline 2026-10-23: no local catalog data.**
+- [x] S13 Keybinding: confirm a free chord for the Center on stock Omarchy 4; prototype the consented, reversible `bindings.lua` edit (against a copy). **Result: PASS 2026-10-23: SUPER + ALT + W is free (SPIKE-S13).**
 
 Documents
 - [x] Threat model v0 (`docs/threat-model.md`) from PROJECT_BRIEF section 10, updated with S4 results. (Draft exists; S4 update still pending.)

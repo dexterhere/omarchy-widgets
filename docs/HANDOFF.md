@@ -30,6 +30,10 @@ Written 2026-10-17 when work was stopped at the maintainer's request. The websit
 5. `registry/schema/widget.schema.json` is still `draft-0`; when the code repo ships `spec/widget.schema.json`, regenerate `ow`'s Rust checks from it or test them against it (they are a hand re-implementation today).
 6. Consider serving `registry.json` with `Cache-Control` and an ETag so `ow` can later use conditional requests (`ow-egress` refuses `If-*` headers today).
 
+## Note for the web repo (not edited from here)
+
+The daemon now serves three more topics. `registry/providers.json` should add to the `system` provider's `serving` list: `system.time.hm`, `system.time.hms`, `system.time.date`, `system.time.tz`, `system.temp.celsius`; and give the `battery` provider a `serving` list: `battery.status.percent`, `battery.status.state`, `battery.status.timeLeft`. Field names equal the catalog's. `battery.status` answers `unavailable` on machines without a battery (desktop PCs) and `timeLeft` is an empty string when unknown, so the battery widget should render an empty state for both.
+
 ## Decisions waiting for you
 
 Project name and the question to the Omarchy maintainers; host strategy and contacting `anishfn/omarchy-widgets`; release signing key (pin the fingerprint in `packaging/PKGBUILD`, then sign tags); update decision D-7 and `design/`: the placeholder chord `Super + Shift + W` conflicts with Omarchy's default "Writing" binding, the website's emulator proposes `Super + Alt + W`.

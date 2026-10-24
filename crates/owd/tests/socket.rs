@@ -838,3 +838,29 @@ fn grants_reload_is_rate_limited() {
         "no limit hit"
     );
 }
+
+#[test]
+fn system_time_reaches_granted_widget_only() {
+    let g = "[[grant]]\nwidget=\"clock\"\ntopics=[\"system.time\"]\nfields=[\"hm\",\"hms\",\"date\",\"tz\"]\n\n[[grant]]\nwidget=\"partial\"\ntopics=[\"system.time\"]\nfields=[\"hm\"]\n";
+    let real: Vec<Arc<dyn Provider>> = vec![
+        Arc::new(ow_providers::System::new()),
+        Arc::new(ow_providers::Battery::new()),
+    ];
+    let h = Harness::start_with(Some(g), real);
+    // granted: all four fields, with the widget's shapes
+    let v: Value = serde_json::from_str(&snap(&h, 1, "clock", "system.time")).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["data"].as_object().unwrap().len(), 4, "{v}");
+    assert_eq!(v["data"]["hm"].as_str().unwrap().len(), 5);
+    assert_eq!(v["data"]["hms"].as_str().unwrap().len(), 8);
+    assert!(v["data"]["date"].is_string() && v["data"]["tz"].is_string());
+    // field-level grant: only hm
+    let v: Value = serde_json::from_str(&snap(&h, 2, "partial", "system.time")).unwrap();
+    assert_eq!(v["data"].as_object().unwrap().len(), 1, "{v}");
+    // denied client and ungranted topic get nothing, not even field names
+    for (w, t) in [("stranger", "system.time"), ("clock", "battery.status")] {
+        let r = snap(&h, 3, w, t);
+        assert!(r.contains("denied"), "{r}");
+        assert!(!r.contains("\"hm\"") && !r.contains("percent"), "{r}");
+    }
+}

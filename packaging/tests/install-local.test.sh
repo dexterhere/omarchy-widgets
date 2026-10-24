@@ -245,7 +245,7 @@ out=$(run --uninstall --yes 2>&1)
 check "manifest symlink entry: link target untouched" test "$(cat "$H/outside")" = precious
 check "manifest symlink entry: reported kept" grep -q "keep $H/.local/bin/linked" <<<"$out"
 check "manifest symlinked dir entry: not removed" test -d "$H/realdir" -a -L "$H/linkdir"
-check "manifest owned by another user: refused" bash -c "mkdir -p $(dirname $mf); cp '$T/mf.good' '$mf'; OW_TEST_HARNESS=1 OW_TEST_SENTINEL=install-local-test-2c1f OW_TEST_EUID=4242 '$script' --from '$T/build' --uninstall --yes >/dev/null 2>&1; test \$? -ne 0"
+check "manifest owned by another user: refused" bash -c "mkdir -p $(dirname $mf); cp '$T/mf.good' '$mf'; OW_TEST_HARNESS=1 OW_TEST_SENTINEL=install-local-test-2c1f OW_TEST_EUID=4242 '$script' --from '$T/build' --prefix '$H/none' --uninstall --yes >/dev/null 2>&1; test \$? -ne 0"
 check "the override is ignored without the sentinel (root test is real)" bash -c "OW_TEST_HARNESS=1 OW_TEST_EUID=0 '$script' --from '$T/build' >/dev/null 2>&1; test \$? -eq 0"
 
 # ---- F7: root, ownership, permissions, symlinked parents, temp files ----------------------------

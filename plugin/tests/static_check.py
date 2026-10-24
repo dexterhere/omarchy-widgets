@@ -7,6 +7,7 @@ keyboard. This is a lint, not a proof: it makes the obvious and the sneaky spell
 those mistakes fail CI. `--selftest` plants a violation for every rule and checks each fires.
 
   static_check.py            scan ../ (the plugin folder); exit 1 on any violation
+  static_check.py PATH       scan the plugin folder at PATH (the mirror script lints the export)
   static_check.py --selftest check the rules against known-bad and known-good snippets
 """
 import os, re, sys
@@ -165,12 +166,12 @@ def check_text(name, text):
     return found
 
 
-def scan():
+def scan(folder=PLUGIN):
     problems, files = [], 0
-    for f in sorted(os.listdir(PLUGIN)):
+    for f in sorted(os.listdir(folder)):
         if f.endswith((".qml", ".js")):
             files += 1
-            problems += check_text(f, open(os.path.join(PLUGIN, f), encoding="utf-8").read())
+            problems += check_text(f, open(os.path.join(folder, f), encoding="utf-8").read())
     return files, problems
 
 
@@ -288,7 +289,10 @@ def selftest():
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         sys.exit(selftest())
-    files, problems = scan()
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    files, problems = scan(args[0] if args else PLUGIN)
+    if files == 0:
+        print("static check: no .qml or .js files found, refusing to call that clean"); sys.exit(1)
     for p in problems:
         print("VIOLATION", p)
     print("static check: %d files scanned, %d violations" % (files, len(problems)))

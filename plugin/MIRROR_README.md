@@ -11,8 +11,8 @@ Pre-release. Be honest with yourself before installing:
 - Spec widgets only. No code widgets.
 - Not yet verified inside the real Omarchy shell. It has only run offscreen and in throwaway Quickshell instances. Click pass-through, lock screen, fullscreen windows and theme switching are untested live.
 - It never calls `Qt.quit()`.
-- It takes no keyboard focus and has no keyboard control.
-- The Widget Center overlay is an empty placeholder.
+- The desktop tiles take no keyboard focus. The Widget Center overlay takes keyboard focus on demand (after a click) and uses it for Escape only.
+- The Widget Center overlay is read-only: it lists installed widgets, what each may read and how each is doing, and prints the command to remove one. It cannot install or remove anything, and nothing is bound to open it yet.
 
 ## Install
 
@@ -20,7 +20,7 @@ Pre-release. Be honest with yourself before installing:
 omarchy plugin add https://github.com/dexterhere/omarchy-widget-shell
 ```
 
-Not yet tested by the maintainers: nobody has run this command against this repository. It clones the code and runs it inside your desktop shell with your permissions, unsandboxed, so read it first (it is about a dozen small files). Without the `owd` daemon from the main repository it shows a "daemon offline" tile.
+Not yet tested by the maintainers: nobody has run this command against this repository. It clones the code and runs it inside your desktop shell with your permissions, unsandboxed, so read it first (it is 17 small files). Without the `owd` daemon from the main repository it shows a "daemon offline" tile.
 
 `omarchy plugin update` re-clones the default branch of this repository. It only ever holds tagged releases.
 

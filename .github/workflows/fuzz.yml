@@ -25,14 +25,14 @@ jobs:
         if: github.event_name != 'pull_request'
         working-directory: fuzz
         run: |
-          for t in frame_decoder request_parse admin_parse grants_parse vault_open vault_payload install_files; do
+          for t in frame_decoder request_parse admin_parse grants_parse vault_open vault_payload install_files connect_config_edit; do
             cargo fuzz run "$t" -- -max_total_time=300
           done
       - name: short smoke run on pull requests
         if: github.event_name == 'pull_request'
         working-directory: fuzz
         run: |
-          for t in frame_decoder request_parse admin_parse grants_parse vault_open vault_payload install_files; do
+          for t in frame_decoder request_parse admin_parse grants_parse vault_open vault_payload install_files connect_config_edit; do
             cargo fuzz run "$t" -- -max_total_time=20
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

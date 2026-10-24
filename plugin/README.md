@@ -13,7 +13,7 @@ What is here:
 | `LayoutNode.qml`, `Kids.qml`, `Tile.qml` | The renderer for the 13 node types, and one widget tile with its status |
 | `Theme.qml` | The only file that imports `qs.Commons` or contains a colour literal |
 | `DesktopCanvas.qml` | One Bottom-layer layer-shell window per monitor, input mask = tiles |
-| `Center.qml` | Inert placeholder for the `overlay` kind (Widget Center is a later task) |
+| `Center.qml`, `CenterState.qml`, `CenterPanel.qml`, `CenterModel.js` | The `overlay` kind: a read-only Widget Center (list, grants, health, the remove command as text). See `docs/WIDGET_CENTER.md` |
 
 ## Run it safely (throwaway only)
 
@@ -45,14 +45,18 @@ Each script makes fresh `mktemp` trees, points `XDG_*` at them, starts `owd` (`c
 | Missing, stale or non-finite data is an explicit placeholder, never 0 | `Layout.show/fraction`, `LayoutNode` | `tst_render` (NaN, Infinity, 1e300, null, objects), `tst_tile` |
 | Socket path comes from an absolute `$XDG_RUNTIME_DIR` only (relative XDG paths are treated as unset); no credential ever passes through | `Bridge.defaultSocketPath`; only hello, subscribe, unsubscribe are built | bridge tests assert every request line the fake saw |
 | Only plain numbers and bounded strings are kept from the daemon; bad lines are dropped; a hello answer must say protocol 0; the read buffer is bounded | `Protocol.parseLine/cleanData`, `Bridge.onChunk` | `tst_protocol`; bridge tests: partial lines, coalesced lines, split UTF-8, oversize line, never-ending line before and after hello with memory sampled, endless valid lines, garbage, wrong sub or topic, wrong protocol |
-| No keyboard, no exit | `keyboardFocus: None`, no `Qt.quit()` outside test harnesses | static check; e2e live probe |
+| No keyboard, no exit (canvas) | `keyboardFocus: None`, no `Qt.quit()` outside test harnesses | static check; e2e live probe |
+| The Widget Center is read-only: no process, no file write, no request except hello, subscribe, unsubscribe; the remove command is text; hostile `widget.json` text is plain, bounded, never parsed | `Center*.qml`, `CenterModel.js` (no `Process`, no `FileView`; the only keyboard code is the `Keys.onEscapePressed` handler in `CenterPanel.qml`; the only overlay layer and `OnDemand` focus are in `Center.qml`; the static check requires each surface line to be present exactly once and rejects writes, sends and rescans in the Center files) | static check (per-file rules, planted violations); `tst_center` (list, grants, every health label, invalid ids get no command, caps and dedupe, closed Center does no row work, Escape, hostile strings). The `PanelWindow` itself is not instantiated by any test (no window backend offscreen); store harness (`Center` against the hostile tree); bridge `health` scenario |
 | Placement state is plugin-owned and read-only here | `$XDG_STATE_HOME/ow-shell/canvas.json`, never under `~/.config` | `tst_layout` (hostile placement values) |
 
 Code widgets are not handled here and are not sandboxed anywhere in this project: they run as the user.
 
 ## What is NOT done
 
-- Edit mode, the Widget Center, settings forms, drag/resize (the overlay entry is an inert placeholder).
+- Edit mode, settings forms, drag/resize. The Widget Center exists but is read-only v0: it lists installed widgets, their grants and their health and prints `ow remove <id>` as text. It has no install, no remove, no enable, no Discover, Layouts or Create tabs, no audit viewer (WIDGET-CENTER-V0 in `docs/DECISIONS.md`).
+- A symlink under the widgets directory (a symlinked widget directory or a symlinked `manifest.json`) is followed by the Store, and can load content from outside the widgets directory. Quickshell's `FolderListModel` does not report links. Exploiting it needs write access to your data directory. A daemon-provided list of widgets would fix it (OPEN_QUESTIONS 42).
+- The Store loads at most 200 widget directories (by name) and counts the rest (`overflowDirs`); the Widget Center shows at most 200 rows and says how many were not shown.
+- How the real shell summons the overlay is not established from the repo (`docs/WIDGET_CENTER.md`). `Center` exposes `open`, `visible` and `toggle()`; nothing calls them yet and no key is bound. Escape needs one click in the panel first (`OnDemand` focus, SPIKES S2); the Close button works without it. Never run in the real shell.
 - Code widgets (only `tier: "spec"` is drawn; anything else is dropped).
 - Real click pass-through on the canvas. The mask is the union of tile rectangles and one live run confirmed a level-1 `owd-canvas` surface, but nobody has clicked through it (OPEN_QUESTIONS 19). Clicks on a tile are swallowed (no interaction exists yet). Lock screen and fullscreen windows untested.
 - Running inside the real shell: `service`/`overlay` property injection, `keepLoaded` across `rescanPlugins`, theme re-read on `omarchy theme set` (OPEN_QUESTIONS 20, 24).

@@ -259,6 +259,27 @@ A small translucent panel appears near the top left (at 120, 120). Click once in
 
 Please send your result (PASS or FAIL, the monitor names, and the lines from the log) as an issue. Do not paste anything else from the log.
 
+## 11. Connect GitHub (optional; uses a token you make yourself)
+
+This is the only step that needs an account and a real token, and the only one this guide cannot check for you. `ow connect` itself makes no network call and never opens a browser; the sandbox from step 2 keeps it away from your real config. Skip it if you do not want to create a token.
+
+```bash
+./target/release/ow connect github
+```
+
+It prints what to create at `https://github.com/settings/personal-access-tokens/new` (fine-grained, read-only: Pull requests: Read-only, Metadata: Read-only, an expiry of 30 to 90 days), offers to create the vault if there is none, asks for the vault passphrase, then for the token twice with nothing shown while you type. It stores the token in the sandbox vault and writes `$XDG_CONFIG_HOME/owd/config.toml` with the binding. It does not test the token and does not restart anything.
+
+The daemon reads `config.toml` only at start, so restart the daemon this guide started (step 9 shows how it was started and stopped), then:
+
+```bash
+kill "$(cat "$S/owd.pid")"; sleep 1
+./target/release/owd >"$S/owd.log" 2>&1 & echo $! > "$S/owd.pid"; sleep 1
+./target/release/ow vault unlock
+./target/release/ow connect github --check
+```
+
+(On your real desktop the restart is `systemctl --user restart owd.service`; `ow` prints it but never runs it.) `--check` needs an installed widget that holds a `github.prs` grant, because the daemon answers only granted widgets. It prints one line, for example `github.prs: ok open=3 review=1`, or `github.prs: unauthorized` if GitHub rejected the token. `ow connect github --remove` undoes the binding and deletes the secret after you type `yes`.
+
 ## Troubleshooting
 
 | What you see | Why | What to do |

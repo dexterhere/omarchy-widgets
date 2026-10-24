@@ -187,6 +187,9 @@ fn parse_expiry(v: &str) -> Option<u64> {
 }
 
 impl GitHub {
+    /// A 403 without rate-limit headers is reported as `insufficient`; the body is unavailable,
+    /// so a secondary rate limit may be misdescribed as a permission problem.
+    ///
     /// 401 is a rejected credential. 403 and 429 are a rate limit when the headers say so (429,
     /// remaining 0, or a retry-after), otherwise a permission problem. The bodies of non-2xx
     /// answers are not available to a provider, so the message text cannot be consulted.
@@ -215,7 +218,10 @@ impl GitHub {
 
     fn transport_error(&self, e: HttpError) -> ProviderError {
         match e {
-            HttpError::Tls | HttpError::Offline | HttpError::Timeout => ProviderError::Offline,
+            HttpError::Offline | HttpError::Timeout => ProviderError::Offline,
+            // A certificate or handshake failure is not "no network": the name or chain is
+            // wrong, which the user cannot fix by waiting for a connection.
+            HttpError::Tls => ProviderError::Unavailable,
             HttpError::Status {
                 class,
                 code,
@@ -722,10 +728,10 @@ mod tests {
     #[test]
     fn transport_failures_map_to_offline_or_unavailable() {
         let t = |e: HttpError| run(Err(e)).0.unwrap_err();
-        for e in [HttpError::Tls, HttpError::Offline, HttpError::Timeout] {
+        for e in [HttpError::Offline, HttpError::Timeout] {
             assert_eq!(t(e), ProviderError::Offline);
         }
-        for e in [HttpError::Blocked, HttpError::Redirect] {
+        for e in [HttpError::Tls, HttpError::Blocked, HttpError::Redirect] {
             assert_eq!(t(e), ProviderError::Unavailable);
         }
         for e in [HttpError::TooLarge, HttpError::Format] {

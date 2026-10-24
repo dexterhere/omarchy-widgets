@@ -85,7 +85,7 @@ Every path derives from XDG variables so tests can point them at a temp dir. The
 ```toml
 [providers.github]
 secret = "github-main"      # vault secret name, must match ^github-[a-z0-9-]{1,40}$
-interval_secs = 120         # optional; default 120, raised to 60 if lower, capped at 86400
+interval_secs = 120         # optional; default 120, raised to 60 if lower, capped at 3600
 ```
 
 - Loaded like `grants.toml`: opened with `O_NOFOLLOW`, regular file, owned by the daemon's uid, no group or other access (0600), at most 64 KiB, unknown keys and sections rejected, duplicate sections and keys rejected. Any error stops startup (`owd: config: ...`; the message names the rule, never the file's content). A missing file means no network provider is configured.
@@ -165,8 +165,8 @@ Credential-backed topics say why they have no fresh value, as a closed enum plus
 | `insufficient` | HTTP 403 that is not a rate limit: the credential lacks a permission | none | as above |
 | `rate_limited` | limit reached (HTTP 429, or 403 with `x-ratelimit-remaining: 0` or `retry-after`) | reset time when the source gave one | as above; the daemon also stops polling until then (at most one hour) |
 | `expired_soon` | the credential expires within 7 days | the expiry | fresh data, `stale: false` |
-| `offline` | DNS, connect, TLS or timeout | none | as above |
-| `unavailable` | 5xx, a redirect, or a response that is not the expected JSON | none | as above |
+| `offline` | DNS, connect or timeout (a TLS failure is `unavailable`) | none | as above |
+| `unavailable` | 5xx, a TLS failure, a redirect, or a response that is not the expected JSON | none | as above |
 
 Where it appears (all additive, `PROTOCOL` stays 0, old clients ignore the new keys):
 
@@ -178,7 +178,7 @@ push with data:             {"v":0,"sub":7,"topic":"github.prs","ts":..,"stale":
 push without data (once per change of state): {"v":0,"sub":7,"topic":"github.prs","state":"unauthorized"}
 ```
 
-A subscriber that arrives while a topic has no value is told its state right after the subscribe reply. A request for a credential topic whose provider is not configured is answered `provider_error` with `no_credential`, and only to widgets that hold a grant for it (an ungranted widget still gets `denied`). `until` is dropped unless it lies in the future and within 30 days. `StateInfo::from_fields` (ow-proto) is the client-side parser: an unknown name or a non-numeric `until` yields no state rather than being passed on. Which GitHub answer maps to which state, and what is not verified, is in DECISIONS GITHUB-PROVIDER.
+A subscriber that arrives while a topic has no value is told its state right after the subscribe reply. A request for a credential topic whose provider is not configured is answered `provider_error` with `no_credential`, and only to widgets that hold a grant for it (an ungranted widget still gets `denied`). `until` is dropped unless it lies in the future and within 30 days. `StateInfo::from_fields` (ow-proto) is the client-side parser: an unknown name or a non-numeric `until` yields no state rather than being passed on. A 403 without rate-limit headers is reported as `insufficient`, so a secondary rate limit may be misdescribed. Which GitHub answer maps to which state, and what is not verified, is in DECISIONS GITHUB-PROVIDER.
 
 Subscriptions are reference-counted per `(topic, params)`; the scheduler polls only while at least one subscriber is visible (the bridge reports visibility; hidden or suspended widgets unsubscribe). *Design only: there is no visibility reporting and no bridge yet.*
 

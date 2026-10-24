@@ -24,7 +24,7 @@ pub const MAX_CONFIG_FILE: u64 = 64 * 1024;
 pub const MIN_INTERVAL_SECS: u64 = 60;
 pub const DEFAULT_INTERVAL_SECS: u64 = 120;
 /// Ceiling so a huge value cannot overflow the hub's backoff arithmetic.
-pub const MAX_INTERVAL_SECS: u64 = 86_400;
+pub const MAX_INTERVAL_SECS: u64 = 3_600;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ConfigError {

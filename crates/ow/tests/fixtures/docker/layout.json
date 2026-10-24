@@ -1,0 +1,522 @@
+{
+  "schemaVersion": 0,
+  "root": {
+    "type": "stack",
+    "gap": "sm",
+    "children": [
+      {
+        "type": "row",
+        "gap": "md",
+        "children": [
+          {
+            "type": "icon",
+            "name": "container",
+            "color": "accent"
+          },
+          {
+            "type": "text",
+            "text": "Containers",
+            "size": "sm",
+            "color": "muted"
+          }
+        ]
+      },
+      {
+        "type": "grid",
+        "columns": 3,
+        "gap": "md",
+        "children": [
+          {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "docker.containers",
+                  "field": "running"
+                },
+                "size": "lg",
+                "color": "accent"
+              },
+              {
+                "type": "text",
+                "text": "running",
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          },
+          {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "docker.containers",
+                  "field": "stopped"
+                },
+                "size": "lg",
+                "color": "secondary"
+              },
+              {
+                "type": "text",
+                "text": "stopped",
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          },
+          {
+            "type": "stack",
+            "gap": "sm",
+            "children": [
+              {
+                "type": "value",
+                "bind": {
+                  "topic": "docker.containers",
+                  "field": "unhealthy"
+                },
+                "size": "lg",
+                "color": "foreground"
+              },
+              {
+                "type": "text",
+                "text": "unhealthy",
+                "size": "sm",
+                "color": "muted"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "variants": {
+    "counts": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "icon",
+              "name": "container",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "Containers",
+              "size": "sm",
+              "color": "muted"
+            }
+          ]
+        },
+        {
+          "type": "grid",
+          "columns": 3,
+          "gap": "md",
+          "children": [
+            {
+              "type": "stack",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "docker.containers",
+                    "field": "running"
+                  },
+                  "size": "lg",
+                  "color": "accent"
+                },
+                {
+                  "type": "text",
+                  "text": "running",
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            },
+            {
+              "type": "stack",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "docker.containers",
+                    "field": "stopped"
+                  },
+                  "size": "lg",
+                  "color": "secondary"
+                },
+                {
+                  "type": "text",
+                  "text": "stopped",
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            },
+            {
+              "type": "stack",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "value",
+                  "bind": {
+                    "topic": "docker.containers",
+                    "field": "unhealthy"
+                  },
+                  "size": "lg",
+                  "color": "foreground"
+                },
+                {
+                  "type": "text",
+                  "text": "unhealthy",
+                  "size": "sm",
+                  "color": "muted"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "health": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "icon",
+              "name": "container",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "Health",
+              "size": "sm",
+              "color": "muted"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "value",
+              "bind": {
+                "topic": "docker.containers",
+                "field": "unhealthy"
+              },
+              "size": "xl",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "unhealthy",
+              "size": "md",
+              "color": "accent"
+            }
+          ]
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "value",
+              "bind": {
+                "topic": "docker.containers",
+                "field": "running"
+              },
+              "size": "md",
+              "color": "foreground"
+            },
+            {
+              "type": "text",
+              "text": "running",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "docker.containers",
+                "field": "stopped"
+              },
+              "size": "md",
+              "color": "secondary"
+            },
+            {
+              "type": "text",
+              "text": "stopped",
+              "size": "sm",
+              "color": "muted"
+            }
+          ]
+        }
+      ]
+    },
+    "names": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "icon",
+              "name": "container",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "Containers",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "docker.containers",
+                "field": "running"
+              },
+              "size": "md",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "running",
+              "size": "sm",
+              "color": "muted"
+            }
+          ]
+        },
+        {
+          "type": "list",
+          "bind": {
+            "topic": "docker.containers",
+            "field": "names"
+          },
+          "max": 10,
+          "size": "sm",
+          "color": "foreground"
+        }
+      ]
+    },
+    "detailed": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "icon",
+              "name": "container",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "Docker",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "docker.containers",
+                "field": "running"
+              },
+              "size": "lg",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "running",
+              "size": "sm",
+              "color": "muted"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "text",
+              "text": "Stopped",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "docker.containers",
+                "field": "stopped"
+              },
+              "size": "md",
+              "color": "secondary"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "text",
+              "text": "Unhealthy",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "docker.containers",
+                "field": "unhealthy"
+              },
+              "size": "md",
+              "color": "accent"
+            }
+          ]
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "list",
+          "bind": {
+            "topic": "docker.containers",
+            "field": "names"
+          },
+          "max": 8,
+          "size": "sm",
+          "color": "foreground"
+        }
+      ]
+    },
+    "minimal": {
+      "type": "row",
+      "gap": "md",
+      "children": [
+        {
+          "type": "value",
+          "bind": {
+            "topic": "docker.containers",
+            "field": "running"
+          },
+          "size": "xl",
+          "color": "accent"
+        },
+        {
+          "type": "text",
+          "text": "running",
+          "size": "sm",
+          "color": "muted"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "docker.containers",
+            "field": "stopped"
+          },
+          "size": "md",
+          "color": "secondary"
+        },
+        {
+          "type": "text",
+          "text": "stopped",
+          "size": "sm",
+          "color": "muted"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "docker.containers",
+            "field": "unhealthy"
+          },
+          "size": "md",
+          "color": "accent"
+        },
+        {
+          "type": "text",
+          "text": "unhealthy",
+          "size": "sm",
+          "color": "muted"
+        }
+      ]
+    },
+    "chip": {
+      "type": "row",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "icon",
+          "name": "container",
+          "color": "accent"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "docker.containers",
+            "field": "running"
+          },
+          "size": "md",
+          "color": "foreground"
+        },
+        {
+          "type": "text",
+          "text": "up",
+          "size": "sm",
+          "color": "muted"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "docker.containers",
+            "field": "unhealthy"
+          },
+          "size": "md",
+          "color": "accent"
+        },
+        {
+          "type": "text",
+          "text": "unhealthy",
+          "size": "sm",
+          "color": "muted"
+        }
+      ]
+    }
+  }
+}

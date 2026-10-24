@@ -1,0 +1,7 @@
+{
+  "id": "io.github.dexterhere.clock",
+  "name": "Clock",
+  "version": "0.1.0",
+  "description": "A no-code clock with six variants: digital, digital with seconds, minimal, date focus, bar chip and stacked time, date and zone.",
+  "license": "MIT"
+}

@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)] // test code
 use ow_core::Paths;
-use ow_core::{Provider, ProviderError, Sensitivity, TopicSpec};
+use ow_core::{FetchCtx, Provider, ProviderError, Sensitivity, TopicSpec};
 use owd::Server;
 use serde_json::{Map, Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -237,6 +237,7 @@ impl Provider for Fake {
         &self,
         _topic: &str,
         _p: &Map<String, Value>,
+        _c: &FetchCtx<'_>,
     ) -> Result<Map<String, Value>, ProviderError> {
         let n = self.fetches.fetch_add(1, Ordering::Relaxed);
         assert!(!self.panic.load(Ordering::Relaxed), "provider bug");
@@ -644,6 +645,7 @@ impl Provider for Slow {
         &self,
         _t: &str,
         _p: &Map<String, Value>,
+        _c: &FetchCtx<'_>,
     ) -> Result<Map<String, Value>, ProviderError> {
         std::thread::sleep(self.0);
         Ok(json!({"v": 1}).as_object().cloned().unwrap())
@@ -756,6 +758,7 @@ fn oversized_provider_output_is_rejected() {
             &self,
             _t: &str,
             _p: &Map<String, Value>,
+            _c: &FetchCtx<'_>,
         ) -> Result<Map<String, Value>, ProviderError> {
             Ok(json!({"blob": "x".repeat(200_000)})
                 .as_object()
@@ -771,4 +774,93 @@ fn oversized_provider_output_is_rejected() {
         "{}",
         &r[..r.len().min(200)]
     );
+}
+
+#[test]
+fn grants_reload_applies_the_file_without_a_signal_and_fails_closed() {
+    let h = Harness::start_with(None, vec![Arc::new(Fake::default())]);
+    assert!(snap(&h, 1, "w1", "github.prs").contains("denied"));
+    // Same private-file rules as a normal install: 0600, ours.
+    std::fs::create_dir_all(&h.paths.config).unwrap();
+    let p = h.paths.grants();
+    std::fs::write(&p, GRANTS).unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let r = h.ask("{\"v\":0,\"id\":7,\"op\":\"grants.reload\"}\n");
+    assert_eq!(r, "{\"v\":0,\"id\":7,\"ok\":true,\"state\":\"reloaded\"}\n");
+    assert!(snap(&h, 2, "w1", "github.prs").contains("\"open\":3"));
+    // A widget-shaped frame (any `widget` key) is refused and the file is not re-read.
+    std::fs::write(&p, "").unwrap();
+    for w in ["\"w1\"", "null"] {
+        let r = h.ask(&format!(
+            "{{\"v\":0,\"id\":8,\"op\":\"grants.reload\",\"widget\":{w}}}\n"
+        ));
+        assert!(r.contains("\"denied\""), "{r}");
+    }
+    assert!(snap(&h, 3, "w1", "github.prs").contains("\"open\":3"));
+    // A broken file: the reload reports an error and everything is denied afterwards.
+    std::fs::write(&p, "not [toml").unwrap();
+    let r = h.ask("{\"v\":0,\"id\":9,\"op\":\"grants.reload\"}\n");
+    assert!(r.contains("\"internal\""), "{r}");
+    assert!(snap(&h, 4, "w1", "github.prs").contains("denied"));
+    // An insecure mode is refused too.
+    std::fs::write(&p, GRANTS).unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(
+        h.ask("{\"v\":0,\"id\":10,\"op\":\"grants.reload\"}\n")
+            .contains("\"internal\"")
+    );
+    assert!(snap(&h, 5, "w1", "github.prs").contains("denied"));
+    // Audited by name, with no payload; the refused widget-shaped frames are audited too.
+    let a = audit(&h);
+    assert!(
+        a.contains("\"widget\":\"admin\",\"topic\":\"grants\",\"op\":\"reload\""),
+        "{a}"
+    );
+    assert!(
+        a.contains("\"op\":\"grants.reload\",\"decision\":\"deny\""),
+        "{a}"
+    );
+}
+
+#[test]
+fn grants_reload_is_rate_limited() {
+    let h = Harness::start();
+    let replies: Vec<String> = (0..40)
+        .map(|i| {
+            h.ask(&format!(
+                "{{\"v\":0,\"id\":{i},\"op\":\"grants.reload\"}}\n"
+            ))
+        })
+        .collect();
+    assert!(replies[0].contains("\"ok\":true"));
+    assert!(
+        replies.iter().any(|r| r.contains("rate_limited")),
+        "no limit hit"
+    );
+}
+
+#[test]
+fn system_time_reaches_granted_widget_only() {
+    let g = "[[grant]]\nwidget=\"clock\"\ntopics=[\"system.time\"]\nfields=[\"hm\",\"hms\",\"date\",\"tz\"]\n\n[[grant]]\nwidget=\"partial\"\ntopics=[\"system.time\"]\nfields=[\"hm\"]\n";
+    let real: Vec<Arc<dyn Provider>> = vec![
+        Arc::new(ow_providers::System::new()),
+        Arc::new(ow_providers::Battery::new()),
+    ];
+    let h = Harness::start_with(Some(g), real);
+    // granted: all four fields, with the widget's shapes
+    let v: Value = serde_json::from_str(&snap(&h, 1, "clock", "system.time")).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["data"].as_object().unwrap().len(), 4, "{v}");
+    assert_eq!(v["data"]["hm"].as_str().unwrap().len(), 5);
+    assert_eq!(v["data"]["hms"].as_str().unwrap().len(), 8);
+    assert!(v["data"]["date"].is_string() && v["data"]["tz"].is_string());
+    // field-level grant: only hm
+    let v: Value = serde_json::from_str(&snap(&h, 2, "partial", "system.time")).unwrap();
+    assert_eq!(v["data"].as_object().unwrap().len(), 1, "{v}");
+    // denied client and ungranted topic get nothing, not even field names
+    for (w, t) in [("stranger", "system.time"), ("clock", "battery.status")] {
+        let r = snap(&h, 3, w, t);
+        assert!(r.contains("denied"), "{r}");
+        assert!(!r.contains("\"hm\"") && !r.contains("percent"), "{r}");
+    }
 }

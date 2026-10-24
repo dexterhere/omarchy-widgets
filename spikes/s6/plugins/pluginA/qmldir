@@ -1,0 +1,2 @@
+module OwSpikeA
+singleton Counter 1.0 Counter.qml

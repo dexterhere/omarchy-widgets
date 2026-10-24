@@ -62,6 +62,11 @@ impl Paths {
         self.data.join("vault.owv")
     }
 
+    /// Installed spec widgets: one directory per widget id (`ow install`).
+    pub fn widgets(&self) -> PathBuf {
+        self.data.join("widgets")
+    }
+
     pub fn audit(&self) -> PathBuf {
         self.state.join("audit.jsonl")
     }
@@ -93,5 +98,6 @@ mod tests {
         let p = Paths::from_lookup(env).unwrap();
         assert_eq!(p.data, Path::new("/h/.local/share/owd"));
         assert_eq!(p.socket(), Path::new("/run/user/1/owd/owd.sock"));
+        assert_eq!(p.widgets(), Path::new("/h/.local/share/owd/widgets"));
     }
 }

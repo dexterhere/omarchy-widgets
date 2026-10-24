@@ -2,6 +2,8 @@
 
 Written 2026-10-17 when work was stopped at the maintainer's request. The website repo has the detailed note (`omarchy-widgets-web/docs/HANDOFF.md`); this one covers the code repo.
 
+> 2026-10-24: the chain was proven end to end in a sandbox (daemon, `ow install` against the live site, plugin render). Guide: [TRY_IT.md](TRY_IT.md). What blocks a first release: [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md). This file below is the older 2026-10-17 note.
+
 ## Done (merged to `develop` via PR #24; check promotion to `staging` and `main` on GitHub)
 
 - Cargo workspace with `#![forbid(unsafe_code)]`, strict lints, CI (fmt, clippy, tests, cargo-deny, cargo-audit, weekly fuzz). Actions are referenced by tag (e.g. `actions/checkout@v7`), not pinned to commit SHAs.
@@ -20,6 +22,19 @@ Written 2026-10-17 when work was stopped at the maintainer's request. The websit
 5. QML bridge plugin and kit, the desktop canvas, Widget Center panel, `ow new|check|install|place|snapshot|rollback|doctor|publish`, first widgets, packaging end to end.
 6. **External review of the vault and protocol** before any public beta (release gate).
 7. Verify `omarchy plugin add` pin support (S7), then fix the website's manual install wording if it changes.
+
+## Web-repo changes recommended by `ow install` (not made; the web repo was read only)
+
+1. `scripts/build-registry.ts`: add per-file hashes to each `dist/index.json` widget entry, `"sha256": {"manifest.json": "<64 hex>", "widget.json": "<64 hex>", "layout.json": "<64 hex>"}`, computed over the exact fetched bytes it validated (non-fixture listings). `ow` verifies them when present and says when they are absent. Update `registry/README.md` and the index type in `src/lib/registry/types.ts`.
+2. Keep `commit` real for published entries: all seven entries are `planned`/`concept` with the all-zero placeholder commit, so `ow install` refuses them ("no files to fetch yet"). Once a repo is published, switch the listing to a pinned commit and a `status` of `alpha` or `stable`.
+3. Publish the catalog version: add a `version`/date to `registry/providers.json` and mention it in `registry.json`, so `ow` can tell "my catalog snapshot is older than the website's" from "this provider does not exist" (today both are "not in the catalog"). `crates/ow/data/providers.json` is a copy and must be refreshed when the website catalog changes; add a CI check in the web repo or a release step here.
+4. Consider a `registry.json` size note: the index embeds layout and sample data (about 13 KB per widget). `ow` accepts up to 2 MiB; a slim `index.json` without layouts would keep installs fast.
+5. `registry/schema/widget.schema.json` is still `draft-0`; when the code repo ships `spec/widget.schema.json`, regenerate `ow`'s Rust checks from it or test them against it (they are a hand re-implementation today).
+6. Consider serving `registry.json` with `Cache-Control` and an ETag so `ow` can later use conditional requests (`ow-egress` refuses `If-*` headers today).
+
+## Note for the web repo (not edited from here)
+
+The daemon now serves three more topics. `registry/providers.json` should add to the `system` provider's `serving` list: `system.time.hm`, `system.time.hms`, `system.time.date`, `system.time.tz`, `system.temp.celsius`; and give the `battery` provider a `serving` list: `battery.status.percent`, `battery.status.state`, `battery.status.timeLeft`. Field names equal the catalog's. `battery.status` answers `unavailable` on machines without a battery (desktop PCs) and `timeLeft` is an empty string when unknown, so the battery widget should render an empty state for both.
 
 ## Decisions waiting for you
 

@@ -1,0 +1,10 @@
+2026-10-24 09:34:10.909  INFO: Launching config: "/tmp/ow-bridge.3LTj/cfg/shell.qml"
+2026-10-24 09:34:10.909  INFO: Shell ID: "c4d1648b87ab71b4115942dd063a55f6" Path ID "c4d1648b87ab71b4115942dd063a55f6"
+2026-10-24 09:34:10.918 ERROR quickshell.paths: Could not create id symlink to "relative/dir/quickshell/by-id/s8m5yx7ent" at "relative/dir/quickshell/by-shell/c4d1648b87ab71b4115942dd063a55f6/s8m5yx7ent" with error code 20: "Not a directory"
+2026-10-24 09:34:10.918 ERROR quickshell.paths: Could not create PID symlink to "relative/dir/quickshell/by-id/s8m5yx7ent" at "relative/dir/quickshell/by-pid/262108" with error code 20: "Not a directory"
+2026-10-24 09:34:10.918 ERROR quickshell.paths: Could not create path symlink to "relative/dir/quickshell/by-shell/c4d1648b87ab71b4115942dd063a55f6" at "relative/dir/quickshell/by-path/c4d1648b87ab71b4115942dd063a55f6" with error code 20: "Not a directory"
+2026-10-24 09:34:10.948  INFO: Saving logs to "relative/dir/quickshell/by-id/s8m5yx7ent/log.qslog"
+2026-10-24 09:34:10.949 ERROR quickshell.ipc: Failed to start IPC server on path "relative/dir/quickshell/by-id/s8m5yx7ent/ipc.sock"
+2026-10-24 09:34:10.970  INFO: Configuration Loaded
+2026-10-24 09:34:12.472 DEBUG qml: PASS relpath: a relative XDG_RUNTIME_DIR is treated as unset
+2026-10-24 09:34:12.771 DEBUG qml: RESULT relpath passed=1 failed=0 links=unavailable pushes=0

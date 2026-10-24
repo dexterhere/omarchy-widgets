@@ -65,6 +65,10 @@ Passphrase bytes: the UTF-8 bytes exactly as entered; no Unicode normalization (
 - **keyring / tpm rotation protocol** (crash safety): store the new key under a new random `key_slot_id`; write the new vault; reopen and verify it with the new slot; only then delete the old slot. On startup, slots that are not the current file's slot are orphans: report them, and delete them only after a successful open of the current file.
 - **wipe**: removes the local vault file and the cached/derived key; in keyring/tpm mode also deletes and verifies deletion of the key slot (that gives cryptographic erasure of every copy). In passphrase mode backups and snapshots remain decryptable by anyone who knows the passphrase. User-facing text must never claim copies were erased.
 
+## Daemon-side use and key lifetime (passphrase mode)
+
+`owd` opens the vault with `Vault::open` when it receives `vault.unlock` (docs/DAEMON_SPEC.md section 5) and keeps that one `Vault` value, whose master key, data key and decrypted records are `Zeroizing` buffers. Providers never see it: they get a `SecretHandle` for a name they declared, valid for one fetch. The value is dropped, and so wiped, on `vault.lock`, on the idle timeout (15 minutes without a secret being resolved) and when the daemon exits. The daemon never writes the vault. All records are decrypted for as long as it is unlocked, not just the ones in use; the daemon's copy is not refreshed when `ow vault set|remove` changes the file, only by a new `vault.unlock`. The process is non-dumpable with no core dumps, which stops other same-user processes from reading its memory but not root or the kernel; `mlock` is not used, so pages can reach swap. The passphrase reaches the daemon once, over the 0600 same-uid socket, and the daemon's copy is zeroized after the derivation; copies inside the kernel's socket buffers and the client's terminal driver are outside our control.
+
 ## Memory and logging
 
 Keys and decrypted values live in `Zeroizing` buffers, are never `Debug`-printed, never logged, never in argv or environment. Error values carry a category only (`Corrupt`, `WrongKey`, `TooLarge`, `Io`), never names or values.

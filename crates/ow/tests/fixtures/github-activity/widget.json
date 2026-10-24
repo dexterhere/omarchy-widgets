@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 0,
+  "id": "io.github.dexterhere.github-activity",
+  "tier": "spec",
+  "category": "dev-git",
+  "surfaces": ["desktop", "bar"],
+  "sizeClasses": [
+    { "name": "chip", "min": [100, 24], "max": [200, 48], "aspectLock": null },
+    { "name": "compact", "min": [140, 80], "max": [240, 160], "aspectLock": null },
+    { "name": "wide", "min": [260, 100], "max": [480, 200], "aspectLock": null }
+  ],
+  "variants": ["counts", "badge-review", "chip", "minimal", "detailed"],
+  "providers": [
+    {
+      "name": "github",
+      "topics": ["github.prs"],
+      "fields": ["open", "review"],
+      "auth": "vault"
+    }
+  ],
+  "capabilities": { "network": [], "files": [], "spawn": [] },
+  "interactiveRegions": [],
+  "settings": [],
+  "compat": { "omarchy": ">=4.0", "widgetsKit": "^1" },
+  "sampleData": { "github.prs": { "open": 4, "review": 2 } }
+}

@@ -1,9 +1,19 @@
 //! `ow vault ...`: offline operations on the vault file. Secrets come only from
 //! `input` (terminal prompt or stdin), never from arguments.
-use crate::input::{secret, secret_confirmed};
+use crate::input::{secret, secret_confirmed, tty_secret};
+use ow::daemon;
 use ow_core::Paths;
 use ow_vault::{Profile, Vault, VaultError};
 use std::path::Path;
+
+const UNLOCK_ID: u64 = 1;
+
+/// The daemon keeps a decrypted copy while unlocked, so after the file changes under it we
+/// tell it to lock (dropping the copy and every cache entry derived from it). Best effort: no
+/// daemon, or one we do not trust, simply means there is no copy to drop.
+fn lock_daemon(paths: &Paths) {
+    let _ = daemon::call(paths, "{\"v\":0,\"id\":1,\"op\":\"vault.lock\"}\n");
+}
 
 fn err(e: VaultError) -> String {
     e.to_string()
@@ -40,16 +50,32 @@ pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Resu
             )
             .map_err(w)
         }
-        ["status"] => match ow_vault::inspect(&path) {
-            Ok(i) => writeln!(
-                out,
-                "vault: present, mode {}, profile {:?}",
-                i.mode, i.profile
-            )
-            .map_err(w),
-            Err(VaultError::NotFound) => writeln!(out, "vault: not initialised").map_err(w),
-            Err(e) => Err(err(e)),
-        },
+        ["status"] => {
+            match ow_vault::inspect(&path) {
+                Ok(i) => writeln!(
+                    out,
+                    "vault: present, mode {}, profile {:?}",
+                    i.mode, i.profile
+                )
+                .map_err(w)?,
+                Err(VaultError::NotFound) => {
+                    writeln!(out, "vault: not initialised").map_err(w)?;
+                }
+                Err(e) => return Err(err(e)),
+            }
+            daemon_status(paths, out)
+        }
+        ["unlock"] => {
+            let pass = secret("Vault passphrase")?;
+            let req = ow_proto::unlock_request(UNLOCK_ID, &pass)
+                .ok_or("passphrase is empty or too long")?;
+            daemon::call_ok(paths, &req)?;
+            writeln!(out, "daemon unlocked").map_err(w)
+        }
+        ["lock"] => {
+            daemon::call_ok(paths, "{\"v\":0,\"id\":1,\"op\":\"vault.lock\"}\n")?;
+            writeln!(out, "daemon locked").map_err(w)
+        }
         ["list"] => {
             let v = Vault::open(&path, &secret("Vault passphrase")?).map_err(err)?;
             for n in v.names() {
@@ -57,15 +83,27 @@ pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Resu
             }
             Ok(())
         }
-        ["set", name] => {
-            let mut v = Vault::open(&path, &secret("Vault passphrase")?).map_err(err)?;
+        ["set", name] | ["set", name, "--passphrase-stdin"] => {
+            // On a terminal both come from the prompt. With stdin redirected, the passphrase
+            // comes from /dev/tty and stdin carries the value, so a token can be piped without
+            // a shell variable. No terminal: fail, unless --passphrase-stdin says the first
+            // stdin line is the passphrase.
+            let pass = if args.len() == 3 || rustix::termios::isatty(rustix::stdio::stdin()) {
+                secret("Vault passphrase")?
+            } else {
+                tty_secret("Vault passphrase")?
+            };
+            let mut v = Vault::open(&path, &pass).map_err(err)?;
+            drop(pass);
             let value = secret_confirmed(&format!("Value for {name}"))?;
             v.set(name, utf8(&value)?).map_err(err)?;
+            lock_daemon(paths);
             writeln!(out, "stored {name}").map_err(w)
         }
         ["remove", name] => {
             let mut v = Vault::open(&path, &secret("Vault passphrase")?).map_err(err)?;
             let removed = v.remove(name).map_err(err)?;
+            lock_daemon(paths);
             writeln!(
                 out,
                 "{}",
@@ -77,17 +115,47 @@ pub fn run(paths: &Paths, args: &[String], out: &mut dyn std::io::Write) -> Resu
             let mut v = Vault::open(&path, &secret("Current passphrase")?).map_err(err)?;
             let new = secret_confirmed("New passphrase (min 12 bytes)")?;
             v.rotate_passphrase(&new, Profile::Standard).map_err(err)?;
+            lock_daemon(paths);
             writeln!(out, "passphrase and data key rotated").map_err(w)
         }
         ["wipe", "--yes"] => {
             ow_vault::wipe(&path).map_err(err)?;
+            lock_daemon(paths);
             writeln!(out, "vault file removed. Copies you made elsewhere (backups, snapshots, dotfile repos) are NOT erased and stay decryptable with the passphrase.")
                 .map_err(w)
         }
         _ => Err(
-            "usage: ow vault init|status|list|set <name>|remove <name>|rotate|wipe --yes\n\
-                  secrets are read from the terminal (no echo) or stdin, never from arguments"
+            "usage: ow vault init|status|unlock|lock|list|set <name> [--passphrase-stdin]|remove <name>|rotate|wipe --yes\n\
+                  secrets are read from the terminal (no echo) or stdin, never from arguments.\n\
+                  set: the passphrase comes from the terminal; a piped stdin line is the value (it must end with a newline)"
                 .into(),
         ),
+    }
+}
+
+/// Daemon half of `vault status`. An unreachable daemon is not an error here: the file facts
+/// above are still true.
+fn daemon_status(paths: &Paths, out: &mut dyn std::io::Write) -> Result<(), String> {
+    let w = |e: std::io::Error| e.to_string();
+    let Ok(v) = daemon::call_ok(paths, "{\"v\":0,\"id\":1,\"op\":\"vault.status\"}\n") else {
+        return writeln!(out, "daemon: not running or not reachable").map_err(w);
+    };
+    if v["state"] == "unlocked" {
+        let names: Vec<&str> = v["names"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|n| n.as_str()).collect())
+            .unwrap_or_default();
+        writeln!(
+            out,
+            "daemon: unlocked, {} secret(s) [{}], locks after {} s idle",
+            names.len(),
+            names.join(", "),
+            v["idleSecsLeft"].as_u64().unwrap_or(0)
+        )
+        .map_err(w)
+    } else if let Some(s) = v["lockoutSecsLeft"].as_u64() {
+        writeln!(out, "daemon: locked; unlock attempts blocked for {s} s").map_err(w)
+    } else {
+        writeln!(out, "daemon: locked").map_err(w)
     }
 }

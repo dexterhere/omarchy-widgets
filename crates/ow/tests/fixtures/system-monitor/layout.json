@@ -1,0 +1,589 @@
+{
+  "schemaVersion": 0,
+  "root": {
+    "type": "stack",
+    "gap": "sm",
+    "children": [
+      {
+        "type": "row",
+        "gap": "md",
+        "children": [
+          {
+            "type": "icon",
+            "name": "cpu",
+            "color": "accent"
+          },
+          {
+            "type": "text",
+            "text": "CPU",
+            "size": "sm",
+            "color": "muted"
+          },
+          {
+            "type": "spacer"
+          },
+          {
+            "type": "value",
+            "bind": {
+              "topic": "system.cpu",
+              "field": "usage_pct"
+            },
+            "unit": "%",
+            "size": "md",
+            "color": "foreground"
+          }
+        ]
+      },
+      {
+        "type": "bar",
+        "bind": {
+          "topic": "system.cpu",
+          "field": "usage_pct"
+        },
+        "color": "accent"
+      },
+      {
+        "type": "row",
+        "gap": "md",
+        "children": [
+          {
+            "type": "icon",
+            "name": "memory",
+            "color": "secondary"
+          },
+          {
+            "type": "text",
+            "text": "Memory",
+            "size": "sm",
+            "color": "muted"
+          },
+          {
+            "type": "spacer"
+          },
+          {
+            "type": "value",
+            "bind": {
+              "topic": "system.memory",
+              "field": "used_pct"
+            },
+            "unit": "%",
+            "size": "md",
+            "color": "foreground"
+          }
+        ]
+      },
+      {
+        "type": "bar",
+        "bind": {
+          "topic": "system.memory",
+          "field": "used_pct"
+        },
+        "color": "secondary"
+      }
+    ]
+  },
+  "variants": {
+    "cpu-ring": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "text",
+          "text": "CPU",
+          "size": "sm",
+          "color": "muted"
+        },
+        {
+          "type": "ring",
+          "bind": {
+            "topic": "system.cpu",
+            "field": "usage_pct"
+          },
+          "color": "accent"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "system.cpu",
+            "field": "usage_pct"
+          },
+          "unit": "%",
+          "size": "lg",
+          "color": "accent"
+        }
+      ]
+    },
+    "cpu-bar": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "icon",
+              "name": "cpu",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "CPU",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "system.cpu",
+                "field": "usage_pct"
+              },
+              "unit": "%",
+              "size": "lg",
+              "color": "accent"
+            }
+          ]
+        },
+        {
+          "type": "bar",
+          "bind": {
+            "topic": "system.cpu",
+            "field": "usage_pct"
+          },
+          "color": "accent"
+        }
+      ]
+    },
+    "memory-ring": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "text",
+          "text": "Memory",
+          "size": "sm",
+          "color": "muted"
+        },
+        {
+          "type": "ring",
+          "bind": {
+            "topic": "system.memory",
+            "field": "used_pct"
+          },
+          "color": "secondary"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "system.memory",
+            "field": "used_pct"
+          },
+          "unit": "%",
+          "size": "lg",
+          "color": "secondary"
+        },
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "value",
+              "bind": {
+                "topic": "system.memory",
+                "field": "used_mib"
+              },
+              "unit": "MiB",
+              "size": "sm",
+              "color": "foreground"
+            },
+            {
+              "type": "text",
+              "text": "of",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "system.memory",
+                "field": "total_mib"
+              },
+              "unit": "MiB",
+              "size": "sm",
+              "color": "foreground"
+            }
+          ]
+        }
+      ]
+    },
+    "cpu-memory": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "icon",
+              "name": "cpu",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "CPU",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "system.cpu",
+                "field": "usage_pct"
+              },
+              "unit": "%",
+              "size": "md",
+              "color": "foreground"
+            }
+          ]
+        },
+        {
+          "type": "bar",
+          "bind": {
+            "topic": "system.cpu",
+            "field": "usage_pct"
+          },
+          "color": "accent"
+        },
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "icon",
+              "name": "memory",
+              "color": "secondary"
+            },
+            {
+              "type": "text",
+              "text": "Memory",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "system.memory",
+                "field": "used_pct"
+              },
+              "unit": "%",
+              "size": "md",
+              "color": "foreground"
+            }
+          ]
+        },
+        {
+          "type": "bar",
+          "bind": {
+            "topic": "system.memory",
+            "field": "used_pct"
+          },
+          "color": "secondary"
+        }
+      ]
+    },
+    "full": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "icon",
+              "name": "cpu",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "CPU",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "system.cpu",
+                "field": "usage_pct"
+              },
+              "unit": "%",
+              "size": "md",
+              "color": "foreground"
+            }
+          ]
+        },
+        {
+          "type": "bar",
+          "bind": {
+            "topic": "system.cpu",
+            "field": "usage_pct"
+          },
+          "color": "accent"
+        },
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "icon",
+              "name": "memory",
+              "color": "secondary"
+            },
+            {
+              "type": "text",
+              "text": "Memory",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "system.memory",
+                "field": "used_pct"
+              },
+              "unit": "%",
+              "size": "md",
+              "color": "foreground"
+            }
+          ]
+        },
+        {
+          "type": "bar",
+          "bind": {
+            "topic": "system.memory",
+            "field": "used_pct"
+          },
+          "color": "secondary"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "text",
+              "text": "Load",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "system.load",
+                "field": "load1"
+              },
+              "unit": "",
+              "size": "sm",
+              "color": "foreground"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "system.load",
+                "field": "load5"
+              },
+              "unit": "",
+              "size": "sm",
+              "color": "secondary"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "system.load",
+                "field": "load15"
+              },
+              "unit": "",
+              "size": "sm",
+              "color": "muted"
+            }
+          ]
+        }
+      ]
+    },
+    "minimal": {
+      "type": "row",
+      "gap": "lg",
+      "children": [
+        {
+          "type": "text",
+          "text": "CPU",
+          "size": "sm",
+          "color": "muted"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "system.cpu",
+            "field": "usage_pct"
+          },
+          "unit": "%",
+          "size": "lg",
+          "color": "accent"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "text",
+          "text": "MEM",
+          "size": "sm",
+          "color": "muted"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "system.memory",
+            "field": "used_pct"
+          },
+          "unit": "%",
+          "size": "lg",
+          "color": "secondary"
+        }
+      ]
+    },
+    "chip": {
+      "type": "row",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "icon",
+          "name": "cpu",
+          "color": "accent"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "system.cpu",
+            "field": "usage_pct"
+          },
+          "unit": "%",
+          "size": "sm",
+          "color": "accent"
+        },
+        {
+          "type": "bar",
+          "bind": {
+            "topic": "system.cpu",
+            "field": "usage_pct"
+          },
+          "color": "accent"
+        },
+        {
+          "type": "icon",
+          "name": "memory",
+          "color": "secondary"
+        },
+        {
+          "type": "value",
+          "bind": {
+            "topic": "system.memory",
+            "field": "used_pct"
+          },
+          "unit": "%",
+          "size": "sm",
+          "color": "secondary"
+        }
+      ]
+    },
+    "cpu-temp": {
+      "type": "stack",
+      "gap": "sm",
+      "children": [
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "icon",
+              "name": "cpu",
+              "color": "accent"
+            },
+            {
+              "type": "text",
+              "text": "CPU",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "system.cpu",
+                "field": "usage_pct"
+              },
+              "unit": "%",
+              "size": "md",
+              "color": "foreground"
+            }
+          ]
+        },
+        {
+          "type": "bar",
+          "bind": {
+            "topic": "system.cpu",
+            "field": "usage_pct"
+          },
+          "color": "accent"
+        },
+        {
+          "type": "row",
+          "gap": "md",
+          "children": [
+            {
+              "type": "text",
+              "text": "Temp",
+              "size": "sm",
+              "color": "muted"
+            },
+            {
+              "type": "spacer"
+            },
+            {
+              "type": "value",
+              "bind": {
+                "topic": "system.temp",
+                "field": "celsius"
+              },
+              "unit": "C",
+              "size": "md",
+              "color": "secondary"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

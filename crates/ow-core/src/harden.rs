@@ -26,18 +26,18 @@ pub fn harden_process() -> io::Result<()> {
 /// group/other access. `DirBuilder` modes only apply to directories it creates, so a
 /// pre-existing loose directory must be refused, not trusted.
 pub fn private_dir(dir: &std::path::Path) -> io::Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(dir)?;
-    let md = std::fs::symlink_metadata(dir)?;
-    if !md.is_dir() || md.uid() != rustix::process::geteuid().as_raw() || md.mode() & 0o077 != 0 {
-        return Err(io::Error::other(format!(
+    // One rule for "private directory": the shared check, with this function's wording.
+    check_private_dir(dir).map_err(|_| {
+        io::Error::other(format!(
             "{} must be a directory owned by you with mode 0700 (try: chmod 700)",
             dir.display()
-        )));
-    }
+        ))
+    })?;
     Ok(())
 }
 
@@ -51,6 +51,28 @@ pub fn panic_notice(location: Option<(&str, u32)>) -> String {
         }
         None => "panic (location unknown; message withheld: it may contain secrets)".into(),
     }
+}
+
+/// Require `dir` to be a real directory (not a symlink) owned by the current user with no
+/// group/other access. Used by the daemon for its own directories and by clients before they
+/// send a secret to the socket inside one.
+pub fn check_private_dir(dir: &std::path::Path) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let md = std::fs::symlink_metadata(dir)?;
+    if !md.is_dir() {
+        return Err(io::Error::other(
+            "socket dir is not a directory (or is a symlink)",
+        ));
+    }
+    if md.uid() != rustix::process::geteuid().as_raw() {
+        return Err(io::Error::other(
+            "socket dir is not owned by the current user",
+        ));
+    }
+    if md.mode() & 0o077 != 0 {
+        return Err(io::Error::other("socket dir is accessible by group/others"));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

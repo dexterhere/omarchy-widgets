@@ -68,6 +68,8 @@ Found a vulnerability? **Do not open a public issue.** Follow [SECURITY.md](SECU
 
 ## Try the developer build
 
+Want to see it work end to end without risking your desktop? Follow [docs/TRY_IT.md](docs/TRY_IT.md) (10 minutes, everything in a throwaway folder). What must happen before a first release is in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
+
 Requires a recent stable Rust toolchain.
 
 ```bash
@@ -97,6 +99,8 @@ Everyone is welcome, and not only with code: bug reports, docs, screenshots, the
 | [docs/threat-model.md](docs/threat-model.md) | What is and is not protected |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Every design decision with its reason and evidence |
 | [docs/OPEN_QUESTIONS.md](docs/OPEN_QUESTIONS.md) | What we have not verified yet |
+| [docs/TRY_IT.md](docs/TRY_IT.md) | Try the whole chain safely in 10 minutes |
+| [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) | What must be true before v0.1.0 and `alpha` widgets |
 
 ## Independence
 

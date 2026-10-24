@@ -55,8 +55,8 @@ cargo deny check && cargo audit
 # daemon against a throwaway dir; keep the path short (Unix socket paths max 108 bytes) and absolute
 D=$(mktemp -d -p /tmp owd.XXXX); cargo run -p owd -- --config-dir "$D"
 cargo run -p ow -- --config-dir "$D" status
-(cd fuzz && cargo +nightly fuzz run <target>)          # frame_decoder request_parse grants_parse vault_payload vault_open
-# qmllint: not set up yet (no QML in the repo)
+(cd fuzz && cargo +nightly fuzz run <target>)          # frame_decoder request_parse admin_parse grants_parse vault_payload vault_open install_files
+plugin/tests/run-all.sh   # QML: qmllint, static safety check, QtTest offscreen, bridge, store (Qt6 tools in /usr/lib/qt6/bin)
 ```
 
 ## How to work
@@ -69,4 +69,4 @@ cargo run -p ow -- --config-dir "$D" status
 
 ## Current phase
 
-Phase 1, epic 1 (daemon core: socket, vault, grants, audit, provider hub, `ow status` and `ow vault`) is done. Phase 0 spikes S1 to S13 have not been run. Not built yet: network providers, hardening verification, bridge/QML/canvas/Widget Center, `ow new|check|install|publish`, `spec/`. See `docs/BUILD_PLAN.md`. Update this line when the phase changes.
+Phase 1, epic 1 (daemon core: socket, vault, grants, audit, provider hub, `ow status` and `ow vault`) is done, and the daemon can now be unlocked with the vault passphrase (`ow vault unlock|lock|status`; AUTH-UNLOCK in `docs/DECISIONS.md`). `ow install|list|remove` for spec widgets and the `grants.reload` admin op exist (`docs/INSTALL_DESIGN.md`); the `ow-egress` crate exists but no network provider uses it yet. Phase 0 spikes were run on 2026-10-23 except S4 (keyring), S11 (headless CI) and S12 (needs network); results are in `docs/SPIKES.md` and the SPIKE-* entries in `docs/DECISIONS.md`. The first desktop-layer slice exists in `plugin/` (bridge, layout.json v0 renderer, widget store, minimal Bottom-layer canvas; SHELL-PLUGIN in `docs/DECISIONS.md`, run it only in a throwaway Quickshell as `plugin/README.md` says); edit mode, Widget Center and in-shell behaviour are not built or verified. Not built yet: keyring auto-unlock, network providers, other grants admin ops, hardening verification, bridge/QML/canvas/Widget Center, `ow new|check|publish`, `spec/`. See `docs/BUILD_PLAN.md`. Update this line when the phase changes.

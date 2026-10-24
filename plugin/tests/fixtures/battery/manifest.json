@@ -1,0 +1,7 @@
+{
+  "id": "io.github.dexterhere.battery",
+  "name": "Battery",
+  "version": "0.1.0",
+  "description": "Battery charge, state and time left as a ring, bar, big number, bar chip or detailed card. Spec widget: JSON only, no code.",
+  "license": "MIT"
+}

@@ -7,7 +7,7 @@ Status: planning v0.2, checked against public sources on 17 October 2026. Everyt
 - No `mlock` is applied anywhere yet.
 - Fuzzing covers the frame, request, grants and vault parsers. There is no spec parser.
 - No bridge exists.
-- Not built: `ow new`, `check`, `install`, `enable`, `place`, `pack`, `snapshot`, `rollback`, `eject`, `doctor`, `search`, `grants`, `audit`, `center`.
+- Built: `ow install <id>`, `ow list`, `ow remove <id>` for spec widgets (`docs/INSTALL_DESIGN.md`). Not built: `ow new`, `check`, `enable`, `place`, `pack`, `snapshot`, `rollback`, `eject`, `doctor`, `search`, `grants`, `audit`, `center`.
 - Only the `system` provider exists.
 
 ## 1. Vision

@@ -1,0 +1,22 @@
+{
+  "id": "io.github.dexterhere.clock",
+  "repo": "https://github.com/dexterhere/clock",
+  "commit": "0000000000000000000000000000000000000001",
+  "installedAt": "2026-10-23T12:00:00Z",
+  "status": "alpha",
+  "tier": "spec",
+  "files": {},
+  "granted": [
+    {
+      "topics": [
+        "system.time"
+      ],
+      "fields": [
+        "hm",
+        "hms",
+        "date",
+        "tz"
+      ]
+    }
+  ]
+}

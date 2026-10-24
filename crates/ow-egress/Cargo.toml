@@ -1,0 +1,30 @@
+[package]
+name = "ow-egress"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# `max_level_off` (debug) and `release_max_level_off` (release) compile every `log` macro in the
+# whole binary (ureq, rustls) to nothing, so no URL or header can be logged. Without the release
+# feature any crate in the graph could switch logging back on in release builds. With it, a
+# different `release_max_level_*` anywhere in the graph is a `log` compile error, not a silent
+# override. This is the only reason `log` is listed; see AUTH-HTTP.
+log = { version = "0.4", features = ["max_level_off", "release_max_level_off"] }
+# Direct only to recognise its error type; same features as the copy ureq selects.
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+serde_json = "1.0.154"
+# Exact pin: network dependencies are bumped deliberately, with a DECISIONS entry.
+ureq = { version = "=3.5.0", default-features = false, features = ["rustls"] }
+zeroize = "1.9.1"
+
+[dev-dependencies]
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
+serde = "1.0.229"
+tempfile = "3.27.0"
+toml = "1.1.8"

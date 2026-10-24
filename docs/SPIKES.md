@@ -27,6 +27,8 @@ Skipped on purpose: **S4** (keyring; needs real keyring access, out of scope for
 
 ## S1 Canvas surface on `WlrLayer.Bottom`
 
+**Update 2026-10-24, measured by a person (Dexter) on the live desktop (eDP-1 and HDMI-A-1):** with the S1 surface running (`spikes/run-safe.sh /tmp/ow-kb/s1 40`), clicks inside the box were received on both monitors (2 on eDP-1, 27 on HDMI-A-1), and clicks on bare wallpaper outside the box were made on both monitors with no `S1 LEAK click outside box` line in the log, so the surface never received them. Click pass-through of the input mask is therefore **PASS** on both monitors. Lock screen, fullscreen windows and keyboard focus are still unverified.
+
 **Question.** Can a plugin draw a Bottom-layer surface that is click-through except one interactive rectangle, without stealing focus or shifting other layers?
 
 **Method.** `spikes/s1/shell.qml`: a `Variants` over `Quickshell.screens`, one full-screen transparent `PanelWindow` per monitor, `WlrLayershell.layer: Bottom`, `keyboardFocus: None`, `exclusionMode: Ignore`, `mask: Region { item: box }`. Run for 6 s with `WAYLAND_DEBUG=client`, probed with read-only `hyprctl`.

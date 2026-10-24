@@ -14,6 +14,7 @@ for sc in "${scenarios[@]}"; do
   mkdir -p "$run/cfg" "$run/state" "$run/cache" "$run/data" "$run/rt/owd"
   chmod 700 "$run/rt" "$run/rt/owd"
   cp -r "$plugin" "$run/cfg/plugin"; rm -rf "$run/cfg/plugin/tests"; cp "$here/bridge/shell.qml" "$run/cfg/shell.qml"; cp -r "$here/stubs/qs/Commons" "$run/cfg/Commons"
+  cd "$run"      # a relative XDG_RUNTIME_DIR (relpath scenario) must not create directories in the repo
   sock=$run/rt/owd/owd.sock
   log=$run/server.log
   unset WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE

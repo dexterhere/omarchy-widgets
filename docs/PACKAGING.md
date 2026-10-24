@@ -42,7 +42,7 @@ bsdtar -tvf omarchy-widgets-git-*.pkg.tar.zst     # look at what it would instal
 sudo pacman -U omarchy-widgets-git-*.pkg.tar.zst  # you run this, deliberately
 ```
 
-To test a local checkout without the network, point the source at it: `_src="git+file:///abs/path/to/repo#branch=NAME" makepkg -p PKGBUILD-git`. `makepkg --nocheck` skips the test suite (CI runs it). Build in a scratch directory with `PKGDEST`, `SRCDEST` and `BUILDDIR` set if you do not want files next to the recipe.
+To test a local checkout without the network, point the source at it: `_src="git+file:///abs/path/to/repo#branch=NAME" makepkg -p PKGBUILD-git`. `makepkg --nocheck` skips the test suite (CI runs it); without it, `check()` runs the tests with a throwaway `HOME`, `XDG_*` and runtime directory under `$srcdir`, never the builder's. Build in a scratch directory with `PKGDEST`, `SRCDEST` and `BUILDDIR` set if you do not want files next to the recipe.
 
 ## Install without pacman
 
@@ -52,13 +52,14 @@ packaging/install-local.sh            # DRY RUN: prints exactly what it would do
 packaging/install-local.sh --yes      # do it
 ```
 
-Installs `owd` and `ow` to `$PREFIX/bin` (default `~/.local/bin`; `--prefix DIR` or `PREFIX=`), the unit to `$XDG_CONFIG_HOME/systemd/user/owd.service` with `ExecStart` (and the data path) rewritten to your locations, and creates `~/.local/share/owd` and `~/.config/owd` with mode 0700. It never runs `systemctl` or `sudo`; it prints the commands. It refuses to overwrite a file it did not create, or one you changed, unless you pass `--force`; it refuses a symlinked prefix, bin, unit, data or config directory; it checks every target before writing anything, so a refusal never leaves half an install. It records an uninstall manifest at `$XDG_DATA_HOME/omarchy-widgets/install-manifest`.
+Installs `owd` and `ow` to `$PREFIX/bin` (default `~/.local/bin`; `--prefix DIR` or `PREFIX=`), the unit to `$XDG_CONFIG_HOME/systemd/user/owd.service` with `ExecStart` (and the data path) rewritten to your locations, and creates `~/.local/share/owd` and `~/.config/owd` with mode 0700. It never runs `systemctl` or `sudo`, and refuses to run as root; it prints the commands (paths quoted with `printf %q`). An existing prefix or bin directory must be yours and not group/other-writable, or it refuses. It refuses to overwrite a file it did not create, or one you changed, unless you pass `--force`; it refuses a symlinked prefix, bin, unit, data or config directory; it checks every target before writing anything, so a refusal never leaves half an install and never touches the manifest. Installing under a second `--prefix` keeps the first prefix's files in the manifest, so one `--uninstall` removes both. It records an uninstall manifest at `$XDG_DATA_HOME/omarchy-widgets/install-manifest`.
 
 ## Verify
 
 ```bash
 ow doctor            # read-only; OK / WARN / FAIL / SKIP per check, a fix line each, exit 1 on any FAIL
 ow doctor --json     # same, for scripts
+ow doctor --names    # also list the vault's secret names (off by default: reports get pasted)
 ```
 
 `ow doctor` looks at files and asks the running daemon for `status` and `vault.status`. It does not call `systemctl`, so "unit enabled" means "the enable link exists". Its plugin check is `SKIP` in `--config-dir` mode and a plain folder check otherwise. Details: `docs/DAEMON_SPEC.md` ("`ow doctor`").
@@ -72,7 +73,7 @@ systemd-analyze --user verify packaging/owd.service                   # only: th
 
 ## The data directory
 
-`ProtectHome=read-only` makes the whole home read-only, so the vault directory is opened with `ReadWritePaths=%h/.local/share/owd`, with no `-` prefix: if the directory is missing the service fails to start with a namespace error (226/NAMESPACE) instead of running with a read-only vault directory. systemd has no `DataDirectory=`, and an `ExecStartPre=` that creates the directory would run inside the same read-only sandbox, so the directory is created outside the unit: by the installer, by you (`install -d -m 0700 ~/.local/share/owd`), or by `ow vault init`. If you move `XDG_DATA_HOME`, change the path with `systemctl --user edit owd.service`.
+`ProtectHome=read-only` makes the whole home read-only, so the vault directory is opened with `ReadWritePaths=%h/.local/share/owd`, with no `-` prefix (and `ReadOnlyPaths=-%h/.local/share/owd/widgets` makes installed widgets read-only again for the daemon; unverified under a real unit): if the directory is missing the service fails to start with a namespace error (226/NAMESPACE) instead of running with a read-only vault directory. systemd has no `DataDirectory=`, and an `ExecStartPre=` that creates the directory would run inside the same read-only sandbox, so the directory is created outside the unit: by the installer, by you (`install -d -m 0700 ~/.local/share/owd`), or by `ow vault init`. If you move `XDG_DATA_HOME`, change the path with `systemctl --user edit owd.service`.
 
 ## Uninstall
 

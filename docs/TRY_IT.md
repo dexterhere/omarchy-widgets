@@ -76,7 +76,7 @@ Now ask `ow` to check the wiring (it only reads and prints):
 ./target/release/ow doctor
 ```
 
-Expect `OK` for `state-dir`, `socket-dir`, `daemon`, `version` and `vault-state`, and `WARN` for the things this guide deliberately does not set up: the data and config directories (they appear at step 4), `vault-file`, `unit` and `plugin`. Each `WARN` line has a `fix:` line; none of them is needed here. `ow doctor` exits 0 as long as nothing says `FAIL`. (The `plugin` line looks at the plugin folder under your real home, read-only; it changes nothing.)
+Expect `OK` for `state-dir`, `socket-dir`, `daemon`, `version` and `vault-state`, and `WARN` for the things this guide deliberately does not set up: the data and config directories (they appear at step 4), `vault-file`, `unit` and `plugin`. Each `WARN` line has a `fix:` line; none of them is needed here. `ow doctor` exits 0 as long as nothing says `FAIL`. It shows only how many secrets the vault holds; add `--names` if you want the names, and think before pasting that into a bug report. (The `plugin` line looks at the plugin folder under your real home, read-only; it changes nothing.)
 
 This proves the daemon runs and answers on a private socket inside the sandbox. The vault (encrypted password store) is not needed for these widgets, so we do not create one.
 

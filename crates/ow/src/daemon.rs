@@ -15,6 +15,11 @@ const UNREACHABLE: &str = "daemon not reachable";
 
 /// Send one request line (newline included) and return the raw reply line.
 pub fn call(paths: &Paths, request: &str) -> Result<String, String> {
+    call_timeout(paths, request, TIMEOUT)
+}
+
+/// `call` with a caller-chosen read/write timeout (`ow doctor` must not hang on a mute daemon).
+pub fn call_timeout(paths: &Paths, request: &str, timeout: Duration) -> Result<String, String> {
     // Nothing is written until both checks pass, so a squatter on the socket path gets no bytes.
     let sock = paths.socket();
     match sock.parent().map(ow_core::check_private_dir) {
@@ -32,9 +37,9 @@ pub fn call(paths: &Paths, request: &str) -> Result<String, String> {
     if !ow_core::peer_is_self(&s) {
         return Err("refusing to use the daemon socket: it is not served by your user".into());
     }
-    s.set_read_timeout(Some(TIMEOUT))
+    s.set_read_timeout(Some(timeout))
         .map_err(|e| e.to_string())?;
-    s.set_write_timeout(Some(TIMEOUT))
+    s.set_write_timeout(Some(timeout))
         .map_err(|e| e.to_string())?;
     s.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
     let mut line = String::new();

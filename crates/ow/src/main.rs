@@ -12,12 +12,20 @@ fn run() -> Result<(), String> {
     ow_core::harden_process().map_err(|e| format!("hardening failed: {e}"))?;
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let sandbox = args.first().map(String::as_str) == Some("--config-dir") && args.len() >= 2;
-    let paths = if sandbox {
+    let dir = if sandbox {
         let dir = args.remove(1);
         args.remove(0);
-        Paths::from_config_dir(&dir)?
+        Some(dir)
     } else {
-        Paths::from_env()?
+        None
+    };
+    // `doctor` must still report what it can when HOME or XDG_RUNTIME_DIR is missing.
+    if args.first().map(String::as_str) == Some("doctor") {
+        return doctor_cmd(dir.as_deref(), &args[1..]);
+    }
+    let paths = match &dir {
+        Some(d) => Paths::from_config_dir(d)?,
+        None => Paths::from_env()?,
     };
     match args.first().map(String::as_str) {
         Some("status") => {
@@ -25,26 +33,6 @@ fn run() -> Result<(), String> {
                 "{}",
                 daemon::call(&paths, "{\"v\":0,\"id\":1,\"op\":\"status\"}\n")?
             );
-            Ok(())
-        }
-        Some("doctor") => {
-            let json = match &args[1..] {
-                [] => false,
-                [f] if f == "--json" => true,
-                _ => return Err("usage: ow doctor [--json]".into()),
-            };
-            let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-            let checks = doctor::run(&doctor::Env::new(paths, sandbox, home));
-            let text = if json {
-                doctor::render_json(&checks)
-            } else {
-                doctor::render_text(&checks)
-            };
-            print!("{text}");
-            if doctor::failed(&checks) {
-                // The report is the output; a bare exit status 1 is the machine-readable part.
-                std::process::exit(1);
-            }
             Ok(())
         }
         Some("vault") => vault_cmd::run(&paths, &args[1..], &mut std::io::stdout()),
@@ -63,10 +51,41 @@ fn run() -> Result<(), String> {
             &mut install::TtyUi,
         ),
         _ => Err(format!(
-            "usage: ow [--config-dir DIR] status | doctor [--json] | vault ... | install | list | remove\n{}",
+            "usage: ow [--config-dir DIR] status | doctor [--json] [--names] | vault ... | install | list | remove\n{}",
             install::USAGE
         )),
     }
+}
+
+fn doctor_cmd(dir: Option<&str>, flags: &[String]) -> Result<(), String> {
+    let (mut json, mut names) = (false, false);
+    for f in flags {
+        match f.as_str() {
+            "--json" => json = true,
+            "--names" => names = true,
+            _ => return Err("usage: ow doctor [--json] [--names]".into()),
+        }
+    }
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let mut env = match dir {
+        Some(d) => doctor::Env::new(Paths::from_config_dir(d)?, true, home),
+        None => doctor::Env::from_lookup(|k| std::env::var_os(k).map(std::path::PathBuf::from)),
+    };
+    env.names = names;
+    let checks = doctor::run(&env);
+    print!(
+        "{}",
+        if json {
+            doctor::render_json(&checks)
+        } else {
+            doctor::render_text(&checks)
+        }
+    );
+    if doctor::failed(&checks) {
+        // The report is the output; exit status 1 is the machine-readable part.
+        std::process::exit(1);
+    }
+    Ok(())
 }
 
 fn main() -> ExitCode {

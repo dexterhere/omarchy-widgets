@@ -96,7 +96,8 @@ fn healthy_tree_exits_zero_and_never_prints_secrets() {
     let locked = ow(d.path(), &["doctor"], "");
     ow(d.path(), &["vault", "unlock"], &format!("{PASS}\n"));
     let unlocked = ow(d.path(), &["doctor"], "");
-    let json = ow(d.path(), &["doctor", "--json"], "");
+    let json = ow(d.path(), &["doctor", "--json", "--names"], "");
+    let json_plain = ow(d.path(), &["doctor", "--json"], "");
     println!("{}", out(&unlocked));
     for o in [&locked, &unlocked] {
         assert!(o.status.success(), "{}", out(o));
@@ -104,10 +105,13 @@ fn healthy_tree_exits_zero_and_never_prints_secrets() {
     }
     assert!(out(&locked).contains("Vault is locked"));
     let t = out(&unlocked);
+    // Reports get pasted: names stay hidden unless asked for.
     assert!(
-        t.contains("Vault is unlocked; 1 secret name(s): [github-main]"),
+        t.contains("Vault is unlocked; 1 secret(s), names hidden, add --names"),
         "{t}"
     );
+    assert!(!t.contains("github-main") && !out(&json_plain).contains("github-main"));
+    assert!(out(&json).contains("secret name(s): [github-main]"));
     assert!(
         t.contains(CLOCK) && t.contains("Files are intact and valid"),
         "{t}"
@@ -116,7 +120,7 @@ fn healthy_tree_exits_zero_and_never_prints_secrets() {
         t.contains("SKIP  plugin") && t.contains("Nothing was changed"),
         "{t}"
     );
-    let all = format!("{}{}{}", out(&locked), t, out(&json));
+    let all = format!("{}{}{}{}", out(&locked), t, out(&json), out(&json_plain));
     for needle in [PASS, TOKEN] {
         assert!(!all.contains(needle), "{needle} leaked");
     }
@@ -251,7 +255,7 @@ fn hostile_daemon_text_cannot_reach_the_terminal() {
             s.write_all(reply.as_bytes()).unwrap();
         }
     });
-    let o = ow(d.path(), &["doctor"], "");
+    let o = ow(d.path(), &["doctor", "--names"], "");
     th.join().unwrap();
     let t = out(&o);
     assert!(!t.contains('\u{1b}') && !t.contains('\u{7}'), "{t:?}");
@@ -264,4 +268,83 @@ fn usage_errors() {
     let o = ow(d.path(), &["doctor", "--bogus"], "");
     assert_eq!(o.status.code(), Some(1));
     assert!(out(&o).contains("usage: ow doctor [--json]"));
+}
+
+/// A daemon that accepts and never answers must cost seconds, not the 60 s of other verbs.
+#[test]
+fn mute_daemon_is_a_fail_within_seconds() {
+    let _s = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (d, paths) = healthy();
+    ow_core::private_dir(&paths.runtime).unwrap();
+    let l = UnixListener::bind(paths.socket()).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let s2 = Arc::clone(&stop);
+    let th = std::thread::spawn(move || {
+        l.set_nonblocking(true).unwrap();
+        let mut held = Vec::new();
+        while !s2.load(Ordering::Relaxed) {
+            if let Ok((s, _)) = l.accept() {
+                held.push(s); // keep it open, say nothing
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    });
+    let t0 = std::time::Instant::now();
+    let o = ow(d.path(), &["doctor"], "");
+    let took = t0.elapsed();
+    stop.store(true, Ordering::Relaxed);
+    th.join().unwrap();
+    let t = out(&o);
+    assert_eq!(o.status.code(), Some(1), "{t}");
+    assert!(t.contains("FAIL  daemon"), "{t}");
+    assert!(took < std::time::Duration::from_secs(7), "took {took:?}");
+}
+
+/// No HOME and no XDG_RUNTIME_DIR: still a report, with SKIP and the reason, exit 0.
+#[test]
+fn missing_home_and_runtime_dir_are_skips_not_a_crash() {
+    for env in [
+        vec![],
+        vec![("HOME", "relative"), ("XDG_RUNTIME_DIR", "run")],
+    ] {
+        let o = Command::new(env!("CARGO_BIN_EXE_ow"))
+            .arg("doctor")
+            .env_clear()
+            .envs(env)
+            .output()
+            .unwrap();
+        let t = out(&o);
+        assert!(o.status.success(), "{t}");
+        assert!(
+            t.contains("SKIP  daemon") && t.contains("XDG_RUNTIME_DIR is unset or not absolute"),
+            "{t}"
+        );
+        assert!(t.contains("SKIP  data-dir"), "{t}");
+        assert!(!t.contains("FAIL"), "{t}");
+    }
+}
+
+/// The `fix:` text is meant to be pasted: run it in a shell inside a sandbox and prove that a
+/// hostile file name is only ever an argument.
+#[test]
+fn quoted_fix_commands_cannot_inject() {
+    let d = tempfile::tempdir().unwrap();
+    let victim = d.path().join("q'; touch PWNED #");
+    std::fs::write(&victim, "x").unwrap();
+    chmod(&victim, 0o644);
+    let line = ow::doctor::cmd_path("chmod 600", &victim).unwrap();
+    let st = Command::new("sh")
+        .arg("-c")
+        .arg(&line)
+        .current_dir(d.path())
+        .status()
+        .unwrap();
+    assert!(st.success());
+    assert!(!d.path().join("PWNED").exists());
+    assert_eq!(
+        std::fs::metadata(&victim).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
 }

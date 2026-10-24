@@ -38,13 +38,13 @@ build() {
 check() {
   cd omarchy-widgets
   # The tests start daemons and write config/state files: give them a throwaway home and runtime
-  # directory, never the builder's real ones. CARGO_HOME is kept so the fetched crates are found.
-  local cargo_home=${CARGO_HOME:-$HOME/.cargo} tmp="$srcdir/check-home"
+  # directory, never the builder's real ones. CARGO_HOME and RUSTUP_HOME are kept so the fetched crates and the toolchain are found.
+  local cargo_home=${CARGO_HOME:-$HOME/.cargo} rustup_home=${RUSTUP_HOME:-$HOME/.rustup} tmp="$srcdir/check-home"
   rm -rf "$tmp"; mkdir -p "$tmp/home" "$tmp/config" "$tmp/data" "$tmp/state"
   mkdir -m 700 "$tmp/run"
   env HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" XDG_DATA_HOME="$tmp/data" \
     XDG_STATE_HOME="$tmp/state" XDG_RUNTIME_DIR="$tmp/run" \
-    CARGO_HOME="$cargo_home" RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target \
+    CARGO_HOME="$cargo_home" RUSTUP_HOME="$rustup_home" RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target \
     cargo test --frozen --workspace
 }
 

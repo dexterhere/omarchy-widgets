@@ -1,0 +1,68 @@
+# Maintainer: the Omarchy widget layer contributors
+#
+# DEVELOPER PREVIEW package, built from a branch, with NO signature check.
+#
+# Why two PKGBUILDs: `PKGBUILD` is the release package. It builds only from a signed tag and
+# refuses to run until the maintainer pins a signing key, so a release can never be built from
+# unverified source. That key and the first tag do not exist yet, so nobody can install from it.
+# This file lets a person try the daemon today. The price: you trust whatever the branch
+# contains at build time. The same trust you give `git clone && cargo build`; the source is
+# fetched over https from the repository in `url`, and Cargo.lock is enforced (--locked).
+# Do not ship this package to other people as "the release"; use it on your own machine.
+#
+# Build (nothing is installed by makepkg itself):  cd packaging && makepkg -p PKGBUILD-git
+# Branch: tracks $_branch (default develop, where work lands first). Override with
+#   _branch=main makepkg -p PKGBUILD-git
+# Local testing: _src="git+file:///absolute/path/to/repo#branch=NAME" makepkg -p PKGBUILD-git
+pkgname=omarchy-widgets-git
+pkgver=0.0.0.r0.g0000000
+pkgrel=1
+pkgdesc='Provider daemon (owd) and CLI (ow) for Omarchy desktop widgets (developer preview, unsigned git build)'
+arch=(x86_64)
+url='https://github.com/dexterhere/omarchy-widgets'
+license=(MIT)
+depends=(gcc-libs)
+makedepends=(cargo git)
+provides=(omarchy-widgets)
+conflicts=(omarchy-widgets)
+install=omarchy-widgets-git.install
+_branch=${_branch:-develop}
+source=("omarchy-widgets::${_src:-git+$url.git#branch=$_branch}")
+sha256sums=(SKIP) # a branch moves; there is nothing to pin. See the header.
+
+pkgver() {
+  cd omarchy-widgets
+  # 0.0.0.r<commit count>.g<short hash>: always increases, sorts correctly in pacman.
+  printf '%s.r%s.g%s' "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)" \
+    "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+  cd omarchy-widgets
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd omarchy-widgets
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p owd -p ow
+}
+
+check() {
+  cd omarchy-widgets
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo test --frozen --workspace
+}
+
+package() {
+  cd omarchy-widgets
+  install -Dm755 target/release/owd "$pkgdir/usr/bin/owd"
+  install -Dm755 target/release/ow "$pkgdir/usr/bin/ow"
+  install -Dm644 packaging/owd.service "$pkgdir/usr/lib/systemd/user/owd.service"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 LICENSE "$pkgdir/usr/share/doc/$pkgname/LICENSE"
+  install -Dm644 docs/TRY_IT.md "$pkgdir/usr/share/doc/$pkgname/TRY_IT.md"
+  install -Dm644 SECURITY.md "$pkgdir/usr/share/doc/$pkgname/SECURITY.md"
+  install -Dm644 docs/threat-model.md "$pkgdir/usr/share/doc/$pkgname/threat-model.md"
+}

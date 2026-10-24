@@ -98,11 +98,20 @@ CANVAS = [
     ("layer other than WlrLayer.Bottom", r"WlrLayershell\s*\.\s*layer\s*:\s*(?!\s)(?!WlrLayer\.Bottom\b)"),
     ("layer-shell layer used outside the canvas and Center.qml", r"\bWlrLayer\.(Overlay|Top|Background)\b"),
 ]
+# The Widget Center overlay is the one place that may take the keyboard and sit on the Overlay layer
+# (WIDGET-CENTER-V0). Narrow, per file, and each exemption has a planted-violation self-test.
+CENTER_SURFACE = [
+    ("keyboardFocus other than WlrKeyboardFocus.OnDemand", r"keyboardFocus\s*:\s*(?!\s)(?!WlrKeyboardFocus\.OnDemand\b)"),
+    ("exclusionMode other than ExclusionMode.Ignore", r"exclusionMode\s*:\s*(?!\s)(?!ExclusionMode\.Ignore\b)"),
+    ("layer other than WlrLayer.Overlay", r"WlrLayershell\s*\.\s*layer\s*:\s*(?!\s)(?!WlrLayer\.Overlay\b)"),
+]
+KEYBOARD_RULE = "keyboard input items"
+KEYBOARD_OK = {"CenterPanel.qml": r"\b(Keys|focus)\b"}     # only Escape handling; no text input anywhere
 ONLY_IN = {   # type -> files that may instantiate it
     "FileView": {"Store.qml", "Service.qml"},
     "FolderListModel": {"Store.qml"},
     "Socket": {"Bridge.qml"},
-    "PanelWindow": {"DesktopCanvas.qml"},
+    "PanelWindow": {"DesktopCanvas.qml", "Center.qml"},
     "FloatingWindow": set(), "PopupWindow": set(), "WlSessionLock": set(), "Window": set(), "ApplicationWindow": set(),
 }
 ALLOWED_IMPORTS = {"QtQuick", "QtQuick.Layouts", "QtQuick.Shapes", "Quickshell", "Quickshell.Io",
@@ -125,6 +134,8 @@ def check_text(name, text):
         if is_theme and not in_theme:
             continue
         for m in re.finditer(rx, clean, re.M):
+            if rule == KEYBOARD_RULE and base in KEYBOARD_OK and re.fullmatch(KEYBOARD_OK[base], m.group(0).replace("focus: true", "focus")):
+                continue
             add(m.start(), rule, m.group(0))
     # a Loader (or anything) `source:` may only be the one constant file, followed by a delimiter
     for m in re.finditer(r"(?<![\w.])source\s*:", clean):
@@ -134,7 +145,7 @@ def check_text(name, text):
     if base != "Store.qml":
         for m in re.finditer(r"[\"'`]\s*(file|https?|ftp|qrc|data|wss?):", clean):
             add(m.start(), "URL scheme in a string", m.group(0))
-    for rule, rx in CANVAS:
+    for rule, rx in (CENTER_SURFACE if base == "Center.qml" else CANVAS):
         for m in re.finditer(rx, clean):
             if rule.startswith("layer-shell layer used") and base == "Center.qml":
                 continue
@@ -248,6 +259,17 @@ BAD = {
     "layer overlay": ("layer", "DesktopCanvas.qml", "PanelWindow { WlrLayershell.layer: WlrLayer.Overlay }"),
     "layer top": ("layer", "DesktopCanvas.qml", "PanelWindow { WlrLayershell.layer: WlrLayer.Top }"),
     "layer variable": ("layer", "DesktopCanvas.qml", "PanelWindow { WlrLayershell.layer: lyr }"),
+    "center keyboard exclusive": ("keyboardFocus", "Center.qml", "PanelWindow { WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive }"),
+    "center keyboard none is also pinned": ("keyboardFocus", "Center.qml", "PanelWindow { WlrLayershell.keyboardFocus: WlrKeyboardFocus.None }"),
+    "center layer top": ("layer", "Center.qml", "PanelWindow { WlrLayershell.layer: WlrLayer.Top }"),
+    "center exclusion": ("exclusionMode", "Center.qml", "PanelWindow { exclusionMode: ExclusionMode.Normal }"),
+    "canvas on demand": ("keyboardFocus", "DesktopCanvas.qml", "PanelWindow { WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand }"),
+    "keys in the tile": ("keyboard input", "Tile.qml", "Item { Keys.onEscapePressed: x }"),
+    "keys in center.qml": ("keyboard input", "Center.qml", "Item { Keys.onEscapePressed: x }"),
+    "text input in the panel": ("keyboard input", "CenterPanel.qml", "Item { TextInput { } }"),
+    "focus policy in the panel": ("keyboard input", "CenterPanel.qml", "Item { activeFocusOnTab: true }"),
+    "process in the panel": ("process", "CenterPanel.qml", "Item { Process { command: [\"ow\", \"remove\", id] } }"),
+    "file view in the panel": ("FileView instantiated", "CenterPanel.qml", "Item { FileView { path: x } }"),
     "overlay layer elsewhere": ("layer-shell layer used", "Service.qml", "Item { property var l: WlrLayer.Overlay }"),
 }
 GOOD = {
@@ -263,6 +285,8 @@ GOOD = {
     "text with nested item": ("x.qml", "Text { textFormat: Text.PlainText; Item { } }"),
     "canvas ok": ("DesktopCanvas.qml", "PanelWindow { exclusionMode: ExclusionMode.Ignore; WlrLayershell.layer: WlrLayer.Bottom; WlrLayershell.keyboardFocus: WlrKeyboardFocus.None }"),
     "store file urls": ("Store.qml", "Item { FileView { path: x } FolderListModel { folder: \"file://\" + x } }"),
+    "center surface": ("Center.qml", "PanelWindow { exclusionMode: ExclusionMode.Ignore; WlrLayershell.layer: WlrLayer.Overlay; WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand }"),
+    "panel escape": ("CenterPanel.qml", "Item { focus: true; Keys.onEscapePressed: panel.closeRequested() }"),
     "bridge socket": ("Bridge.qml", "Item { Socket { path: x } }"),
     "word quit in prose string": ("x.qml", "Item { property string s: \"do not quit\" }"),
 }

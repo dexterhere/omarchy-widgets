@@ -215,6 +215,8 @@ function treeFits(root) {
 
 // ---------------------------------------------------------------- widget files
 
+var STATUSES = ["planned", "alpha", "stable", "removed"]   // docs/INSTALL_DESIGN.md section 3
+
 function validId(id) {
   return typeof id === "string" && WIDGET_ID.test(id) && id.indexOf("..") < 0 && id.charAt(id.length - 1) !== "."
 }
@@ -285,15 +287,20 @@ function checkInstalled(inst, id) {
   var g = J.own(inst, "granted")
   if (g === undefined) return { granted: null }
   if (!Array.isArray(g) || g.length > 16) return null
-  var set = {}
+  var set = {}, list = []
   for (var i = 0; i < g.length; i++) {
     if (!J.isObj(g[i]) || !Array.isArray(g[i].topics) || g[i].topics.length > 16) return null
     for (var t = 0; t < g[i].topics.length; t++) {
       if (typeof g[i].topics[t] !== "string" || !TOPIC.test(g[i].topics[t])) return null
       set[g[i].topics[t]] = 1
     }
+    // fields are display-only here (the Widget Center); keep the well-formed ones, at most 40
+    var fs = []
+    if (Array.isArray(g[i].fields)) for (var f = 0; f < g[i].fields.length && fs.length < 40; f++)
+      if (typeof g[i].fields[f] === "string" && FIELD.test(g[i].fields[f])) fs.push(g[i].fields[f])
+    list.push({ topics: g[i].topics.slice(), fields: fs })
   }
-  return { granted: set }
+  return { granted: set, list: list }
 }
 
 // Turns the four files of one install directory into a record. `texts` are raw strings
@@ -328,8 +335,14 @@ function loadWidget(id, texts) {
     if (inst.granted === null || J.has(inst.granted, t)) wanted.push(t); else ungranted.push(t)
   })
   var name = typeof man.name === "string" ? plainText(man.name, 60) : ""
+  var ver = J.own(man, "version")
+  var st = J.own(parsed.installed, "status")
   return { id: id, ok: true, name: name, sizeClasses: w.classes, variants: w.variants,
-           layout: parsed.layout, topics: wanted, ungranted: ungranted }
+           layout: parsed.layout, topics: wanted, ungranted: ungranted,
+           // shown by the Widget Center only; closed lists or bounded plain text
+           version: typeof ver === "string" ? plainText(ver, 32) : "",
+           status: STATUSES.indexOf(st) >= 0 ? st : "unknown",
+           declared: Object.keys(w.topics).sort(), grants: inst.list || null }
 }
 
 // ---------------------------------------------------------------- choosing what to draw

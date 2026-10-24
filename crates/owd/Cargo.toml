@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 ow-core = { version = "0.0.0", path = "../ow-core" }
+ow-egress = { version = "0.0.0", path = "../ow-egress" }
 ow-proto = { version = "0.0.0", path = "../ow-proto" }
 ow-providers = { version = "0.0.0", path = "../ow-providers" }
 ow-vault = { version = "0.0.0", path = "../ow-vault" }

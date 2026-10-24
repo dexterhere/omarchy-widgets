@@ -59,3 +59,70 @@ fn hostile_tz_stops_startup_with_exit_2_and_never_prints_the_value() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("TZ") && !err.contains("/dev/zero") && err.lines().count() == 1);
 }
+
+/// Start the real binary on `dir`; return its exit code and stderr if it stops by itself.
+fn start_with_config(text: &str, mode: u32) -> (Option<i32>, String) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::Builder::new()
+        .prefix("owd.")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let cfg = dir.path().join("config/owd");
+    std::fs::create_dir_all(&cfg).unwrap();
+    let file = cfg.join("config.toml");
+    std::fs::write(&file, text).unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_owd"))
+        .arg("--config-dir")
+        .arg(dir.path())
+        .env_clear()
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut err = String::new();
+    let mut rd = BufReader::new(child.stderr.take().unwrap());
+    let mut line = String::new();
+    rd.read_line(&mut line).unwrap();
+    err.push_str(&line);
+    if line.contains("listening") {
+        child.kill().unwrap();
+        child.wait().unwrap();
+        return (None, err);
+    }
+    let code = child.wait().unwrap().code();
+    (code, err)
+}
+
+#[test]
+fn a_bad_config_file_stops_startup_without_echoing_it() {
+    const SECRET_LOOKING: &str = "FAKE-pat-0123456789abcdef";
+    let bad: [(String, u32); 6] = [
+        // world-writable / group-readable
+        ("[providers.github]\nsecret = \"github-main\"\n".into(), 0o666),
+        ("[providers.github]\nsecret = \"github-main\"\n".into(), 0o640),
+        // a secret name outside the provider's pattern
+        ("[providers.github]\nsecret = \"gmail-app-pw\"\n".into(), 0o600),
+        // unknown key, and a token pasted where a name belongs
+        (format!("[providers.github]\nsecret = \"github-a\"\ntoken = \"{SECRET_LOOKING}\"\n"), 0o600),
+        (format!("[providers.github]\nsecret = \"{SECRET_LOOKING}\"\n"), 0o600),
+        // duplicate section
+        ("[providers.github]\nsecret = \"github-a\"\n[providers.github]\nsecret = \"github-b\"\n".into(), 0o600),
+    ];
+    for (text, mode) in bad {
+        let (code, err) = start_with_config(&text, mode);
+        assert_eq!(code, Some(1), "{text:?} {mode:o}: {err}");
+        assert!(err.starts_with("owd: config: "), "{err}");
+        assert!(!err.contains("FAKE") && !err.contains("gmail"), "{err}");
+    }
+}
+
+#[test]
+fn a_valid_config_starts_the_daemon_and_a_missing_one_does_too() {
+    let (code, err) = start_with_config(
+        "[providers.github]\nsecret = \"github-main\"\ninterval_secs = 300\n",
+        0o600,
+    );
+    assert_eq!(code, None, "{err}");
+    let (code, err) = start_with_config("", 0o600);
+    assert_eq!(code, None, "{err}");
+}

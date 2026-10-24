@@ -10,5 +10,5 @@ mod msg;
 pub use codec::{FrameError, LineDecoder, MAX_LINE};
 pub use msg::{
     ErrorBody, ErrorCode, MAX_PASSPHRASE, Op, PROTOCOL, ParseError, Passphrase, Reply, Request,
-    unlock_request,
+    State, StateInfo, unlock_request,
 };

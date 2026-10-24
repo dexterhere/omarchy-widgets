@@ -53,6 +53,13 @@ TestCase {
     var s = P.parseLine(line({ v: 0, id: 3, ok: true, sub: 7 }))
     compare(s.kind, "ok"); compare(s.sub, 7)
   }
+  function test_state_only_push_is_not_an_empty_update() {
+    const e = P.parseLine(line({ v: 0, sub: 7, topic: "github.prs", state: "unauthorized" }))
+    compare(e.kind, "state"); compare(e.state, "unauthorized"); compare(e.sub, 7)
+    // with data it stays a normal push
+    compare(P.parseLine(line({ v: 0, sub: 7, topic: "github.prs", state: "offline", data: { open: 1 } })).kind, "push")
+  }
+
   function test_push() {
     var e = P.parseLine(line({ v: 0, sub: 7, topic: "system.cpu", ts: 1760700000, stale: false, data: { usage_pct: 12.5 } }))
     compare(e.kind, "push"); compare(e.sub, 7); compare(e.topic, "system.cpu"); compare(e.stale, false); compare(e.data.usage_pct, 12.5)

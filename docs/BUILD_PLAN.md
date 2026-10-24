@@ -103,7 +103,7 @@ Release gate for a public alpha: the secure-data checklist in DAEMON_SPEC sectio
 
 ## Phase 2: suite and public beta v0.1 (about 6 weeks)
 
-New providers and widgets: GitHub (device flow), Gmail (IMAP then BYO-OAuth), Calendar (ICS/CalDAV), Tasks (local file, encrypted), Docker (read-only subset), AI usage (adapters: start with the harnesses that keep local JSONL session logs, such as Claude Code and Codex; verify formats and add fixtures), Music variants. Discover tab reading the registry index. Gate: **public beta v0.1 only after an external review of the vault and protocol.**
+New providers and widgets: GitHub (fine-grained token; the daemon side exists since 2026-10-24 and is tested against fakes only, see DECISIONS GITHUB-PROVIDER; `ow connect github` and a real-API check are open; device flow later), Gmail (IMAP then BYO-OAuth), Calendar (ICS/CalDAV), Tasks (local file, encrypted), Docker (read-only subset), AI usage (adapters: start with the harnesses that keep local JSONL session logs, such as Claude Code and Codex; verify formats and add fixtures), Music variants. Discover tab reading the registry index. Gate: **public beta v0.1 only after an external review of the vault and protocol.**
 
 ## Phase 3: maker (about 8 weeks)
 

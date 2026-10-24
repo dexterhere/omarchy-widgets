@@ -93,12 +93,73 @@ pub enum ErrorCode {
     Internal,
 }
 
-/// Never carries secrets, tokens or upstream bodies.
+/// Why a credential-backed topic has no fresh value (docs/DAEMON_SPEC.md section 5, "States").
+/// A closed set: a widget can tell these apart without the daemon ever sending text that came
+/// from upstream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum State {
+    /// The vault is locked; `ow vault unlock`.
+    Locked,
+    /// No secret is bound to the provider, or the bound name is not in the vault.
+    NoCredential,
+    /// The source rejected the credential (revoked, wrong, expired).
+    Unauthorized,
+    /// The source refused for lack of permission.
+    Insufficient,
+    /// Over the source's limit. `until` (when present) is the epoch second it resets.
+    RateLimited,
+    /// Data is served and fresh, but the credential expires soon. `until` is the expiry.
+    ExpiredSoon,
+    /// No route to the source (DNS, connect, TLS, timeout).
+    Offline,
+    /// The source answered 5xx or something that could not be understood.
+    Unavailable,
+}
+
+/// A state and the one optional number that goes with it. Serialized flat (`"state"`,
+/// `"until"`) into snapshot replies, pushes and error bodies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StateInfo {
+    pub state: State,
+    /// Epoch seconds: when the state ends (`rate_limited`) or the credential expires
+    /// (`expired_soon`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<u64>,
+}
+
+impl StateInfo {
+    /// Read the state out of a reply, push or error body. `None` when there is none, or when it
+    /// is not exactly a known state with an optional unsigned number: anything else (an
+    /// unknown name, a string `until`) is ignored rather than passed on.
+    pub fn from_fields(fields: &Map<String, Value>) -> Option<StateInfo> {
+        let state = serde_json::from_value(fields.get("state")?.clone()).ok()?;
+        let until = match fields.get("until") {
+            None => None,
+            Some(u) => Some(u.as_u64()?),
+        };
+        Some(StateInfo { state, until })
+    }
+
+    /// Add `state` (and `until`) to a reply or push payload.
+    pub fn put(&self, out: &mut Map<String, Value>) {
+        if let Ok(Value::Object(m)) = serde_json::to_value(self) {
+            out.extend(m);
+        }
+    }
+}
+
+/// Never carries secrets, tokens or upstream bodies. `state`/`until` are set for
+/// credential-backed topics (see `State`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ErrorBody {
     pub code: ErrorCode,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub topic: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<State>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -297,7 +358,26 @@ impl Reply {
         Reply::Err {
             v: PROTOCOL,
             id,
-            error: ErrorBody { code, topic },
+            error: ErrorBody {
+                code,
+                topic,
+                state: None,
+                until: None,
+            },
+        }
+    }
+
+    /// An error reply that also says why (see `State`).
+    pub fn err_state(id: u64, code: ErrorCode, topic: Option<String>, info: StateInfo) -> Self {
+        Reply::Err {
+            v: PROTOCOL,
+            id,
+            error: ErrorBody {
+                code,
+                topic,
+                state: Some(info.state),
+                until: info.until,
+            },
         }
     }
 
@@ -382,6 +462,103 @@ mod tests {
             e,
             "{\"v\":0,\"id\":2,\"error\":{\"code\":\"denied\",\"topic\":\"github.prs\"}}\n"
         );
+    }
+
+    #[test]
+    fn state_names_are_the_documented_ones() {
+        let all = [
+            (State::Locked, "locked"),
+            (State::NoCredential, "no_credential"),
+            (State::Unauthorized, "unauthorized"),
+            (State::Insufficient, "insufficient"),
+            (State::RateLimited, "rate_limited"),
+            (State::ExpiredSoon, "expired_soon"),
+            (State::Offline, "offline"),
+            (State::Unavailable, "unavailable"),
+        ];
+        for (st, name) in all {
+            assert_eq!(serde_json::to_value(st).unwrap(), json!(name));
+            assert_eq!(serde_json::from_value::<State>(json!(name)).unwrap(), st);
+        }
+        // Not a state: refused, so a client cannot be fed a made-up category.
+        assert!(serde_json::from_value::<State>(json!("rate-limited")).is_err());
+        assert!(serde_json::from_value::<State>(json!("FAKE")).is_err());
+    }
+
+    #[test]
+    fn state_reaches_the_wire_as_an_enum_and_a_number_only() {
+        let info = StateInfo {
+            state: State::RateLimited,
+            until: Some(1_800_000_000),
+        };
+        let e = Reply::err_state(3, ErrorCode::ProviderError, Some("github.prs".into()), info)
+            .to_line();
+        assert_eq!(
+            e,
+            "{\"v\":0,\"id\":3,\"error\":{\"code\":\"provider_error\",\"topic\":\"github.prs\",\"state\":\"rate_limited\",\"until\":1800000000}}\n"
+        );
+        let mut m = Map::new();
+        info.put(&mut m);
+        assert_eq!(
+            Value::Object(m),
+            json!({"state":"rate_limited","until":1_800_000_000u64})
+        );
+        let mut m = Map::new();
+        StateInfo {
+            state: State::Offline,
+            until: None,
+        }
+        .put(&mut m);
+        assert_eq!(Value::Object(m), json!({"state":"offline"}));
+        // Plain errors are unchanged on the wire.
+        assert_eq!(
+            Reply::err(2, ErrorCode::Denied, None).to_line(),
+            "{\"v\":0,\"id\":2,\"error\":{\"code\":\"denied\"}}\n"
+        );
+    }
+
+    #[test]
+    fn from_fields_accepts_only_known_states_and_numbers() {
+        let f = |v: Value| StateInfo::from_fields(v.as_object().unwrap());
+        assert_eq!(
+            f(json!({"state":"rate_limited","until":9,"data":{"a":1}})),
+            Some(StateInfo {
+                state: State::RateLimited,
+                until: Some(9)
+            })
+        );
+        assert_eq!(f(json!({"state":"offline"})).unwrap().until, None);
+        assert_eq!(f(json!({"stale":true})), None);
+        for bad in [
+            json!({"state":"offline","until":"soon"}),
+            json!({"state":"offline","until":-3}),
+            json!({"state":"Paused until 14:32"}),
+            json!({"state":7}),
+        ] {
+            assert_eq!(f(bad.clone()), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn error_body_parses_with_and_without_state_and_refuses_text_states() {
+        let plain: ErrorBody = serde_json::from_str(r#"{"code":"locked"}"#).unwrap();
+        assert_eq!((plain.state, plain.until), (None, None));
+        let full: ErrorBody =
+            serde_json::from_str(r#"{"code":"provider_error","state":"expired_soon","until":5}"#)
+                .unwrap();
+        assert_eq!(
+            (full.state, full.until),
+            (Some(State::ExpiredSoon), Some(5))
+        );
+        for bad in [
+            r#"{"code":"locked","state":"Token expires in 5 days"}"#,
+            r#"{"code":"locked","state":{"x":1}}"#,
+            r#"{"code":"locked","until":"soon"}"#,
+            r#"{"code":"locked","until":-1}"#,
+            r#"{"code":"locked","until":1.5}"#,
+        ] {
+            assert!(serde_json::from_str::<ErrorBody>(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

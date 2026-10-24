@@ -1,8 +1,7 @@
 #![forbid(unsafe_code)]
 
-use ow_core::Paths;
-use ow_providers::{Battery, System};
-use owd::Server;
+use ow_core::{Config, Http, Paths};
+use owd::{EgressHttp, Server};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -20,11 +19,13 @@ fn run() -> Result<(), String> {
     owd::check_tz(std::env::var_os("TZ").as_deref())?;
     let paths = paths_from_args()?;
     ow_core::harden_process().map_err(|e| format!("hardening failed: {e}"))?;
-    let server = Server::bind(
-        &paths,
-        vec![Arc::new(System::new()), Arc::new(Battery::new())],
-    )
-    .map_err(|e| format!("cannot start: {e}"))?;
+    // Fail closed: a config file that is insecure or invalid stops startup (nothing is guessed).
+    // A missing file means no network provider is configured.
+    let config = Config::load(&paths.config_file()).map_err(|e| format!("config: {e}"))?;
+    let providers = owd::providers(&config, |hosts| {
+        EgressHttp::new(hosts).map(|h| Arc::new(h) as Arc<dyn Http>)
+    })?;
+    let server = Server::bind(&paths, providers).map_err(|e| format!("cannot start: {e}"))?;
     let stop = Arc::new(AtomicBool::new(false));
     for sig in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         signal_hook::flag::register(sig, Arc::clone(&stop)).map_err(|e| e.to_string())?;

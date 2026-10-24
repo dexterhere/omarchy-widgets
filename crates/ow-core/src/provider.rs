@@ -2,6 +2,7 @@
 //! `FetchCtx` as `SecretHandle`s; network egress is added with the first network provider.
 //! Local providers need neither.
 use serde_json::{Map, Value};
+use std::cell::Cell;
 use std::fmt;
 use std::marker::PhantomData;
 use std::time::Duration;
@@ -94,6 +95,28 @@ pub enum ProviderError {
     /// in the vault.
     #[error("credential not available")]
     NoSecret,
+    /// The source rejected the credential (HTTP 401).
+    #[error("credential rejected")]
+    Unauthorized,
+    /// The source refused the request for lack of permission (HTTP 403, not a rate limit).
+    #[error("credential lacks permission")]
+    Insufficient,
+    /// Over the source's rate limit. `until` is the epoch second the limit resets, when the
+    /// source said so; a number, never text from the source.
+    #[error("rate limited")]
+    RateLimited { until: Option<u64> },
+    /// No route to the source: DNS, connect, TLS or timeout.
+    #[error("source offline")]
+    Offline,
+}
+
+/// Something worth telling the user about a fetch that succeeded. Numbers only: nothing from
+/// the source is carried as text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Notice {
+    /// The credential expires at this epoch second, soon.
+    ExpiresSoon { at: u64 },
 }
 
 /// A secret lent for the duration of one `fetch` call. The lifetime is the borrow of the
@@ -142,6 +165,7 @@ pub trait SecretSource: Send + Sync {
 pub struct FetchCtx<'a> {
     allowed: &'static [&'static str],
     source: Option<&'a dyn SecretSource>,
+    notice: Cell<Option<Notice>>,
 }
 
 impl<'a> FetchCtx<'a> {
@@ -149,6 +173,7 @@ impl<'a> FetchCtx<'a> {
         FetchCtx {
             allowed,
             source: Some(source),
+            notice: Cell::new(None),
         }
     }
 
@@ -157,7 +182,18 @@ impl<'a> FetchCtx<'a> {
         FetchCtx {
             allowed: &[],
             source: None,
+            notice: Cell::new(None),
         }
+    }
+
+    /// Record a notice for this fetch (the hub serves it next to the data).
+    pub fn notify(&self, notice: Notice) {
+        self.notice.set(Some(notice));
+    }
+
+    /// The notice recorded during this fetch, if any.
+    pub fn take_notice(&self) -> Option<Notice> {
+        self.notice.take()
     }
 
     /// Run `f` with the secret `name`; the value does not outlive the closure.
@@ -267,6 +303,15 @@ mod tests {
         assert!(!implements!(SecretHandle<'static>, Copy));
         assert!(!implements!(SecretHandle<'static>, PartialEq));
         assert!(!implements!(SecretHandle<'static>, serde::Serialize));
+    }
+
+    #[test]
+    fn notice_is_per_fetch_and_taken_once() {
+        let ctx = FetchCtx::none();
+        assert_eq!(ctx.take_notice(), None);
+        ctx.notify(Notice::ExpiresSoon { at: 7 });
+        assert_eq!(ctx.take_notice(), Some(Notice::ExpiresSoon { at: 7 }));
+        assert_eq!(ctx.take_notice(), None);
     }
 
     #[test]

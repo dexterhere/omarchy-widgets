@@ -58,6 +58,11 @@ impl Paths {
         self.config.join("grants.toml")
     }
 
+    /// Provider-to-secret binding (`ow_core::Config`).
+    pub fn config_file(&self) -> PathBuf {
+        self.config.join("config.toml")
+    }
+
     pub fn vault(&self) -> PathBuf {
         self.data.join("vault.owv")
     }

@@ -54,6 +54,8 @@ out=$(run --yes 2>&1); rc=$?
 check "install exits 0" test $rc -eq 0
 check "owd installed 755" test "$(mode "$H/.local/bin/owd")" = 755
 check "ow installed 755" test "$(mode "$H/.local/bin/ow")" = 755
+check "unit sets no second directory with the StateDirectory name (systemd would symlink them)" \
+  bash -c '! grep -qE "^(Configuration|Cache|Logs)Directory=" "$1"' _ "$unit_src"
 check "unit installed 644" test "$(mode "$H/.config/systemd/user/owd.service")" = 644
 check "data dir is 0700" test "$(mode "$H/.local/share/owd")" = 700
 check "config dir is 0700" test "$(mode "$H/.config/owd")" = 700

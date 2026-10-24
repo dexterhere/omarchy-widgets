@@ -323,6 +323,67 @@ TestCase {
     compare(L.layoutTiles(recs, pl, screens)[0].monitor, "A")
     compare(L.layoutTiles(recs, {}, []).length, 3)
   }
+
+  // ---- tiles can never cover a screen (the input mask is the union of these rectangles)
+  function giant() {
+    var t = Fx.texts(base, "clock"); var w = JSON.parse(t.widget)
+    w.sizeClasses = [{ name: "huge", min: [8192, 8192], max: [8192, 8192] }]
+    t.widget = JSON.stringify(w)
+    return L.loadWidget(Fx.IDS.clock, t)
+  }
+  function inside(tile, scr) { return tile.x >= 0 && tile.y >= 0 && tile.x + tile.w <= scr.width && tile.y + tile.h <= scr.height }
+  function test_tile_size_is_capped_to_the_screen() {
+    var g = giant()
+    verify(g.ok)
+    var scr = { name: "A", width: 1920, height: 1080 }
+    var t = L.layoutTiles([g], {}, [scr])[0]
+    verify(t.w <= 960 && t.h <= 540 && t.w <= 1024 && t.h <= 768, t.w + "x" + t.h)
+    verify(inside(t, scr))
+    var big = { name: "B", width: 7680, height: 4320 }
+    var tb = L.layoutTiles([g], {}, [big])[0]
+    verify(tb.w <= 1024 && tb.h <= 768, tb.w + "x" + tb.h)       // hard cap, not half of an 8K screen
+    var small = { name: "C", width: 300, height: 200 }
+    var ts = L.layoutTiles([g], {}, [small])[0]
+    verify(ts.w <= 150 && ts.h <= 100 && ts.w >= 48 && ts.h >= 24 && inside(ts, small), ts.w + "x" + ts.h)
+    var tiny = { name: "D", width: 10, height: 10 }
+    var tt = L.layoutTiles([g], {}, [tiny])[0]
+    verify(tt.w >= 48 && tt.h >= 24, tt.w + "x" + tt.h)         // never a zero-size or negative tile
+  }
+  function test_placement_values_cannot_enlarge_a_tile() {
+    var rec = L.loadWidget(Fx.IDS.clock, Fx.texts(base, "clock"))
+    var scr = { name: "A", width: 1920, height: 1080 }
+    ;[{ w: 99999, h: 99999 }, { w: -5, h: -5 }, { w: NaN, h: Infinity }, { w: "x", h: null }, { w: 0, h: 0 }].forEach(function (pl) {
+      var p = {}; p[Fx.IDS.clock] = { x: NaN, y: Infinity, w: pl.w, h: pl.h }
+      var t = L.layoutTiles([rec], p, [scr])[0]
+      verify(isFinite(t.x) && isFinite(t.y) && isFinite(t.w) && isFinite(t.h), JSON.stringify(t))
+      verify(t.w >= 48 && t.h >= 24 && t.w <= 480 && t.h <= 220, JSON.stringify(t))
+      verify(inside(t, scr), JSON.stringify(t))
+    })
+    var p2 = {}; p2[Fx.IDS.clock] = { x: -500, y: -500 }
+    var t2 = L.layoutTiles([rec], p2, [scr])[0]
+    verify(t2.x >= 0 && t2.y >= 0)
+    p2[Fx.IDS.clock] = { x: 1e9, y: 1e9, w: 200, h: 100 }
+    verify(inside(L.layoutTiles([rec], p2, [scr])[0], scr))
+  }
+  function test_screen_values_are_sanitised() {
+    var rec = L.loadWidget(Fx.IDS.clock, Fx.texts(base, "clock"))
+    ;[{ name: "A", width: NaN, height: -1 }, { name: "A", width: Infinity, height: 0 }, null, { width: "wide" }].forEach(function (s) {
+      var t = L.layoutTiles([rec], {}, [s])[0]
+      verify(isFinite(t.x + t.y + t.w + t.h) && t.w >= 48 && t.h >= 24, JSON.stringify(t))
+    })
+  }
+  function test_total_mask_area_is_bounded_by_the_clamped_tiles() {
+    var g = giant(), recs = []
+    for (var i = 0; i < 200; i++) { var c = JSON.parse(JSON.stringify(g)); c.id = "io.test.w" + i; recs.push(c) }
+    var scr = { name: "A", width: 1920, height: 1080 }
+    var tiles = L.layoutTiles(recs, {}, [scr])
+    verify(tiles.length <= 64, "tile count " + tiles.length)
+    var sum = 0
+    tiles.forEach(function (t) { sum += t.w * t.h; verify(inside(t, scr)) })
+    verify(sum <= 64 * 960 * 540)
+    // one tile can never be the whole screen
+    tiles.forEach(function (t) { verify(t.w * t.h <= 1920 * 1080 / 4, t.w + "x" + t.h) })
+  }
   function test_plain_is_conservative() {
     verify(L.isPlain("CPU"))
     verify(L.isPlain("नमस्ते"))       // Devanagari with marks

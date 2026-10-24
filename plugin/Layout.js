@@ -460,24 +460,45 @@ function parsePlacement(text) {
   return out
 }
 
+// Hard limits on what a tile may cover, whatever a widget's size classes or the state file say:
+// at most half the screen each way and never more than 1024 by 768, never smaller than 48 by 24.
+var TILE_MIN = { w: 48, h: 24 }
+var TILE_CAP = { w: 1024, h: 768 }
+var MAX_TILES = 64
+
+function num(v, fallback) { return typeof v === "number" && isFinite(v) ? v : fallback }
+
+function cleanScreen(s) {
+  var w = num(s && s.width, 1920), h = num(s && s.height, 1080)
+  return { name: s && typeof s.name === "string" ? s.name : "", width: w >= 1 && w <= 65536 ? Math.floor(w) : 1920,
+           height: h >= 1 && h <= 65536 ? Math.floor(h) : 1080 }
+}
+
 // Where each record goes: saved placement where present, else stacked down the left edge.
-// -> [{ id, monitor, x, y, w, h, variant }]. Sizes are clamped to the widget's size classes,
-// positions to the screen they land on (screens: [{name, width, height}]).
+// -> [{ id, monitor, x, y, w, h, variant }]. Sizes are clamped to the widget's size classes AND to
+// the screen cap above; positions to the screen they land on (screens: [{name, width, height}]).
+// The canvas input mask is the union of these rectangles, so this is also its upper bound.
 function layoutTiles(records, placement, screens) {
   var list = [], nextY = 64
-  var first = screens && screens.length ? screens[0] : { name: "", width: 1920, height: 1080 }
-  for (var i = 0; i < records.length; i++) {
-    var rec = records[i], pl = J.has(placement, rec.id) ? placement[rec.id] : {}
+  var scr0 = cleanScreen(screens && screens.length ? screens[0] : null)
+  var recs = records.slice(0, MAX_TILES)
+  for (var i = 0; i < recs.length; i++) {
+    var rec = recs[i], pl = J.has(placement, rec.id) ? placement[rec.id] : {}
+    var scr = scr0
+    for (var s = 0; s < (screens ? screens.length : 0); s++) {
+      if (screens[s] && screens[s].name === pl.monitor) scr = cleanScreen(screens[s])
+    }
+    var capW = clamp(Math.floor(scr.width / 2), TILE_MIN.w, TILE_CAP.w)
+    var capH = clamp(Math.floor(scr.height / 2), TILE_MIN.h, TILE_CAP.h)
     var classes = rec.ok ? rec.sizeClasses : []
     var rng = sizeRange(classes), def = defaultSize(classes)
-    var w = clamp(pl.w !== undefined ? pl.w : def.w, rng.minW, rng.maxW)
-    var h = clamp(pl.h !== undefined ? pl.h : def.h, rng.minH, rng.maxH)
-    var scr = first
-    for (var s = 0; s < (screens ? screens.length : 0); s++) if (screens[s].name === pl.monitor) scr = screens[s]
+    var w = clamp(Math.round(num(pl.w, def.w)), Math.min(Math.max(rng.minW, TILE_MIN.w), capW), Math.min(rng.maxW, capW))
+    var h = clamp(Math.round(num(pl.h, def.h)), Math.min(Math.max(rng.minH, TILE_MIN.h), capH), Math.min(rng.maxH, capH))
+    w = clamp(w, TILE_MIN.w, capW); h = clamp(h, TILE_MIN.h, capH)
     var x = pl.x, y = pl.y
-    if (x === undefined || y === undefined) { x = 48; y = nextY; nextY += h + 16 }
+    if (!(typeof x === "number" && isFinite(x)) || !(typeof y === "number" && isFinite(y))) { x = 48; y = nextY; nextY += h + 16 }
     list.push({ id: rec.id, monitor: scr.name,
-                x: clamp(x, 0, Math.max(0, scr.width - w)), y: clamp(y, 0, Math.max(0, scr.height - h)),
+                x: clamp(Math.round(x), 0, Math.max(0, scr.width - w)), y: clamp(Math.round(y), 0, Math.max(0, scr.height - h)),
                 w: w, h: h, variant: pl.variant || "" })
   }
   return list

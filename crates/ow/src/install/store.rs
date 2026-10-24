@@ -339,18 +339,28 @@ pub fn remove_widget_dir(lock: &Lock, id: &str) -> Result<bool, String> {
 /// Replace the grants file atomically: temp file (0600) in the same directory, flush, rename,
 /// flush the directory.
 pub fn write_grants(path: &Path, text: &str) -> Result<(), String> {
-    if text.len() as u64 > ow_core::MAX_GRANTS_FILE {
-        return Err("the grants file would exceed the size the daemon reads".into());
+    write_private_atomic(path, text, ow_core::MAX_GRANTS_FILE, "grants file")
+}
+
+/// Replace a small private text file (`grants.toml`, `config.toml`): the directory is made or
+/// checked private (0700, ours), the text goes to a new temp file in it (`O_EXCL`, 0600, so a
+/// pre-placed link is never followed), is flushed, and is renamed over `path` (a symlink at
+/// `path` is replaced, not followed); then the directory is flushed. `what` names the file in
+/// error text.
+pub fn write_private_atomic(path: &Path, text: &str, cap: u64, what: &str) -> Result<(), String> {
+    if text.len() as u64 > cap {
+        return Err(format!("the {what} would exceed the size the daemon reads"));
     }
-    let dir = path.parent().ok_or("bad grants path")?;
+    let dir = path.parent().ok_or("bad path")?;
     ow_core::private_dir(dir).map_err(|e| io("config directory", e))?;
     let name = path
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or("bad grants path")?;
+        .ok_or("bad path")?;
     let tmp = dir.join(format!("{name}.{}.tmp", unique_suffix()));
-    let r = write_new(&tmp, text.as_bytes())
-        .and_then(|()| fs::rename(&tmp, path).map_err(|e| io("cannot replace the grants file", e)));
+    let r = write_new(&tmp, text.as_bytes()).and_then(|()| {
+        fs::rename(&tmp, path).map_err(|e| io(&format!("cannot replace the {what}"), e))
+    });
     if r.is_err() {
         let _ = fs::remove_file(&tmp);
     }

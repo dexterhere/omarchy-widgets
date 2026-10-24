@@ -109,7 +109,16 @@ const AUDITED: &[(&str, &[&str])] = &[
         "crates/owd/tests/provider_leak.rs",
         &["Command::new", "UnixStream"],
     ),
+    // Same search for the `github` provider: the test binary re-runs itself as a daemon built
+    // from the real config, vault and provider code with a scripted `Http`. Unix-domain sockets
+    // and a child process only; the upstream is a script, there is no internet socket.
+    (
+        "crates/owd/tests/github_leak.rs",
+        &["Command::new", "UnixStream"],
+    ),
     ("crates/owd/tests/unlock.rs", &["UnixStream"]),
+    // Provider state tests over the daemon socket (scripted provider). Unix-domain only.
+    ("crates/owd/tests/states.rs", &["UnixStream"]),
 ];
 
 fn root() -> PathBuf {

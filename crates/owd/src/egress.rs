@@ -179,6 +179,23 @@ mod tests {
         );
     }
 
+    /// `ow-egress` hands back only whitelisted response headers. If GitHub's rate-limit headers
+    /// were missing from that list, a rate limit would silently be reported as a permission
+    /// problem, so the two lists are checked against each other (a text check: the egress list
+    /// is private to that crate).
+    #[test]
+    fn egress_passes_the_rate_limit_headers_the_github_provider_reads() {
+        let egress = include_str!("../../ow-egress/src/client.rs");
+        let list = &egress[egress.find("const SAFE_RESPONSE_HEADERS").unwrap()..];
+        let list = &list[..list.find("];").unwrap()];
+        for h in ow_providers::GITHUB_RATE_LIMIT_HEADERS {
+            assert!(
+                list.contains(&format!("\"{h}\"")),
+                "ow-egress would drop `{h}`"
+            );
+        }
+    }
+
     #[test]
     fn an_empty_or_invalid_host_list_is_refused_at_construction() {
         assert!(EgressHttp::new(&[]).is_err());

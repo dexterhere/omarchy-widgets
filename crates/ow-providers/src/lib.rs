@@ -9,7 +9,10 @@ mod system;
 mod temp;
 
 pub use battery::Battery;
-pub use github::{GitHub, HOST as GITHUB_HOST, parse_counts as parse_github_counts};
+pub use github::{
+    GitHub, HOST as GITHUB_HOST, RATE_LIMIT_HEADERS as GITHUB_RATE_LIMIT_HEADERS,
+    parse_counts as parse_github_counts,
+};
 pub use system::System;
 
 /// Topics that need a credential and are served only when `config.toml` binds one. The daemon

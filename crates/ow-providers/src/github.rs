@@ -49,6 +49,11 @@ const RETRY_AFTER_HEADER: &str = "retry-after";
 /// UNVERIFIED: the `type` GraphQL gives an error when the primary limit is hit (HTTP 200).
 const GRAPHQL_RATE_LIMITED: &str = "RATE_LIMITED";
 
+/// Response headers this provider reads besides the expiry header. A transport that filters
+/// response headers must pass these (`owd` has a test that `ow-egress` does).
+pub const RATE_LIMIT_HEADERS: [&str; 3] =
+    [RATE_REMAINING_HEADER, RATE_RESET_HEADER, RETRY_AFTER_HEADER];
+
 /// Warn when the token expires within this many seconds (7 days).
 const EXPIRES_SOON_SECS: u64 = 7 * 24 * 3600;
 /// A count above this is not believed.
@@ -799,7 +804,7 @@ mod tests {
     #[test]
     fn source_has_no_output_or_handle_escape() {
         let src = include_str!("github.rs");
-        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        let code = &src[..src.find("#[cfg(test)]\nmod tests").unwrap()];
         for banned in [
             "println!",
             "eprintln!",

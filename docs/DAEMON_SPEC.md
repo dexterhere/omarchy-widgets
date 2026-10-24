@@ -78,7 +78,21 @@ All crates `#![forbid(unsafe_code)]`. If `prctl`, `mlock` or `setrlimit` need sy
 
 Every path derives from XDG variables so tests can point them at a temp dir. The daemon refuses to start if the socket dir is group/world accessible or not owned by the current uid.
 
-**Status:** Implemented: the socket, grants, vault and audit paths above match `crates/ow-core/src/paths.rs`; `--config-dir D` maps them to `D/{config,data,state,run}/owd`; the socket directory refusal when it is group/world accessible is implemented. Not implemented: `config.toml` is neither read nor created, so the Config row is design only.
+**Status:** Implemented: the socket, grants, vault and audit paths above match `crates/ow-core/src/paths.rs`; `--config-dir D` maps them to `D/{config,data,state,run}/owd`; the socket directory refusal when it is group/world accessible is implemented. Also implemented: `config.toml` is read once at start (see below); `ow` does not create or edit it yet, and a change needs a daemon restart (SIGHUP reloads `grants.toml` only).
+
+`config.toml` (schema v0) binds a network provider to a vault secret. It is the ONLY way a provider learns which secret to use:
+
+```toml
+[providers.github]
+secret = "github-main"      # vault secret name, must match ^github-[a-z0-9-]{1,40}$
+interval_secs = 120         # optional; default 120, raised to 60 if lower, capped at 86400
+```
+
+- Loaded like `grants.toml`: opened with `O_NOFOLLOW`, regular file, owned by the daemon's uid, no group or other access (0600), at most 64 KiB, unknown keys and sections rejected, duplicate sections and keys rejected. Any error stops startup (`owd: config: ...`; the message names the rule, never the file's content). A missing file means no network provider is configured.
+- The name pattern per provider is code (`ow_core::secret_name_allowed`), not configuration: a file that binds `gmail-app-pw` to `github` is refused, so editing the file cannot point a provider at a secret meant for something else. A provider can only be built from a validated binding.
+- The binding holds a secret NAME, never a value. Pasting a token where the name belongs is refused by the pattern.
+- `interval_secs` is the poll interval of the provider's topic. The hub's failure backoff (up to 16 times the interval) applies on top.
+- Limit: the file is trusted at the level of any same-uid file. A same-uid process that can write 0600 files of ours can rebind a provider to another secret that matches the same pattern (for example a second `github-*` token); it cannot name a secret outside the pattern.
 
 ## 5. Wire protocol v0 (line-delimited JSON)
 
@@ -139,11 +153,38 @@ Error codes (all eight exist in `ErrorCode`): `bad_request`, `denied`, `unknown_
 
 Push messages include `stale: true` and the last good `ts` when a provider fails; the client shows the age instead of blanking.
 
+### States
+
+Credential-backed topics say why they have no fresh value, as a closed enum plus at most one number. Nothing that came from upstream (an error message, a header, a body) is ever forwarded; the provider reduces it to a category first. The wire fields are `state` and, for two states, `until` (epoch seconds):
+
+| `state` | Meaning | `until` | Data |
+|---|---|---|---|
+| `locked` | vault locked (`ow vault unlock`) | none | none; error code `locked` |
+| `no_credential` | no `[providers.<name>]` binding in `config.toml`, or the bound secret name is not in the vault | none | none; error code `provider_error` |
+| `unauthorized` | the source rejected the credential (HTTP 401: wrong, revoked, expired) | none | last good value, if any, with `stale: true` |
+| `insufficient` | HTTP 403 that is not a rate limit: the credential lacks a permission | none | as above |
+| `rate_limited` | limit reached (HTTP 429, or 403 with `x-ratelimit-remaining: 0` or `retry-after`) | reset time when the source gave one | as above; the daemon also stops polling until then (at most one hour) |
+| `expired_soon` | the credential expires within 7 days | the expiry | fresh data, `stale: false` |
+| `offline` | DNS, connect, TLS or timeout | none | as above |
+| `unavailable` | 5xx, a redirect, or a response that is not the expected JSON | none | as above |
+
+Where it appears (all additive, `PROTOCOL` stays 0, old clients ignore the new keys):
+
+```
+snapshot ok, stale value:   {"v":0,"id":3,"ok":true,"topic":"github.prs","ts":..,"stale":true,"data":{"open":3,"review":1},"state":"rate_limited","until":1760700900}
+snapshot ok, expiring:      {..,"stale":false,"data":{..},"state":"expired_soon","until":1761000000}
+snapshot error, no value:   {"v":0,"id":3,"error":{"code":"provider_error","topic":"github.prs","state":"unauthorized"}}
+push with data:             {"v":0,"sub":7,"topic":"github.prs","ts":..,"stale":true,"data":{..},"state":"offline"}
+push without data (once per change of state): {"v":0,"sub":7,"topic":"github.prs","state":"unauthorized"}
+```
+
+A subscriber that arrives while a topic has no value is told its state right after the subscribe reply. A request for a credential topic whose provider is not configured is answered `provider_error` with `no_credential`, and only to widgets that hold a grant for it (an ungranted widget still gets `denied`). `until` is dropped unless it lies in the future and within 30 days. `StateInfo::from_fields` (ow-proto) is the client-side parser: an unknown name or a non-numeric `until` yields no state rather than being passed on. Which GitHub answer maps to which state, and what is not verified, is in DECISIONS GITHUB-PROVIDER.
+
 Subscriptions are reference-counted per `(topic, params)`; the scheduler polls only while at least one subscriber is visible (the bridge reports visibility; hidden or suspended widgets unsubscribe). *Design only: there is no visibility reporting and no bridge yet.*
 
 Design decision D-1 (decide in Phase 0): who may call admin ops? Same-uid processes cannot be told apart by `SO_PEERCRED`. Options: (a) same socket, accept that it is a guardrail; (b) second admin socket; (c) require an interactive confirmation (polkit-style prompt or a one-time code shown in the Widget Center) for `grants.set` and `vault.*`. Recommended start: (a) with the honest note, evaluate (c) before 1.0.
 
-**Status:** Implemented ops: `hello`, `snapshot`, `subscribe`, `unsubscribe`, `status`. `hello` and `status` both reply `{"v":0,"id":N,"ok":true,"daemonVersion":..,"protocol":0}`. `PROTOCOL` is 0; `MAX_LINE` is 64 KiB. A snapshot reply carries `{topic,ts,stale,data}`; a push is `{v,sub,topic,ts,stale,data}`. `locked` is emitted for secret-backed topics while the vault is locked (no secret-backed provider ships yet; a test-only provider proves the path). Admin ops `grants.*`, `audit.tail`, `vault.set|remove|wipe` are not implemented and return `bad_request`; D-1 is still pending. Unsupported protocol versions return `unsupported_version`.
+**Status:** Implemented ops: `hello`, `snapshot`, `subscribe`, `unsubscribe`, `status`. `hello` and `status` both reply `{"v":0,"id":N,"ok":true,"daemonVersion":..,"protocol":0}`. `PROTOCOL` is 0; `MAX_LINE` is 64 KiB. A snapshot reply carries `{topic,ts,stale,data}` plus `state`/`until` when there is one (see States); a push is `{v,sub,topic,ts,stale,data}` plus the same, or `{v,sub,topic,state}` when there is no data. `locked` is emitted for secret-backed topics while the vault is locked (the `github` provider is secret-backed when configured). Admin ops `grants.*`, `audit.tail`, `vault.set|remove|wipe` are not implemented and return `bad_request`; D-1 is still pending. Unsupported protocol versions return `unsupported_version`.
 
 ## 6. Grants and audit
 
@@ -227,13 +268,14 @@ trait Provider: Send + Sync {
 - Output is validated against the topic's schema; unknown fields are dropped. This is what makes field-level grants meaningful.
 - Sensitivity: `low` (may be cached on disk if configured) or `high` (RAM only unless the user opts in to encrypted, time-limited persistence).
 - Scheduler: per-topic interval with jitter, exponential backoff on errors, conditional requests (`ETag`/`If-None-Match`) where supported, stale flag on failure.
-- First providers, in order: `system` (CPU, memory, disk, network from `/proc`), `battery` (UPower over D-Bus), `media` (MPRIS), then `github` (device flow, notifications and PRs), `ai-usage`, `docker` (read-only), `gmail` (IMAP), `calendar`/`tasks`.
+- First providers, in order: `system` (CPU, memory, disk, network from `/proc`), `battery` (UPower over D-Bus), `media` (MPRIS), then `github` (fine-grained token first; PR counts now, notifications later), `ai-usage`, `docker` (read-only), `gmail` (IMAP), `calendar`/`tasks`.
 - `ai-usage`: one adapter per harness, detected by presence of its local session store, each versioned and tested against fixture logs; counts and timings only; enabled per harness; `unsupported_version` state rather than wrong numbers.
 - `docker`: talk to the local Docker socket but expose only an allow-listed read-only subset (list/inspect containers, stats). Start/stop/exec require a separate per-widget opt-in and are out of v0.1.
 
 **Status:**
 - Implemented: the `Provider` trait in `ow-core/src/provider.rs` is synchronous (no `async`, no `Ctx`, no `egress_hosts` or `secrets`). A `TopicSpec` is `{name, sensitivity, interval, fields, params}`; undeclared output fields are dropped and undeclared params rejected. Served now (all sensitivity low, no parameters): provider `system`: `system.cpu {usage_pct}`, `system.memory {total_mib, used_mib, used_pct}`, `system.load {load1, load5, load15}`, `system.time {hm "10:09", hms "10:09:42", date "Mon 19 Oct", tz string}` (1 s interval; local 24 h time, zone from `TZ` or `/etc/localtime` via jiff, DEP-TIME; `tz` is the tzdata abbreviation, or an offset such as "+0545" where the zone has none), `system.temp {celsius number}` (5 s; max over CPU hwmon drivers coretemp, k10temp, zenpower, cpu_thermal, x86_pkg_temp, else max over all hwmon `temp*_input`, else thermal zones; readings outside -50..150 C ignored; `unavailable` when no sensor); provider `battery`: `battery.status {percent number 0..100, state string, timeLeft string}` (10 s; first power supply of type Battery in natural name order (BAT2 before BAT10; any name such as macsmc-battery or CMB0 counts when its `type` says Battery, and a supply with no readable `type` counts only if its name starts with BAT); state is Charging, Discharging, Full, Not charging or Unknown; percent from `capacity`, else energy or charge ratio; `timeLeft` is "3h 20m" or "45m" while charging or discharging with a nonzero rate, otherwise an empty string; no battery is `unavailable`, unusable files are `format`). Both read sysfs only, with an injectable root for tests. Scheduler backoff, stale flag and RAM cache are in `owd/src/hub.rs`. `tz` is the tzdata abbreviation or a numeric offset, so Asia/Kathmandu shows "+0545" while the widget's sampleData says "NPT". jiff caches the system zone for about 5 minutes, so a time zone change can take that long to show in `system.time`. Local files are read through one helper: opened O_NONBLOCK and O_NOFOLLOW (final component only), must be a regular file, at most 4 KiB for sysfs and 256 KiB for /proc, so a FIFO, a symlink to /dev/zero or an oversized file is an error instead of a hang. `TZ` check at startup: jiff reads whatever file `TZ` names, so `owd` refuses to start (exit code 2, one line, value never printed) when `TZ` is set, non-empty and not a plain zone name: at most 64 characters from `A-Za-z0-9_+/:.-`, no leading `/` (after one optional `:`) and no `..` segment. POSIX rule strings are refused too; use a zone name.
-- Not implemented: `battery`, `media`, `github`, `docker`, `gmail`, `calendar`, `ai-usage`; per-topic JSON Schema validation; any network provider, HTTP client or egress allow-list; ETag polling; disk or network topics for `system`.
+- Implemented (2026-10-24): provider `github`, topic `github.prs {open, review}` (two numbers, sensitivity high, memory only). It exists only when `config.toml` binds `[providers.github]` to a valid secret name. One GraphQL POST to `api.github.com/graphql` with `Authorization: Bearer <fine-grained PAT>`, counts only (`search(...) { issueCount }` for `is:pr is:open author:@me` and `is:pr is:open review-requested:@me`). The provider reaches the network only through `ow_core::Http`; `owd` supplies the implementation (`EgressHttp`, an adapter over `ow-egress`: https only, exact host, no redirects, no proxy variables, 256 KiB cap, 10 s connect and 20 s total timeouts). The token is lent to the provider inside `FetchCtx::with_secret` for the one request and goes only into the `Authorization` header. The response is parsed into two integers (0 to 1,000,000); `errors`, null data, extra selections, wrong types and negatives are refused. Poll interval from `config.toml` (default 120 s, floor 60 s) plus the hub's backoff. Tested against a fake `Http` only. **Not verified against the real GitHub API**: the exact query syntax, the `X-GitHub-Api-Version` value, the token-expiry header name and date format, the rate-limit headers, and how a 403 permission problem differs from a rate limit. They are single constants marked UNVERIFIED in `crates/ow-providers/src/github.rs`, one pinning test each.
+- Not implemented: `media`, `docker`, `gmail`, `calendar`, `ai-usage`; per-topic JSON Schema validation; ETag polling (GraphQL POST has none); disk or network topics for `system`; `ow connect github`; automatic unlock from the Secret Service keyring; reloading `config.toml` without a restart.
 
 ## 9. Logging and diagnostics
 
@@ -257,7 +299,7 @@ The unit lives in `packaging/owd.service`; read that file rather than a copy her
 - Egress tests: a provider trying a non-allow-listed host or a cross-host redirect fails.
 - CI gates: `fmt`, `clippy -D warnings`, `cargo deny check`, `cargo audit`, tests, fuzz build. SBOM and signed release artifacts at release time.
 
-**Status:** Not done: a different-uid connection refusal is not integration-tested, and there are no egress tests (there is no egress). Other items in this list are covered to the extent the crates' tests and `fuzz/` targets cover them; this note does not claim full coverage of the list.
+**Status:** Not done: a different-uid connection refusal is not integration-tested. Egress rules are tested in `ow-egress` against a local TLS server; the `github` provider is tested with a fake `Http` (`crates/owd/tests/github_leak.rs`: fake token and passphrases searched for in output, files, `/proc/<pid>/cmdline` and `environ`, replies and error text in raw, hex, base64 and percent forms), never against api.github.com. Other items in this list are covered to the extent the crates' tests and `fuzz/` targets cover them; this note does not claim full coverage of the list.
 
 ## 12. Build order (each step ends with something runnable)
 
@@ -266,10 +308,10 @@ The unit lives in `packaging/owd.service`; read that file rather than a copy her
 3. **Grants and audit**: deny by default, field filtering, audit log. Done when an ungranted topic is refused and leaves an audit line.
 4. **Vault**: file format, keyring and passphrase modes, CLI. Done when tampered files fail to open, keys are zeroized, and the secret-leak regression test passes.
 5. **Local providers**: `system`, `battery`, `media`, scheduler, RAM cache, push. Done when a spec "System" card in the shell updates live.
-6. **Network providers**: `github` (device flow), egress allow-list, ETag polling. Done when the token appears in no log and no widget message.
+6. **Network providers**: `github` (fine-grained token first, device flow later; AUTH-ORDER), egress allow-list, ETag polling where the API has it. Done when the token appears in no log and no widget message.
 7. **Harden and ship**: systemd sandbox, `cargo-deny`/`audit`, fuzz in CI, PKGBUILD, threat-model doc, security policy. Done when `systemd-analyze security` is green and an outside review of vault and protocol passes.
 
-**Status:** Steps 1, 2, 3 and 5 are done (step 5 for the `system` provider only, and step 2's "second uid cannot connect" check is untested as noted in section 11). Step 4 is partial: passphrase mode only; the daemon unlocks and holds the vault, keyring auto-unlock is not built. Steps 6 and 7 are open.
+**Status:** Steps 1, 2, 3 and 5 are done (step 5 for the `system` provider only, and step 2's "second uid cannot connect" check is untested as noted in section 11). Step 4 is partial: passphrase mode only; the daemon unlocks and holds the vault, keyring auto-unlock is not built. Step 6 is partial: the egress module, the `Http` seam and the `github` provider (token from the vault, `config.toml` binding, state categories, fake-token leak test) exist and are tested against fakes; nothing has talked to the real api.github.com, and `ow connect github` is not built. Step 7 is open.
 
 ## 13. Open design questions for this component
 

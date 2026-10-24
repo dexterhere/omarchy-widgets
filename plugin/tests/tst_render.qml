@@ -203,6 +203,15 @@ TestCase {
     verify(pos(g[2], gd.ln).x > pos(g[1], gd.ln).x); verify(pos(g[3], gd.ln).y > pos(g[1], gd.ln).y)
     compare(make({ type: "grid", columns: 99, children: kids }).ln.item.columns, 2)   // bad column count -> 2
   }
+  function test_text_that_fits_is_not_elided() {
+    // regression: a layout rounds widths down, which used to elide "Memory" and "66.3%" by a fraction of a pixel
+    var o = make({ type: "row", children: [{ type: "text", text: "Memory" }, { type: "spacer" },
+                                            { type: "value", bind: { topic: "a.b", field: "x" }, unit: "%", size: "md" }] },
+                 { "a.b": { x: 66.3 } }, 190)
+    texts(o.ln).forEach(function (t) { verify(!t.truncated, "'" + t.text + "' was elided at width " + t.width + " of " + t.implicitWidth) })
+    var sm = make(layoutOf("system-monitor").root, sample("system-monitor"), 190)
+    texts(sm.ln).forEach(function (t) { verify(!t.truncated, "'" + t.text + "' was elided in the real system-monitor layout") })
+  }
   function test_spacer_and_divider_in_a_row() {
     var o = make({ type: "row", children: [{ type: "text", text: "L" }, { type: "spacer" }, { type: "text", text: "R" }] }, {}, 200)
     var a = all(o.ln)

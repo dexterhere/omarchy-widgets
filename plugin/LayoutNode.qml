@@ -37,7 +37,7 @@ Loader {
   // Sizing hints. Kids.qml copies them onto the Loader that holds this node inside a container.
   // Text may shrink (and elide) but not grow, so it sits next to its neighbours like inline content.
   readonly property bool fill: textLike || stretches
-  readonly property real maxW: textLike && item !== null ? (item as Item).implicitWidth : Number.POSITIVE_INFINITY
+  readonly property real maxW: textLike && item !== null ? Math.ceil((item as Item).implicitWidth) + 2 : Number.POSITIVE_INFINITY   // +2: layouts round widths down, which would elide a fitting text
   Layout.fillWidth: fill
   Layout.maximumWidth: maxW
   Layout.minimumWidth: 0

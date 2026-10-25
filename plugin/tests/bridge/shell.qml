@@ -46,6 +46,7 @@ ShellRoot {
   // [time in ms, name, function returning [ok, detail]]
   property var plan: ({
     normal: [
+      [4000, "a well-behaved stream never trips the byte-rate watchdog", function () { return [b.oversizeTotal === 0, "oversize=" + b.oversizeTotal] }],
       [1500, "connected", function () { return [b.link === "connected", b.link] }],
       [1500, "daemon version read", function () { return [b.daemonVersion === "0.0-test", b.daemonVersion] }],
       [1600, "live data arrives", function () { const x = e("io.test.ok", "x.one"); return [x && (x.state === "live" || x.state === "stale") && x.data.n >= 1, JSON.stringify(x)] }],
@@ -103,7 +104,8 @@ ShellRoot {
       [7500, "buffered text was freed", function () { return [b.partial.length === 0, "partial=" + b.partial.length] }]
     ],
     burst: [
-      [3500, "endless valid lines hit the byte-rate watchdog", function () { return [b.oversizeTotal >= 1 && h.links().indexOf("connected>unavailable") >= 0, "oversize=" + b.oversize + " " + h.links()] }]
+      // polled (4th element = deadline): trips after 4 MiB received whatever the clock says, so wait for it, not for a time
+      [0, "endless valid lines hit the byte-rate watchdog", function () { return [b.oversizeTotal >= 1 && h.links().indexOf("connected>unavailable") >= 0, "oversize=" + b.oversizeTotal + " " + h.links()] }, 20000]
     ],
     drop: [
       [600, "first connection up", function () { return [b.connects === 1 && b.link === "connected", b.connects + " " + b.link] }],
@@ -154,7 +156,7 @@ ShellRoot {
       [1500, "no runtime dir: unavailable, no crash", function () { return [b.socketPath === "" && b.link === "unavailable", b.socketPath + b.link] }]
     ]
   })
-  property var endAt: ({ normal: 4600, health: 2300, fragment: 3000, garbage: 2800, oversize: 4800, caps: 5400, floodpre: 7800, flood: 7800, burst: 3800, drop: 6300, silent: 8300, reject: 7300, refuse: 1800, badproto: 1900, noproto: 1900,
+  property var endAt: ({ normal: 4600, health: 2300, fragment: 3000, garbage: 2800, oversize: 4800, caps: 5400, floodpre: 7800, flood: 7800, burst: 20000, drop: 6300, silent: 8300, reject: 7300, refuse: 1800, badproto: 1900, noproto: 1900,
                          unsupported: 1800, locked: 4500, late: 9300, defaultpath: 1800, nopath: 1800, relpath: 1800 })
 
   // sample for facts a single end-of-run check would miss
@@ -175,13 +177,15 @@ ShellRoot {
       if (list === undefined) { console.log("FAIL unknown scenario"); Qt.quit(); return }
       for (let i = 0; i < list.length; i++) {
         if (h.t >= list[i][0] && h.done["s" + i] !== true) {
-          h.done["s" + i] = true
           let r
           try { r = list[i][2]() } catch (err) { r = [false, "threw " + err] }
+          if (!r[0] && list[i][3] !== undefined && h.t < list[i][3]) continue   // polled check: retry until its deadline
+          h.done["s" + i] = true
           h.check(h.scenario + ": " + list[i][1], r[0], r[1])
         }
       }
-      if (h.t >= h.endAt[h.scenario]) {
+      const polled = list.some(function (c) { return c[3] !== undefined })
+      if (h.t >= h.endAt[h.scenario] || (polled && list.every(function (c, i) { return h.done["s" + i] === true }))) {
         console.log("RESULT " + h.scenario + " passed=" + h.passed + " failed=" + h.failed + " links=" + h.links() + " pushes=" + b.pushes)
         Qt.quit()
       }

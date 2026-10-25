@@ -48,6 +48,8 @@ for sc in "${scenarios[@]}"; do
   case "$sc" in flood|floodpre|burst)
     if [ "$peak" -gt 400000 ]; then echo "FAIL $sc: resident memory peaked at $((peak/1024)) MiB (cap 400 MiB)"; rc=1; else echo "PASS $sc: resident memory peaked at $((peak/1024)) MiB under an unbounded stream"; fi;;
   esac
+  # let the flooding peer log how much it managed to send (it notices the closed socket at once)
+  case "$sc" in flood|floodpre|burst) for _ in $(seq 100); do grep -q FLOOD_END "$log" && break; python3 -c 'import time;time.sleep(0.1)'; done;; esac
   # the late server runs in a subshell that exec'd python: $srv is that pid
   [ -n "$srv" ] && kill -0 "$srv" 2>/dev/null && kill "$srv" 2>/dev/null
   sed 's/\x1b\[[0-9;]*m//g' "$run/qs.log" | sed -n 's/^.*qml: \(\(PASS\|FAIL\|RESULT\) .*\)$/\1/p' >"$run/result.txt"

@@ -402,6 +402,66 @@ fn every_refusal_leaves_the_tree_untouched() {
     }
 }
 
+const FILES3: [&str; 3] = ["manifest.json", "widget.json", "layout.json"];
+
+fn hashed_clock(drop: Option<&str>) -> Fake {
+    world("clock", SHA_A, "alpha", "community", |e| {
+        let mut h = serde_json::Map::new();
+        for f in FILES3.into_iter().filter(|f| Some(*f) != drop) {
+            h.insert(
+                f.into(),
+                ow::install::hash::sha256(&fixture("clock", f)).into(),
+            );
+        }
+        e["sha256"] = h.into();
+    })
+}
+
+#[test]
+fn index_hashes_match_installs_and_a_one_byte_tamper_or_missing_hash_writes_nothing() {
+    // Matching hashes install.
+    let (_d, paths) = tree();
+    let r = install(
+        &paths,
+        &hashed_clock(None),
+        &[CLOCK],
+        &mut Script::says(&["yes"]),
+    );
+    r.result.unwrap();
+    assert!(paths.widgets().join(CLOCK).join("widget.json").exists());
+
+    for f in FILES3 {
+        // Tampered: the index hashes the real bytes, the source serves them plus one byte.
+        let mut bytes = fixture("clock", f);
+        bytes.push(b' ');
+        let tampered = with_file(&hashed_clock(None), "clock", SHA_A, f, bytes);
+        // Missing: the index carries hashes but none for this file.
+        for (src, want) in [
+            (
+                tampered,
+                format!("{f} does not match the hash in the registry index"),
+            ),
+            (
+                hashed_clock(Some(f)),
+                format!("the index carries hashes but none for {f}"),
+            ),
+        ] {
+            let (_d, paths) = tree();
+            write_grants(
+                &paths,
+                "[[grant]]\nwidget = \"other\"\ntopics = [\"system.cpu\"]\n",
+                0o600,
+            );
+            let before = snapshot(_d.path());
+            let r = install(&paths, &src, &[CLOCK], &mut Script::says(&["yes"]));
+            let e = format!("{:#}", r.result.unwrap_err());
+            assert!(e.contains(&want), "{want}: {e}");
+            assert_eq!(before, snapshot(_d.path()), "{want} changed the tree");
+            assert!(!paths.widgets().join(CLOCK).exists());
+        }
+    }
+}
+
 #[test]
 fn an_unreadable_or_loose_grants_file_stops_the_install_before_any_write() {
     for (text, mode_bits) in [

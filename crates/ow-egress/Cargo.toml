@@ -20,7 +20,7 @@ log = { version = "0.4", features = ["max_level_off", "release_max_level_off"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 serde_json = "1.0.154"
 # Exact pin: network dependencies are bumped deliberately, with a DECISIONS entry.
-ureq = { version = "=3.5.0", default-features = false, features = ["rustls"] }
+ureq = { version = "=3.5.1", default-features = false, features = ["rustls"] }
 zeroize = "1.9.1"
 
 [dev-dependencies]
